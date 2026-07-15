@@ -1,0 +1,118 @@
+# Cryptomeria
+
+A Medium-Frequency Trading (MFT) platform for crypto derivatives, focused on the OKX exchange and operated from Europe.
+
+## Overview
+
+**Cryptomeria** is a dual-language trading platform built by **Fibonsai**. The system is designed for medium-frequency trading strategies on crypto derivatives markets, with primary integration to the OKX exchange.
+
+### Architecture
+
+| Language | Role |
+|----------|------|
+| **Python** | Data analysis, research, strategy development, backtesting, risk modeling, ML experimentation |
+| **Rust** | Production WebSocket ingest (LOB & Trades), data normalization, strategy execution, order management, low-latency execution, ML inference for trade/risk decisions |
+
+## Project Structure
+
+```
+.
+├── python/          # Python package: cryptomeria-py
+│   └── main.py      # Entry point for analysis, research, and strategy work
+├── rs/              # Rust package: cryptomeria
+│   ├── Cargo.toml
+│   ├── rust-toolchain.toml
+│   └── src/
+│       └── main.rs  # Production WebSocket client, strategy engine & order engine (to be implemented)
+├── docs/            # Documentation (to be expanded)
+├── pyproject.toml   # Python project config (requires Python >=3.13)
+└── CLAUDE.md        # Guidance for AI assistants working in this repo
+```
+
+## Quick Start
+
+### Prerequisites
+
+- **Python** ≥ 3.13 with [uv](https://docs.astral.sh/uv/)
+- **Rust** stable toolchain (managed via `rustup`)
+
+### Python Environment
+
+```bash
+# Install dependencies (includes dev tools like ruff)
+uv sync --dev
+
+# Run the placeholder application
+python python/main.py
+```
+
+### Rust Environment
+
+```bash
+# Build the project
+cargo build
+
+# Run (currently empty main)
+cargo run
+
+# Run tests
+cargo test
+
+# Format & lint
+cargo fmt
+cargo clippy
+```
+
+## Development Workflow
+
+### Python Linting
+
+```bash
+# Check code style
+uv run ruff check python/
+
+# Auto-fix issues
+uv run ruff check --fix python/
+
+# Format code
+uv run ruff format python/
+```
+
+### Rust Linting
+
+```bash
+# Format
+cargo fmt
+
+# Lint
+cargo clippy
+```
+
+## Roadmap
+
+### Python (`python/`)
+- [ ] Market data collection & storage for backtesting
+- [ ] Statistical analysis & feature engineering pipelines
+- [ ] Strategy research framework & simulation engine
+- [ ] Risk model development & portfolio analytics
+- [ ] ML model experimentation & offline training
+
+### Rust (`rs/`)
+- [ ] OKX WebSocket client (public & private channels)
+- [ ] Order book reconstruction (LOB) with snapshot + delta handling
+- [ ] Trade stream ingestion & normalization
+- [ ] Schema validation & enrichment pipelines
+- [ ] **Strategy execution engine** – signal evaluation, decision logic, position management
+- [ ] Order Management System (OMS) with OKX REST API
+- [ ] Risk checks (pre-trade, position limits, latency guards)
+- [ ] Strategy engine interface (gRPC / shared memory / etc.)
+- [ ] **ML inference runtime** – low-latency model serving for trade signals & risk scoring
+- [ ] **ML training pipeline** – online/incremental learning for model updates
+
+## License
+
+Proprietary – Fibonsai internal project.
+
+## Contact
+
+Fibonsai Engineering
