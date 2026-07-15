@@ -10,23 +10,27 @@ A Medium-Frequency Trading (MFT) platform for crypto derivatives, focused on the
 
 | Language | Role |
 |----------|------|
-| **Python** | Data analysis, research, strategy development, backtesting, risk modeling, ML experimentation |
+| **Python** | Data analysis, research, strategy development, backtesting, risk modeling, ML experimentation, LOB data processing |
 | **Rust** | Production WebSocket ingest (LOB & Trades), data normalization, strategy execution, order management, low-latency execution, ML inference for trade/risk decisions |
 
 ## Project Structure
 
 ```
 .
-├── python/          # Python package: cryptomeria-py
-│   └── main.py      # Entry point for analysis, research, and strategy work
-├── rs/              # Rust package: cryptomeria
+├── python/              # Python package: cryptomeria-py
+│   ├── cryptomeria/     # Core library
+│   │   └── lob.py       # LOB parquet stream reader & LOB2 rebuild CLI
+│   ├── tests/
+│   │   └── test_lob.py  # Unit tests for LOB module
+│   └── main.py          # Entry point for analysis, research, and strategy work
+├── rs/                  # Rust package: cryptomeria
 │   ├── Cargo.toml
 │   ├── rust-toolchain.toml
 │   └── src/
-│       └── main.rs  # Production WebSocket client, strategy engine & order engine (to be implemented)
-├── docs/            # Documentation (to be expanded)
-├── pyproject.toml   # Python project config (requires Python >=3.13)
-└── CLAUDE.md        # Guidance for AI assistants working in this repo
+│       └── main.rs      # Production WebSocket client, strategy engine & order engine (to be implemented)
+├── docs/                # Documentation (to be expanded)
+├── pyproject.toml       # Python project config (requires Python >=3.13)
+└── CLAUDE.md            # Guidance for AI assistants working in this repo
 ```
 
 ## Quick Start
@@ -88,9 +92,37 @@ cargo fmt
 cargo clippy
 ```
 
+## LOB Data Processing
+
+### LOB parquet stream reader (`python/cryptomeria/lob.py`)
+
+Streams OKX L2 orderbook parquet files row-group by row-group (memory-safe for files larger than RAM) and reconstructs the full order book state at each timestamp.
+
+**Key rules:**
+- `action='snapshot'` — clears all levels and inserts fresh price/amount pairs unconditionally
+- `action='update'` with `amount_ask == 0` or `amount_bids == 0` — removes that price level
+- `action='update'` with non-zero amount — upserts the level
+- Rows with `price_ask` or `price_bid` as `None` are skipped
+
+**CLI:**
+
+```bash
+# Rebuild a raw LOB parquet into LOB2 format (JSON arrays for bids/asks)
+uv run python -m cryptomeria.lob <input_parquet> <output_lob2>
+```
+
+Output schema:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `ts`   | UInt64 | Millisecond timestamp |
+| `bids` | String (JSON) | `[{"px": price, "sz": amount}, ...]` sorted descending |
+| `asks` | String (JSON) | `[{"px": price, "sz": amount}, ...]` sorted ascending |
+
 ## Roadmap
 
 ### Python (`python/`)
+- [x] LOB parquet stream reader — rebuild LOB2 snapshots via row-group streaming
 - [ ] Market data collection & storage for backtesting
 - [ ] Statistical analysis & feature engineering pipelines
 - [ ] Strategy research framework & simulation engine
