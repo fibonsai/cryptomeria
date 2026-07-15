@@ -41,7 +41,9 @@ python-install:
 	uv sync --dev
 
 python-test:
-	uv run pytest python/ -v
+	uv run pytest python/ -v; \
+	status=$$?; \
+	if [ $$status -eq 5 ]; then exit 0; else exit $$status; fi
 
 python-lint:
 	uv run ruff check python/
@@ -61,22 +63,22 @@ python-clean:
 # Rust targets
 # =============================================================================
 rust-build:
-	cargo build
+	cd rs && cargo build
 
 rust-build-release:
-	cargo build --release
+	cd rs && cargo build --release
 
 rust-test:
-	cargo test
+	cd rs && cargo test
 
 rust-lint:
-	cargo clippy -- -D warnings
+	cd rs && cargo clippy -- -D warnings
 
 rust-fmt:
-	cargo fmt
+	cd rs && cargo fmt
 
 rust-clean:
-	cargo clean
+	cd rs && cargo clean
 
 # =============================================================================
 # Combined targets

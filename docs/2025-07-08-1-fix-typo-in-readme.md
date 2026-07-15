@@ -5,7 +5,7 @@ Task: Fix typo in readme
 
 ## Review Summary
 
-Reviewed `/home/tuxmonteiro/dev/github.com/fibonsai/cryptomeria/README.md` for typos.
+Reviewed `README.md` for typos.
 
 ## Findings
 
