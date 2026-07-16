@@ -26,8 +26,15 @@ A Medium-Frequency Trading (MFT) platform for crypto derivatives, focused on the
 ├── rs/                  # Rust package: cryptomeria
 │   ├── Cargo.toml
 │   ├── rust-toolchain.toml
-│   └── src/
-│       └── main.rs      # Production WebSocket client, strategy engine & order engine (to be implemented)
+│   ├── src/
+│   │   ├── lib.rs       # Library root
+│   │   ├── main.rs      # CLI entry point (OKX WebSocket market data client)
+│   │   └── okx/
+│   │       ├── mod.rs   # Module declarations
+│   │       ├── types.rs # OKX message type definitions + JSON parsing + display helpers
+│   │       └── ws.rs    # WebSocket client (connect, subscribe, read loop, display)
+│   └── tests/
+│       └── okx_integration.rs  # E2E test (requires network, #[ignore] by default)
 ├── docs/                # Documentation (to be expanded)
 ├── pyproject.toml       # Python project config (requires Python >=3.13)
 └── CLAUDE.md            # Guidance for AI assistants working in this repo
@@ -56,11 +63,17 @@ python python/main.py
 # Build the project
 cargo build
 
-# Run (currently empty main)
+# Run (connects to OKX WebSocket for BTC-USDT by default)
 cargo run
+
+# Run with a custom instrument
+cargo run -- ETH-USDT
 
 # Run tests
 cargo test
+
+# Run E2E tests (requires network access)
+cargo test -- --include-ignored
 
 # Format & lint
 cargo fmt
@@ -91,6 +104,35 @@ cargo fmt
 # Lint
 cargo clippy
 ```
+
+## OKX WebSocket Market Data Client
+
+The Rust client connects to the OKX public WebSocket API (`wss://ws.okx.com:8443/ws/v5/public`) and subscribes to real-time L2 order book (channel `books`) and trade (channel `trades`) data.
+
+**Usage:**
+
+```bash
+# Connect to BTC-USDT (default)
+cargo run
+
+# Connect to a different instrument
+cargo run -- ETH-USDT
+```
+
+**Terminal output format:**
+
+```
+[HH:MM:SS LOB2 SNAPSHOT] BTC-USDT bids: 3173.3 (3.0), 3173.2 (0.5) | asks: 3178.4 (7.1), 3179 (4.0)
+[HH:MM:SS TRADE] BTC-USDT @ 42135.6 sz=0.119 side=buy
+[HH:MM:SS LOB2 UPDATE] BTC-USDT bids: 3173.3 (4.5) | asks: 3190 (15.0)
+```
+
+Message types are tagged as `LOB2 SNAPSHOT`, `LOB2 UPDATE`, or `TRADE` in the log prefix.
+
+**Architecture:**
+- `okx/types.rs` — serde structs for the OKX JSON envelope, message classification (`display_type()`), and one-line summary (`summary()`)
+- `okx/ws.rs` — `OkxClient` with `run()` method that connects, subscribes, reads, and displays; plus pure helper functions `build_subscribe_msg()` and `display_message()` tested without I/O
+- `tests/okx_integration.rs` — ignored by default (requires network); run with `cargo test -- --include-ignored`
 
 ## LOB Data Processing
 
@@ -130,7 +172,7 @@ Output schema:
 - [ ] ML model experimentation & offline training
 
 ### Rust (`rs/`)
-- [ ] OKX WebSocket client (public & private channels)
+- [x] OKX WebSocket client (public channels — books + trades)
 - [ ] Order book reconstruction (LOB) with snapshot + delta handling
 - [ ] Trade stream ingestion & normalization
 - [ ] Schema validation & enrichment pipelines
