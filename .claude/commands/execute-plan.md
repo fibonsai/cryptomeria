@@ -35,7 +35,7 @@ For each section:
 
 **On error** — if a sub-step fails (test, lint, command error):
 - Report the failure and what caused it
-- Undestand the error and fix it
+- Understand the error and fix it
 - Do not continue to subsequent steps
 - Do not close the issue
 
@@ -55,7 +55,7 @@ Task: <issue title>
 
 ## Summary
 
-<what was changed and why is important>
+<what changed and why it matters>
 
 ## Files modified
 
@@ -63,10 +63,10 @@ Task: <issue title>
 
 ## Test results
 
-<count> passed, <count> failed — coverage notes."
+<count> passed, <count> failed — <notes, e.g., coverage percentage or any regressions>."
 ```
 
-### 6. Update the issue body, sub-steps, with completed checkboxes
+### 6. Update the issue body's sub-steps with completed checkboxes
 
 All `[ ]` sub-steps should now be `[x]`. Update the body:
 
@@ -80,15 +80,32 @@ gh issue edit "$ISSUE" -b "$(echo "$PLAN" | sed 's/- \[ \]/- [x]/g')"
 rm docs/PLAN.md
 ```
 
-### 8. Create a PR from exclusive branch
+### 8. Create Architecture Decision Record (ADR)
 
-1. PR title is the same that Issue title.
+Create an ADR doc in `docs/` with at least these sections:
+
+* **Title**: A sequential number and an active-voice statement of the decision (e.g., ADR-001: Use PostgreSQL for primary database).
+* **Context**: The forces, requirements, and background circumstances that prompted the decision.
+* **Options Considered**: A list of serious alternatives, including their pros and cons.
+* **Decision**: The chosen solution and a brief justification/rationale.
+* **Consequences**: The positive and negative implications of the chosen path, including trade-offs.
+* **Status**: Tracks the lifecycle stage of the choice (e.g., Proposed, Accepted, Rejected, or Superseded).
+
+File name template: `docs/ADR-<sequential-number>-<YYYYMMDD>-<short-title-with-dashes>.md`
+
+The sequential number should be one more than the highest existing ADR in `docs/`. The datetime is the date of creation in UTC.
+
+Update `CLAUDE.md`, adding a link to each ADR under an **ADRs** section.
+
+### 9. Create a PR from exclusive branch
+
+1. PR title is the same as the issue title.
 2. Add ref to issue in PR body — do **not** append `🤖 Generated with [Claude Code](https://claude.com/claude-code)` or any auto-attribution line
 3. Execute /commit (check .claude/commands/commit.md) in this branch
 
-Do not merge PR (it will checked by human or another agent)
+Do not merge the PR (it will be checked by a human or another agent).
 
-### 9. Close the issue
+### 10. Close the issue
 
 ```bash
 gh issue close "$ISSUE"
@@ -97,5 +114,5 @@ gh issue close "$ISSUE"
 ## Full workflow
 
 ```
-issue body → execute → issue comment (changelog) → update issue body → create PR → close issue
+read issue → execute plan → update README → post changelog → update issue body → delete PLAN.md → create ADR → create PR → close issue
 ```
