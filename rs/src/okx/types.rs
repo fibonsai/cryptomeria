@@ -89,24 +89,24 @@ impl OkxWsMessage {
                         .unwrap_or_default();
                     format!("bids: {} | asks: {}", bids, asks)
                 });
-                format!("[{}] {} {}", self.display_type(), inst, top.unwrap_or_default())
+                format!("{} {}", inst, top.unwrap_or_default())
             }
             "TRADE" => {
                 if let Some(trade) = self.data.first().and_then(|d| {
                     serde_json::from_value::<TradeData>(d.clone()).ok()
                 }) {
                     format!(
-                        "[TRADE] {} @ {} sz={} side={}",
+                        "{} @ {} sz={} side={}",
                         inst, trade.px, trade.sz, trade.side
                     )
                 } else {
-                    format!("[TRADE] {} (raw)", inst)
+                    format!("{} (raw)", inst)
                 }
             }
             "EVENT" => {
-                format!("[{}] {}", self.event.as_deref().unwrap_or("?"), inst)
+                format!("{}", self.event.as_deref().unwrap_or("?"))
             }
-            _ => format!("[{}] {}", self.display_type(), inst),
+            _ => format!("{}", inst),
         }
     }
 
