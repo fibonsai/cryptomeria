@@ -83,7 +83,7 @@ rm docs/PLAN.md
 ### 8. Create a PR from exclusive branch
 
 1. PR title is the same that Issue title.
-2. Add ref to issue in PR body
+2. Add ref to issue in PR body — do **not** append `🤖 Generated with [Claude Code](https://claude.com/claude-code)` or any auto-attribution line
 3. Execute /commit (check .claude/commands/commit.md) in this branch
 
 Do not merge PR (it will checked by human or another agent)
