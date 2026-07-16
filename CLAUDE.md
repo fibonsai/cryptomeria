@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Current State
 
 - **Python** has a functional `cryptomeria.lob` module — streaming LOB parquet reader with LOB2 rebuild CLI (17 tests, all passing). Dependencies: `typer`, `pyarrow` (dev extras).
-- **Rust** is a stub — `rs/src/main.rs` is empty, zero dependencies. Edition 2024 with stable toolchain.
+- **Rust** has a functional WebSocket market data client — connects to OKX public WS for LOB2 and trades, displays typed messages in terminal (24 tests, all passing). Edition 2024 with stable toolchain.
 - **Python 3.13** via `uv` — use `str | None` union syntax, `@dataclass` for data containers, `pathlib.Path` for file I/O.
 
 ## Architecture
@@ -30,7 +30,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 │   └── test_lob.py           # 17 tests for LOB module
 ├── python/main.py            # Research entry point (empty)
 ├── rs/                       # Rust crate
-│   └── src/main.rs           # Production entry point (empty)
+│   ├── Cargo.toml
+│   ├── src/
+│   │   ├── lib.rs            # Library root (pub mod okx)
+│   │   ├── main.rs           # CLI entry point (OKX WebSocket market data client)
+│   │   └── okx/
+│   │       ├── mod.rs        # Module declarations
+│   │       ├── types.rs      # OKX message types + JSON parsing + display helpers
+│   │       └── ws.rs         # WebSocket client (connect, subscribe, read loop, display)
+│   └── tests/
+│       └── okx_integration.rs  # E2E test (requires network, #[ignore] by default)
 ├── docs/                     # Changelogs and design docs
 ├── pyproject.toml            # Python config, ruff (line-length=88), pdm-backend
 └── Makefile                  # Dev workflow convenience layer
@@ -128,6 +137,10 @@ make check         # lint + test
 ### Security
 - **Secrets in `.env.local` only** — never commit or version (already in `.gitignore`)
 
+## ADRs
+
+- [ADR-001](docs/ADR-001-20260716-okx-websocket-market-data-client.md) — Use tokio-tungstenite for OKX WebSocket market data ingest
+
 ## Tooling & Hooks
 
 - **RTK (Rust Token Killer)** — a CLI proxy is active in the global Claude config. File system reads and git operations go through `rtk` transparently.
@@ -153,4 +166,8 @@ make check         # lint + test
 - `pyarrow>=15.0.0` — Parquet I/O (used by `lob.py`)
 
 ### Rust
-- Zero dependencies (stub)
+- `tokio` — async runtime (features: full)
+- `tokio-tungstenite` — async WebSocket client
+- `futures-util` — stream combinators (SinkExt, StreamExt)
+- `serde` + `serde_json` — JSON deserialization
+- `serde_test` (dev) — serde roundtrip test utilities
