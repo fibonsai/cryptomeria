@@ -67,6 +67,9 @@ cargo build
 # Run (connects to OKX WebSocket for BTC-USDT by default)
 cargo run
 
+# Show help
+cargo run -- --help
+
 # Run with a custom instrument
 cargo run -- ETH-USDT
 
