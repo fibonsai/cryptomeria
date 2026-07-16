@@ -107,6 +107,14 @@ make check         # lint + test
 - **Domain isolation by service** — internal modules not exposed to external callers
 - **Progress logging** — operations >10s must emit progress every 5s (amount, remaining, ETA)
 
+### Testing (mandatory — unit and e2e for every change)
+- **Every subtask in a plan must include tests** — no code lands without coverage
+- **Unit tests** cover pure functions, parsing, data transformation, and error handling — anything that doesn't require I/O or external services
+- **E2E tests** cover integration with external services (WebSocket connections, API calls, file I/O) — at minimum one happy-path test per integration point; mock the network layer where the real endpoint is unreachable in CI
+- **Extract pure functions** from I/O code to keep unit tests simple and fast — `build_subscribe_msg()`, `display_message()`, `parse_args()` should never need a live WebSocket to test
+- **Test tables** in plans must name each test and state what it verifies — vague "add tests" checklist items are not sufficient
+- **`cargo test` / `pytest` must pass before committing** any change that adds or modifies logic
+
 ### Python (ruff enforces most style; go beyond for these)
 - **Type annotations mandatory** — every function signature; use `str | None` union syntax (3.10+)
 - **`@dataclass` for data containers** — no bare `dict` for reused shapes
