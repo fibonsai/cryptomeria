@@ -140,6 +140,7 @@ make check         # lint + test
 ## ADRs
 
 - [ADR-001](docs/ADR-001-20260716-okx-websocket-market-data-client.md) — Use tokio-tungstenite for OKX WebSocket market data ingest
+- [ADR-002](docs/ADR-002-20260716-lob2-in-memory-order-book-reconstruction.md) — In-memory BTreeMap-based OrderBook for LOB2 state reconstruction
 
 ## Tooling & Hooks
 
