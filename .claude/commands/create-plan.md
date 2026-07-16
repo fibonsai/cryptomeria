@@ -1,43 +1,82 @@
 ---
 name: create-plan
-description: Use ONLY when user types /create-plan or says "create plan". Read last open github issue and writes docs/PLAN.md with implementation sub-steps.
+description: Read the last open GitHub issue and write a PLAN.md with implementation sub-steps, then store it in the issue body as the canonical source
 ---
 
-# Create docs/PLAN.md file from last open github issue
+# Create PLAN.md from the last open GitHub issue
 
-Read last github issue: `gh issue view $(gh issue list --state open --json number -L 1 -q '.[0].number') --json title -q '.title'` and write a `docs/PLAN.md` with:
-- task sections with descriptive headers
-- concrete sub-steps (each with a checkbox)
-- specific file paths and function names where changes go
-- verification commands to confirm correctness
+The issue body is the **single source of truth** — `docs/PLAN.md` is a local working copy synced to the issue body.
 
-# Update issue body
+## Steps
 
-Edit the issue body: `gh issue edit $(gh issue list --state open --json number -L 1 -q '.[0].number') -F docs/PLAN.md`
+### 1. Get the last open issue
 
-# IMPORTANT: NEVER execute the PLAN unless explicitly asked. 
+```bash
+gh issue list --state open --json number -L 1 -q '.[0].number'
+```
 
-## Example
+Capture the number — this is the issue whose body will hold the plan.
 
-Input: `/create-plan`
+### 2. Write `docs/PLAN.md`
 
-→ If last open issue has a pendent task named `Fix typo in readme.`, create a new docs/PLAN.md file:
+Read the issue title (`gh issue view <N> --json title -q '.title'`) and write `docs/PLAN.md` with:
+
+- A `# PLAN` header followed by the task title
+- **Files to modify** — list every file that will be changed
+- **Subtasks** — one section per logical change, each with:
+  - A descriptive header
+  - Issues found (specific problems in the current state)
+  - Concrete `- [ ]` sub-steps with file paths
+  - Verification commands to confirm correctness
+- **Verification** — shell commands to validate the result
+- **Changelog** — the final workflow: post changelog as an issue comment, then close the issue
+
+### 3. Sync the plan to the issue body
+
+```bash
+gh issue edit <N> -F docs/PLAN.md
+```
+
+This makes the issue the canonical source that `/execute-plan` reads from.
+
+## Template
+
+When drafting `docs/PLAN.md`, use this structure:
+
 ```markdown
 # PLAN
 
-Task: Fix typo in readme.
+Task: <issue title>
 
-## Files modified
+## Files to modify
 
-- README.md
+- <path>
 
 ## Subtasks
 
-[ ] - Read all README.md
-[ ] - Find typo issues
-[ ] - Correct issues without changing the meaning.
-[ ] - Review README.md
-[ ] - Create changelog in docs/<datetime_ref>-<sequential_number>-<short_explain_task>.md file with decisions and explain the actions executed
+### 1. <descriptive header>
+
+Issues found:
+- <problem in current state>
+
+- [ ] <action with file paths>
+- [ ] <next action>
+
+### 2. ...
+
+## Verification
+
+```bash
+<shell command to confirm correctness>
 ```
 
-At last, update this issue body
+## Changelog
+
+After execution, post a changelog as a comment on this issue (without a PLAN section), then close the issue.
+```
+
+## Important
+
+- **Never execute the plan** — this command only creates and stores it
+- Sub-steps use markdown checklist format: `- [ ]`
+- Verification commands must be runnable shell snippets
