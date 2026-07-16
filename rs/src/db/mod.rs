@@ -1,4 +1,5 @@
-use questdb::ingress::Sender;
+use crate::okx::types::LobLevel;
+use questdb::ingress::{Buffer, Sender, TimestampNanos};
 use refinery::embed_migrations;
 use reqwest::Client;
 use std::env;
@@ -84,6 +85,87 @@ async fn execute_sql(
 /// Connect to QuestDB and return a Sender for ILP ingestion.
 pub async fn connect_sender(conf_str: &str) -> Result<Sender, Box<dyn std::error::Error + Send + Sync>> {
     connect(conf_str).await
+}
+
+/// Build a LOB level row in the buffer.
+fn write_lob_level(
+    buffer: &mut Buffer,
+    inst_id: &str,
+    ts_ms: u64,
+    action: &str,
+    side: &str,
+    level: &LobLevel,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (price, size, count, orders) = level.as_f64().unwrap_or((0.0, 0.0, 0.0, 0.0));
+    // TimestampNanos expects nanoseconds, convert from milliseconds
+    let timestamp_nanos = (ts_ms as i64) * 1_000_000;
+    buffer
+        .table("lob_levels")?
+        .symbol("inst_id", inst_id)?
+        .symbol("action", action)?
+        .symbol("side", side)?
+        .column_f64("price", price)?
+        .column_f64("size", size)?
+        .column_f64("count", count)?
+        .column_f64("orders", orders)?
+        .at(TimestampNanos::new(timestamp_nanos))?;
+    Ok(())
+}
+
+/// Persist LOB snapshot levels to QuestDB via ILP.
+/// Each price level becomes a separate row in lob_levels table.
+pub async fn persist_lob_snapshot(
+    sender: &mut Sender,
+    inst_id: &str,
+    ts_ms: u64,
+    levels: &[(String, LobLevel)],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut buffer = sender.new_buffer();
+    for (side, level) in levels {
+        write_lob_level(&mut buffer, inst_id, ts_ms, "snapshot", side, level)?;
+    }
+    sender.flush(&mut buffer)?;
+    Ok(())
+}
+
+/// Persist LOB update levels to QuestDB via ILP.
+/// Each price level becomes a separate row in lob_levels table.
+pub async fn persist_lob_update(
+    sender: &mut Sender,
+    inst_id: &str,
+    ts_ms: u64,
+    levels: &[(String, LobLevel)],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut buffer = sender.new_buffer();
+    for (side, level) in levels {
+        write_lob_level(&mut buffer, inst_id, ts_ms, "update", side, level)?;
+    }
+    sender.flush(&mut buffer)?;
+    Ok(())
+}
+
+/// Persist a trade to QuestDB via ILP.
+pub async fn persist_trade(
+    sender: &mut Sender,
+    inst_id: &str,
+    trade_id: &str,
+    px: f64,
+    sz: f64,
+    side: &str,
+    ts_ms: u64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut buffer = sender.new_buffer();
+    let timestamp_nanos = (ts_ms as i64) * 1_000_000;
+    buffer
+        .table("trades")?
+        .symbol("inst_id", inst_id)?
+        .symbol("trade_id", trade_id)?
+        .symbol("side", side)?
+        .column_f64("px", px)?
+        .column_f64("sz", sz)?
+        .at(TimestampNanos::new(timestamp_nanos))?;
+    sender.flush(&mut buffer)?;
+    Ok(())
 }
 
 #[cfg(test)]

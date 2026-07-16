@@ -141,6 +141,7 @@ make check         # lint + test
 
 - [ADR-001](docs/ADR-001-20260716-okx-websocket-market-data-client.md) — Use tokio-tungstenite for OKX WebSocket market data ingest
 - [ADR-002](docs/ADR-002-20260716-questdb-persistence-with-refinery-migrations.md) — Use QuestDB with refinery for market data persistence and SQL migrations
+- [ADR-003](docs/ADR-003-20260716-normalized-lob-levels-storage.md) — Normalized LOB levels storage in QuestDB
 
 ## Tooling & Hooks
 
