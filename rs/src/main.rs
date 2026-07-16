@@ -6,46 +6,74 @@ pub struct CliArgs {
     pub show_top_pct: f64,
 }
 
-/// Parse CLI arguments and return instrument + show_top_pct.
+const USAGE: &str = "\
+Cryptomeria — OKX WebSocket market data client
+
+Connect to the OKX public WebSocket API and display real-time L2 order book
+and trade data.
+
+USAGE:
+    cryptomeria [OPTIONS] [INSTRUMENT]
+
+ARGS:
+    <INSTRUMENT>    Instrument ID (e.g. BTC-USDT, ETH-USDT).
+                    Default: BTC-USDT
+
+OPTIONS:
+    --show-top-pct <PCT>    Show price levels within PCT% of the best price
+                            on each side.  Default: 0.1
+    -h, --help              Print this help message and exit
+";
+
+/// Parse CLI arguments.
 ///
-/// Usage:
-///   cryptomeria [--show-top-pct <pct>] [<instrument>]
-///
-/// Defaults: instrument = "BTC-USDT", show_top_pct = 0.1
-pub fn parse_args() -> CliArgs {
+/// Returns `None` when `--help` or `-h` is present (caller should exit).
+pub fn parse_args() -> Option<CliArgs> {
     let args: Vec<String> = std::env::args().collect();
     parse_args_from(&args)
 }
 
 /// Inner parser that works on an arbitrary arg list (testable without I/O).
-fn parse_args_from(args: &[String]) -> CliArgs {
+fn parse_args_from(args: &[String]) -> Option<CliArgs> {
     let mut instrument = "BTC-USDT".to_string();
     let mut show_top_pct = 0.1;
     let mut i = 1; // skip program name
 
     while i < args.len() {
-        if args[i] == "--show-top-pct" {
-            i += 1;
-            if let Some(val) = args.get(i) {
-                if let Ok(pct) = val.parse::<f64>() {
-                    show_top_pct = pct;
+        match args[i].as_str() {
+            "--help" | "-h" => {
+                print!("{}", USAGE);
+                return None;
+            }
+            "--show-top-pct" => {
+                i += 1;
+                if let Some(val) = args.get(i) {
+                    if let Ok(pct) = val.parse::<f64>() {
+                        show_top_pct = pct;
+                    }
                 }
             }
-        } else if !args[i].starts_with("--") {
-            instrument = args[i].to_uppercase();
+            _ => {
+                if !args[i].starts_with("--") {
+                    instrument = args[i].to_uppercase();
+                }
+            }
         }
         i += 1;
     }
 
-    CliArgs {
+    Some(CliArgs {
         instrument,
         show_top_pct,
-    }
+    })
 }
 
 #[tokio::main]
 async fn main() {
-    let cli = parse_args();
+    let Some(cli) = parse_args() else {
+        return;
+    };
+
     eprintln!("[CONNECTING] wss://ws.okx.com:8443/ws/v5/public");
 
     let mut client = OkxClient::new(&cli.instrument, cli.show_top_pct);
@@ -76,37 +104,57 @@ mod tests {
 
     #[test]
     fn test_parse_args_default() {
-        let cli = parse_args_from(&args(&[]));
+        let cli = parse_args_from(&args(&[])).unwrap();
         assert_eq!(cli.instrument, "BTC-USDT");
         assert!((cli.show_top_pct - 0.1).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_parse_args_instrument_only() {
-        let cli = parse_args_from(&args(&["ETH-USDT"]));
+        let cli = parse_args_from(&args(&["ETH-USDT"])).unwrap();
         assert_eq!(cli.instrument, "ETH-USDT");
         assert!((cli.show_top_pct - 0.1).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_parse_args_show_top_pct() {
-        let cli = parse_args_from(&args(&["--show-top-pct", "0.5", "ETH-USDT"]));
+        let cli = parse_args_from(&args(&["--show-top-pct", "0.5", "ETH-USDT"])).unwrap();
         assert_eq!(cli.instrument, "ETH-USDT");
         assert!((cli.show_top_pct - 0.5).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_parse_args_show_top_pct_default() {
-        // --show-top-pct without a value -> defaults to 0.1
-        let cli = parse_args_from(&args(&["--show-top-pct"]));
+        let cli = parse_args_from(&args(&["--show-top-pct"])).unwrap();
         assert_eq!(cli.instrument, "BTC-USDT");
         assert!((cli.show_top_pct - 0.1).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_parse_args_show_top_pct_then_instrument() {
-        let cli = parse_args_from(&args(&["--show-top-pct", "0.05", "XRP-USDT"]));
+        let cli = parse_args_from(&args(&["--show-top-pct", "0.05", "XRP-USDT"])).unwrap();
         assert_eq!(cli.instrument, "XRP-USDT");
         assert!((cli.show_top_pct - 0.05).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_args_help_long() {
+        assert!(parse_args_from(&args(&["--help"])).is_none());
+    }
+
+    #[test]
+    fn test_parse_args_help_short() {
+        assert!(parse_args_from(&args(&["-h"])).is_none());
+    }
+
+    #[test]
+    fn test_parse_args_help_after_instrument() {
+        // --help anywhere causes exit
+        assert!(parse_args_from(&args(&["ETH-USDT", "--help"])).is_none());
+    }
+
+    #[test]
+    fn test_parse_args_help_with_show_top_pct() {
+        assert!(parse_args_from(&args(&["--show-top-pct", "0.5", "--help"])).is_none());
     }
 }
