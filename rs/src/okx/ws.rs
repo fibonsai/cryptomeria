@@ -17,21 +17,10 @@ pub fn build_subscribe_msg(channel: &str, instrument: &str) -> String {
 
 /// Format a parsed OKX message for terminal display — pure function, testable without I/O.
 pub fn display_message(msg: &OkxWsMessage) -> String {
-    let now = chrono_now_fallback();
+    let now = msg.formatted_time();
     let tag = msg.display_type();
     let body = msg.summary();
     format!("[{} {}] {}", now, tag, body)
-}
-
-/// Fallback timestamp (no chrono dependency yet).
-fn chrono_now_fallback() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let d = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = d.as_secs();
-    let (h, m, s) = ((secs / 3600) % 24, (secs / 60) % 60, secs % 60);
-    format!("{:02}:{:02}:{:02}", h, m, s)
 }
 
 /// WebSocket client for OKX market data.

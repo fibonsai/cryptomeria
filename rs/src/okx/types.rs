@@ -114,6 +114,39 @@ impl OkxWsMessage {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
+
+    /// Extract the exchange timestamp (milliseconds since epoch) from the first
+    /// data element, if present.  Both books and trades carry `ts` at `data[0].ts`.
+    pub fn timestamp_ms(&self) -> Option<u64> {
+        let raw_ts = self.data.first()?.get("ts")?.as_str()?;
+        raw_ts.parse::<u64>().ok()
+    }
+
+    /// Format the exchange timestamp as `HH:MM:SS.mmm`.
+    pub fn formatted_time(&self) -> String {
+        match self.timestamp_ms() {
+            Some(ms) => {
+                let total_secs = ms / 1000;
+                let millis = ms % 1000;
+                let h = (total_secs / 3600) % 24;
+                let m = (total_secs / 60) % 60;
+                let s = total_secs % 60;
+                format!("{:02}:{:02}:{:02}.{:03}", h, m, s, millis)
+            }
+            None => {
+                // Fallback to local time when no exchange timestamp
+                let d = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default();
+                let secs = d.as_secs();
+                let millis = d.subsec_millis();
+                let h = (secs / 3600) % 24;
+                let m = (secs / 60) % 60;
+                let s = secs % 60;
+                format!("{:02}:{:02}:{:02}.{:03}", h, m, s, millis)
+            }
+        }
+    }
 }
 
 /// Fields specific to a trade event.
