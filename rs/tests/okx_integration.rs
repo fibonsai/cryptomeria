@@ -7,12 +7,11 @@ use cryptomeria::okx::ws::OkxClient;
 #[tokio::test]
 #[ignore]
 async fn test_connect_to_okx_and_subscribe() {
-    let mut client = OkxClient::new("BTC-USDT");
+    let mut client = OkxClient::new("BTC-USDT", 0.1);
 
     // Run for a limited time, then disconnect
     tokio::select! {
         result = client.run() => {
-            // If run returns an error, propagate it
             result.unwrap();
         }
         _ = tokio::time::sleep(tokio::time::Duration::from_secs(10)) => {

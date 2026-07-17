@@ -1,88 +1,74 @@
+use clap::Parser;
+use cryptomeria::db::{connect_sender, run_migrations};
 use cryptomeria::okx::ws::OkxClient;
-use cryptomeria::db::{connect_sender, run_migrations, resolve_questdb_conf};
 
-/// CLI arguments container.
-#[derive(Debug, Clone)]
-pub struct CliArgs {
-    pub instrument: String,
-    pub questdb_conf: String,
-}
-
-/// Parse CLI arguments and return a CliArgs struct.
+/// OKX WebSocket market data client.
 ///
-/// Supports:
-/// - `--questdb-conf <conf>` — QuestDB connection string (QDB_CLIENT_CONF format)
-/// - Positional instrument arg (first non-flag arg), defaults to "BTC-USDT"
-pub fn parse_args() -> CliArgs {
-    let args: Vec<String> = std::env::args().collect();
-    parse_args_from(&args)
+/// Connect to the OKX public WebSocket API and display real-time L2 order
+/// book and trade data.
+#[derive(Parser, Debug)]
+#[command(name = "cryptomeria", verbatim_doc_comment)]
+pub struct CliArgs {
+    /// Instrument ID (e.g. BTC-USDT, ETH-USDT).
+    #[arg(default_value = "BTC-USDT")]
+    pub instrument: String,
+
+    /// Show price levels within PCT% of the best price on each side.
+    #[arg(long, default_value_t = 0.1)]
+    pub show_top_pct: f64,
+
+    /// QuestDB connection string (QDB_CLIENT_CONF format).
+    #[arg(long)]
+    pub questdb_conf: Option<String>,
 }
 
-/// Inner parser that works on an arbitrary arg list (testable without I/O).
-fn parse_args_from(args: &[String]) -> CliArgs {
-    let mut questdb_conf = None;
-    let mut instrument = None;
-
-    let mut i = 1; // skip program name
-    while i < args.len() {
-        match args[i].as_str() {
-            "--questdb-conf" => {
-                if i + 1 < args.len() {
-                    questdb_conf = Some(args[i + 1].clone());
-                    i += 2;
-                } else {
-                    eprintln!("[WARN] --questdb-conf requires a value");
-                    i += 1;
-                }
-            }
-            arg if arg.starts_with('-') => {
-                eprintln!("[WARN] Unknown flag: {}", arg);
-                i += 1;
-            }
-            arg => {
-                if instrument.is_none() && !arg.is_empty() {
-                    instrument = Some(arg.to_uppercase());
-                }
-                i += 1;
-            }
-        }
-    }
-
-    let resolved_conf = questdb_conf.unwrap_or_else(|| resolve_questdb_conf(None));
-
-    CliArgs {
-        instrument: instrument.unwrap_or_else(|| "BTC-USDT".to_string()),
-        questdb_conf: resolved_conf,
-    }
+/// Parse CLI arguments using clap.  Exits with help/error on `--help` or
+/// invalid input.  Callers that want to test parsing without exiting use
+/// `CliArgs::try_parse_from()` instead.
+pub fn parse_args() -> CliArgs {
+    CliArgs::parse()
 }
 
 #[tokio::main]
 async fn main() {
-    let args = parse_args();
+    let cli = parse_args();
+    // Normalise to uppercase so "eth-usdt" and "ETH-USDT" work
+    let instrument = cli.instrument.to_uppercase();
+    let show_top_pct = cli.show_top_pct;
 
     eprintln!("[CONNECTING] wss://ws.okx.com:8443/ws/v5/public");
-    eprintln!("[ARGS] instrument={} questdb_conf={}", args.instrument, args.questdb_conf);
+
+    // Resolve QuestDB connection from CLI flag, env var, or default
+    let questdb_conf = cryptomeria::db::resolve_questdb_conf(cli.questdb_conf.as_deref());
+
+    eprintln!(
+        "[ARGS] instrument={} questdb_conf={}",
+        instrument, questdb_conf
+    );
 
     // Initialize QuestDB connection and run migrations
-    if let Err(e) = run_migrations(&args.questdb_conf).await {
+    if let Err(e) = run_migrations(&questdb_conf).await {
         eprintln!("[DB] Migration failed: {} — running without persistence", e);
     } else {
         eprintln!("[DB] Migrations applied successfully");
     }
 
     // Connect QuestDB sender for future persistence (optional, non-blocking)
-    let _sender = match connect_sender(&args.questdb_conf).await {
+    let _sender = match connect_sender(&questdb_conf).await {
         Ok(s) => {
             eprintln!("[DB] QuestDB sender connected");
             Some(s)
         }
         Err(e) => {
-            eprintln!("[DB] QuestDB not available — running without persistence: {}", e);
+            eprintln!(
+                "[DB] QuestDB not available — running without persistence: {}",
+                e
+            );
             None
         }
     };
 
-    let mut client = OkxClient::new(&args.instrument);
+    let mut client = OkxClient::new(&instrument, show_top_pct);
 
     tokio::select! {
         result = client.run() => {
@@ -101,77 +87,125 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
+    use clap::error::ErrorKind;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        let mut a = vec!["cryptomeria".to_string()];
-        a.extend(values.iter().map(|s| s.to_string()));
-        a
-    }
+    // --- clap derive tests (instrument + show_top_pct) ---
 
     #[test]
     fn test_parse_args_default() {
-        let parsed = parse_args_from(&args(&[]));
-        assert_eq!(parsed.instrument, "BTC-USDT");
+        let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
+        assert_eq!(cli.instrument, "BTC-USDT");
+        assert!((cli.show_top_pct - 0.1).abs() < f64::EPSILON);
     }
 
     #[test]
-    fn test_parse_args_custom_instrument() {
-        let parsed = parse_args_from(&args(&["ETH-USDT"]));
-        assert_eq!(parsed.instrument, "ETH-USDT");
+    fn test_parse_args_instrument_only() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria", "ETH-USDT"]).unwrap();
+        assert_eq!(cli.instrument, "ETH-USDT");
+        assert!((cli.show_top_pct - 0.1).abs() < f64::EPSILON);
     }
 
     #[test]
-    fn test_parse_args_empty_instrument() {
-        let parsed = parse_args_from(&args(&[""]));
-        assert_eq!(parsed.instrument, "BTC-USDT");
+    fn test_parse_args_show_top_pct() {
+        let cli =
+            CliArgs::try_parse_from(&["cryptomeria", "--show-top-pct", "0.5", "ETH-USDT"]).unwrap();
+        assert_eq!(cli.instrument, "ETH-USDT");
+        assert!((cli.show_top_pct - 0.5).abs() < f64::EPSILON);
     }
 
     #[test]
-    fn test_parse_args_case_insensitive() {
-        let parsed = parse_args_from(&args(&["eth-usdt"]));
-        assert_eq!(parsed.instrument, "ETH-USDT");
-        let parsed = parse_args_from(&args(&["BTC-usdt"]));
-        assert_eq!(parsed.instrument, "BTC-USDT");
+    fn test_parse_args_show_top_pct_before_instrument() {
+        let cli =
+            CliArgs::try_parse_from(&["cryptomeria", "--show-top-pct", "0.05", "XRP-USDT"])
+                .unwrap();
+        assert_eq!(cli.instrument, "XRP-USDT");
+        assert!((cli.show_top_pct - 0.05).abs() < f64::EPSILON);
     }
 
     #[test]
-    #[serial]
+    fn test_parse_args_instrument_uppercased() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria", "eth-usdt"]).unwrap();
+        // clap does NOT uppercase automatically, so this checks clap passes it through
+        assert_eq!(cli.instrument, "eth-usdt");
+    }
+
+    #[test]
+    fn test_parse_args_help_long() {
+        let err = CliArgs::try_parse_from(&["cryptomeria", "--help"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::DisplayHelp);
+    }
+
+    #[test]
+    fn test_parse_args_help_short() {
+        let err = CliArgs::try_parse_from(&["cryptomeria", "-h"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::DisplayHelp);
+    }
+
+    #[test]
+    fn test_parse_args_invalid_pct() {
+        let err =
+            CliArgs::try_parse_from(&["cryptomeria", "--show-top-pct", "abc"]).unwrap_err();
+        // clap reports a value validation error
+        assert_eq!(err.kind(), ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn test_parse_args_unknown_flag() {
+        let err = CliArgs::try_parse_from(&["cryptomeria", "--bogus"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    }
+
+    // --- QuestDB conf tests ---
+
+    #[test]
     fn test_parse_args_questdb_conf() {
-        unsafe { std::env::remove_var("QDB_CLIENT_CONF") }
-        let parsed = parse_args_from(&args(&["--questdb-conf", "http::addr=custom:9000;"]));
-        assert_eq!(parsed.questdb_conf, "http::addr=custom:9000;");
+        let cli = CliArgs::try_parse_from(&[
+            "cryptomeria",
+            "--questdb-conf",
+            "http::addr=custom:9000;",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.questdb_conf.as_deref(),
+            Some("http::addr=custom:9000;")
+        );
     }
 
     #[test]
-    #[serial]
-    fn test_parse_args_questdb_conf_env_fallback() {
-        unsafe { std::env::set_var("QDB_CLIENT_CONF", "http::addr=env:9000;") }
-        let parsed = parse_args_from(&args(&["BTC-USDT"]));
-        assert_eq!(parsed.questdb_conf, "http::addr=env:9000;");
-        unsafe { std::env::remove_var("QDB_CLIENT_CONF") };
+    fn test_parse_args_instrument_with_questdb_conf() {
+        let cli = CliArgs::try_parse_from(&[
+            "cryptomeria",
+            "ETH-USDT",
+            "--questdb-conf",
+            "http::addr=test:9000;",
+        ])
+        .unwrap();
+        assert_eq!(cli.instrument, "ETH-USDT");
+        assert_eq!(
+            cli.questdb_conf.as_deref(),
+            Some("http::addr=test:9000;")
+        );
     }
 
     #[test]
-    #[serial]
-    fn test_parse_args_questdb_conf_cli_overrides_env() {
-        unsafe { std::env::set_var("QDB_CLIENT_CONF", "http::addr=env:9000;") }
-        let parsed = parse_args_from(&args(&["--questdb-conf", "http::addr=cli:9000;"]));
-        assert_eq!(parsed.questdb_conf, "http::addr=cli:9000;");
-        unsafe { std::env::remove_var("QDB_CLIENT_CONF") };
+    fn test_parse_args_questdb_conf_first() {
+        let cli = CliArgs::try_parse_from(&[
+            "cryptomeria",
+            "--questdb-conf",
+            "http::addr=test:9000;",
+            "ETH-USDT",
+        ])
+        .unwrap();
+        assert_eq!(cli.instrument, "ETH-USDT");
+        assert_eq!(
+            cli.questdb_conf.as_deref(),
+            Some("http::addr=test:9000;")
+        );
     }
 
     #[test]
-    fn test_parse_args_instrument_with_flag() {
-        let parsed = parse_args_from(&args(&["ETH-USDT", "--questdb-conf", "http::addr=test:9000;"]));
-        assert_eq!(parsed.instrument, "ETH-USDT");
-        assert_eq!(parsed.questdb_conf, "http::addr=test:9000;");
-    }
-
-    #[test]
-    fn test_parse_args_flag_before_instrument() {
-        let parsed = parse_args_from(&args(&["--questdb-conf", "http::addr=test:9000;", "ETH-USDT"]));
-        assert_eq!(parsed.instrument, "ETH-USDT");
-        assert_eq!(parsed.questdb_conf, "http::addr=test:9000;");
+    fn test_parse_args_questdb_conf_not_required() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
+        assert!(cli.questdb_conf.is_none());
     }
 }

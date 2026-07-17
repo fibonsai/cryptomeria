@@ -84,7 +84,7 @@ The `OkxClient` follows a single `run()` method pattern: connect â†’ subscribe â
 - Low-latency, push-based market data reception via native WebSocket
 - Type-safe message handling with serde deserialization
 - All I/O-free logic is unit-testable without mocking the network
-- 24 unit tests covering message parsing, classification, formatting, and CLI argument handling
+- 46 unit tests covering message parsing, classification, formatting, and CLI argument handling
 - Clean separation between protocol (ws.rs), data types (types.rs), and CLI (main.rs)
 
 ### Negative
