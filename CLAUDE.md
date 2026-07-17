@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Current State
 
 - **Python** has a functional `cryptomeria.lob` module — streaming LOB parquet reader with LOB2 rebuild CLI (17 tests, all passing). Dependencies: `typer`, `pyarrow` (dev extras).
-- **Rust** has a functional WebSocket market data client — connects to OKX public WS for LOB2 and trades, displays typed messages in terminal (24 tests, all passing). Edition 2024 with stable toolchain.
+- **Rust** has a functional WebSocket market data client — connects to OKX public WS for LOB2 and trades, displays typed messages in terminal (46 tests, all passing; 1 ignored integration test). Edition 2024 with stable toolchain.
 - **Python 3.13** via `uv` — use `str | None` union syntax, `@dataclass` for data containers, `pathlib.Path` for file I/O.
 
 ## Architecture

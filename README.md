@@ -35,6 +35,7 @@ A Medium-Frequency Trading (MFT) platform for crypto derivatives, focused on the
 │   │   │       └── V1__create_market_data.sql
 │   │   └── okx/
 │   │       ├── mod.rs   # Module declarations
+│   │       ├── lob.rs   # OrderBook: full LOB2 state reconstruction
 │   │       ├── types.rs # OKX message type definitions + JSON parsing + display helpers
 │   │       └── ws.rs    # WebSocket client (connect, subscribe, read loop, display)
 │   └── tests/
@@ -70,6 +71,9 @@ cargo build
 # Run (connects to OKX WebSocket for BTC-USDT by default)
 cargo run
 
+# Show help
+cargo run -- --help
+
 # Run with a custom instrument
 cargo run -- ETH-USDT
 
@@ -79,6 +83,10 @@ cargo run -- --questdb-conf "http::addr=localhost:9000;username=admin;password=q
 # Run with QuestDB via environment variable
 export QDB_CLIENT_CONF="http::addr=localhost:9000;username=admin;password=quest;"
 cargo run -- ETH-USDT
+
+# Show more or fewer LOB2 levels (percentage from best price, default 0.1%)
+cargo run -- --show-top-pct 0.5
+cargo run -- --show-top-pct 0.01 XRP-USDT
 
 # Run tests
 cargo test
@@ -148,29 +156,37 @@ Tables use QuestDB-optimized types: `SYMBOL` for low-cardinality strings, `DOUBL
 
 The Rust client connects to the OKX public WebSocket API (`wss://ws.okx.com:8443/ws/v5/public`) and subscribes to real-time L2 order book (channel `books`) and trade (channel `trades`) data.
 
-**Usage:**
+### Usage
 
 ```bash
-# Connect to BTC-USDT (default)
+# Connect to BTC-USDT (default, 0.1% depth window)
 cargo run
 
 # Connect to a different instrument
 cargo run -- ETH-USDT
+
+# Adjust the displayed depth window (percentage from best price)
+cargo run -- --show-top-pct 0.5    # wider window
+cargo run -- --show-top-pct 0.01   # narrower window
+cargo run -- --show-top-pct 0.5 XRP-USDT
 ```
 
-**Terminal output format:**
+### Terminal output format
 
 ```
-[HH:MM:SS LOB2 SNAPSHOT] BTC-USDT bids: 3173.3 (3.0), 3173.2 (0.5) | asks: 3178.4 (7.1), 3179 (4.0)
-[HH:MM:SS TRADE] BTC-USDT @ 42135.6 sz=0.119 side=buy
-[HH:MM:SS LOB2 UPDATE] BTC-USDT bids: 3173.3 (4.5) | asks: 3190 (15.0)
+[HH:MM:SS LOB2] BTC-USDT  bids=143  asks=137  spread=0.10  bids: [ 64157.3 (2.41), 64156.7 (0.27), ... ] | asks: [ 64157.5 (0.82), 64158.1 (0.06), ... ]
+[HH:MM:SS TRADE] BTC-USDT @ 64157.5 sz=0.119 side=sell
 ```
 
-Message types are tagged as `LOB2 SNAPSHOT`, `LOB2 UPDATE`, or `TRADE` in the log prefix.
+- **LOB2** lines show the full reconstructed order book state after each snapshot or incremental update. Bids and asks are filtered by `--show-top-pct` (default 0.1%) from the best price.
+- **TRADE** lines show individual trades as they occur.
+- **EVENT** lines show subscription confirmations and other protocol events.
 
-**Architecture:**
+### Architecture
+
+- `okx/lob.rs` — `OrderBook` struct maintaining the full LOB2 state with `BTreeMap`-backed bid/ask levels, supporting `apply_snapshot()`, `apply_update()`, and `process_msg()` for OKX messages. Display output is filtered by a configurable percentage from the best price.
 - `okx/types.rs` — serde structs for the OKX JSON envelope, message classification (`display_type()`), and one-line summary (`summary()`)
-- `okx/ws.rs` — `OkxClient` with `run()` method that connects, subscribes, reads, and displays; plus pure helper functions `build_subscribe_msg()` and `display_message()` tested without I/O
+- `okx/ws.rs` — `OkxClient` with `run()` method that maintains an in-memory `OrderBook`, applies incoming LOB2 messages, and displays the reconstructed state. Trade and event messages are shown directly.
 - `tests/okx_integration.rs` — ignored by default (requires network); run with `cargo test -- --include-ignored`
 
 ## LOB Data Processing
