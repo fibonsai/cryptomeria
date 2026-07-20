@@ -110,29 +110,16 @@ fn write_lob_level(
     Ok(())
 }
 
-pub async fn persist_lob_snapshot(
+pub async fn persist_lob(
     sender: &mut Sender,
     inst_id: &str,
     ts_ms: u64,
+    action: &str,
     levels: &[(String, LobLevel)],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut buffer = sender.new_buffer();
     for (side, level) in levels {
-        write_lob_level(&mut buffer, inst_id, ts_ms, "snapshot", side, level)?;
-    }
-    sender.flush(&mut buffer)?;
-    Ok(())
-}
-
-pub async fn persist_lob_update(
-    sender: &mut Sender,
-    inst_id: &str,
-    ts_ms: u64,
-    levels: &[(String, LobLevel)],
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut buffer = sender.new_buffer();
-    for (side, level) in levels {
-        write_lob_level(&mut buffer, inst_id, ts_ms, "update", side, level)?;
+        write_lob_level(&mut buffer, inst_id, ts_ms, action, side, level)?;
     }
     sender.flush(&mut buffer)?;
     Ok(())
