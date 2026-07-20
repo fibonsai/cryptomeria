@@ -1,0 +1,59 @@
+{
+  "title": "Cryptomeria - LOB Depth & Market Data",
+  "uid": "cryptomeria-lob",
+  "schemaVersion": 38,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "LOB Depth (Bids & Asks)",
+      "type": "barchart",
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "expr": "lob_best_bid",
+          "legendFormat": "Best Bid"
+        },
+        {
+          "expr": "lob_best_ask",
+          "legendFormat": "Best Ask"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Top-of-Book",
+      "type": "stat",
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [
+        { "expr": "lob_best_bid", "legendFormat": "Best Bid" },
+        { "expr": "lob_best_ask", "legendFormat": "Best Ask" },
+        { "expr": "lob_spread", "legendFormat": "Spread" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Trades Over Time",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [
+        { "expr": "rate(trades_total[1m])", "legendFormat": "Trades/sec" }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "description": "Prometheus data source for real-time LOB metrics"
+      }
+    ]
+  }
+}
