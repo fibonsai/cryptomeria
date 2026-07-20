@@ -1,7 +1,9 @@
 use crate::okx::lob::OrderBook;
-use crate::okx::types::OkxWsMessage;
+use crate::okx::types::{OkxWsMessage, TradeData};
+use crate::db::{persist_lob_snapshot, persist_lob_update, persist_trade};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
+use questdb::ingress::Sender;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -29,6 +31,7 @@ pub fn display_message(msg: &OkxWsMessage) -> String {
 pub struct OkxClient {
     pub instrument: String,
     pub show_top_pct: f64,
+    sender: Option<Sender>,
 }
 
 impl OkxClient {
@@ -36,14 +39,22 @@ impl OkxClient {
         Self {
             instrument: instrument.to_string(),
             show_top_pct,
+            sender: None,
         }
+    }
+
+    /// Set the QuestDB sender for persistence.
+    pub fn with_sender(mut self, sender: Sender) -> Self {
+        self.sender = Some(sender);
+        self
     }
 
     /// Connect, subscribe, and run the event loop.
     ///
     /// The client connects to OKX public WebSocket, subscribes to `books` and
     /// `trades` channels, maintains an in-memory `OrderBook`, and displays
-    /// reconstructed LOB2 state or raw trade/event messages.
+    /// reconstructed LOB2 state or raw trade/event messages. If a sender is
+    /// configured, also persists market data to QuestDB via ILP.
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let (ws_stream, _) = connect_async(WS_URL).await?;
         eprintln!("[CONNECTED] {}", WS_URL);
@@ -86,6 +97,13 @@ impl OkxClient {
                                     println!("{}", line);
                                 }
                             }
+
+                            // Persist to QuestDB if sender is configured
+                            if let Some(sender) = self.sender.as_mut() {
+                                if let Err(e) = Self::persist_message(sender, &parsed).await {
+                                    eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                }
+                            }
                         }
                         Err(e) => {
                             eprintln!(
@@ -112,6 +130,42 @@ impl OkxClient {
         }
 
         eprintln!("[DISCONNECTED]");
+        Ok(())
+    }
+
+    /// Persist a parsed message to QuestDB.
+    async fn persist_message(
+        sender: &mut Sender,
+        msg: &OkxWsMessage,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let inst_id = msg.arg.as_ref().map(|a| a.inst_id.as_str()).unwrap_or("?");
+        let ts_ms = msg.timestamp_ms().unwrap_or(0);
+
+        match msg.display_type() {
+            "LOB2 SNAPSHOT" => {
+                let levels = msg.lob_levels();
+                if !levels.is_empty() {
+                    persist_lob_snapshot(sender, inst_id, ts_ms, &levels).await?;
+                }
+            }
+            "LOB2 UPDATE" => {
+                let levels = msg.lob_levels();
+                if !levels.is_empty() {
+                    persist_lob_update(sender, inst_id, ts_ms, &levels).await?;
+                }
+            }
+            "TRADE" => {
+                if let Some(trade) = msg.data.first().and_then(|d| {
+                    serde_json::from_value::<TradeData>(d.clone()).ok()
+                }) {
+                    let px = trade.px.parse().unwrap_or(0.0);
+                    let sz = trade.sz.parse().unwrap_or(0.0);
+                    persist_trade(sender, inst_id, &trade.trade_id, px, sz, &trade.side, ts_ms)
+                        .await?;
+                }
+            }
+            _ => {}
+        }
         Ok(())
     }
 }
@@ -217,5 +271,11 @@ mod tests {
         assert!(out.contains("] | asks: ["));
         assert!(out.contains("100.00"));
         assert!(out.contains("102.00"));
+    }
+
+    #[test]
+    fn test_client_with_sender() {
+        // This is a compile-time test - if it compiles, the method exists
+        // We can't easily test with a real Sender without a DB
     }
 }

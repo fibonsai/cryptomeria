@@ -166,6 +166,97 @@ pub struct TradeData {
     pub ts: String,
 }
 
+/// A single LOB price level: [price, size, count, orders]
+#[derive(Debug, Deserialize, Clone)]
+pub struct LobLevel {
+    #[serde(default)]
+    pub price: String,
+    #[serde(default)]
+    pub size: String,
+    #[serde(default)]
+    pub count: String,
+    #[serde(default)]
+    pub orders: String,
+}
+
+impl LobLevel {
+    /// Parse all fields as f64, returning None if any fail.
+    pub fn as_f64(&self) -> Option<(f64, f64, f64, f64)> {
+        Some((
+            self.price.parse().ok()?,
+            self.size.parse().ok()?,
+            self.count.parse().ok()?,
+            self.orders.parse().ok()?,
+        ))
+    }
+}
+
+/// Parsed LOB snapshot data (action == "snapshot").
+#[derive(Debug, Deserialize, Clone)]
+pub struct LobSnapshotData {
+    #[serde(default)]
+    pub bids: Vec<LobLevel>,
+    #[serde(default)]
+    pub asks: Vec<LobLevel>,
+    #[serde(default)]
+    pub ts: String,
+    #[serde(default)]
+    pub checksum: i64,
+}
+
+/// Parsed LOB update data (action == "update" - same wire format as snapshot).
+#[derive(Debug, Deserialize, Clone)]
+pub struct LobUpdateData {
+    #[serde(default)]
+    pub bids: Vec<LobLevel>,
+    #[serde(default)]
+    pub asks: Vec<LobLevel>,
+    #[serde(default)]
+    pub ts: String,
+    #[serde(default)]
+    pub checksum: i64,
+}
+
+impl OkxWsMessage {
+    /// Parse LOB snapshot data when action == "snapshot".
+    pub fn lob_snapshot(&self) -> Option<LobSnapshotData> {
+        if self.action.as_deref() != Some("snapshot") {
+            return None;
+        }
+        self.data.first().and_then(|d| serde_json::from_value(d.clone()).ok())
+    }
+
+    /// Parse LOB update data when action == "update".
+    pub fn lob_update(&self) -> Option<LobUpdateData> {
+        if self.action.as_deref() != Some("update") {
+            return None;
+        }
+        self.data.first().and_then(|d| serde_json::from_value(d.clone()).ok())
+    }
+
+    /// Flatten LOB data into (side, level) pairs for persistence.
+    /// side is "bid" or "ask".
+    pub fn lob_levels(&self) -> Vec<(String, LobLevel)> {
+        let mut result = Vec::new();
+        if let Some(snapshot) = self.lob_snapshot() {
+            for level in snapshot.bids {
+                result.push(("bid".to_string(), level));
+            }
+            for level in snapshot.asks {
+                result.push(("ask".to_string(), level));
+            }
+        } else if let Some(update) = self.lob_update() {
+            for level in update.bids {
+                result.push(("bid".to_string(), level));
+            }
+            for level in update.asks {
+                result.push(("ask".to_string(), level));
+            }
+        }
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,5 +429,101 @@ mod tests {
         assert!(s.contains("BTC-USDT"));
         assert!(s.contains("100.0"));
         assert!(s.contains("sell"));
+    }
+
+    #[test]
+    fn test_lob_snapshot_parsing() {
+        let json = r#"{
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "snapshot",
+            "data": [{
+                "asks": [["3178.4","7.1","0","1"],["3179","4","0","1"]],
+                "bids": [["3173.3","3","0","2"],["3173.2","0.502","0","1"]],
+                "ts": "1621861907968",
+                "checksum": -614641406
+            }]
+        }"#;
+        let msg = OkxWsMessage::from_json(json).unwrap();
+        let snapshot = msg.lob_snapshot().unwrap();
+        assert_eq!(snapshot.asks.len(), 2);
+        assert_eq!(snapshot.bids.len(), 2);
+        assert_eq!(snapshot.asks[0].price, "3178.4");
+        assert_eq!(snapshot.asks[0].size, "7.1");
+        assert_eq!(snapshot.bids[0].price, "3173.3");
+        assert_eq!(snapshot.ts, "1621861907968");
+    }
+
+    #[test]
+    fn test_lob_update_parsing() {
+        let json = r#"{
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "update",
+            "data": [{
+                "asks": [["3178.4","0","0","0"],["3190","15","0","3"]],
+                "bids": [["3173.3","4.5","0","2"],["3160","0","0","0"]],
+                "ts": "1621861909768",
+                "checksum": -614641285
+            }]
+        }"#;
+        let msg = OkxWsMessage::from_json(json).unwrap();
+        let update = msg.lob_update().unwrap();
+        assert_eq!(update.asks.len(), 2);
+        assert_eq!(update.bids.len(), 2);
+        assert_eq!(update.asks[0].size, "0"); // removal
+        assert_eq!(update.bids[1].size, "0"); // removal
+    }
+
+    #[test]
+    fn test_lob_levels_flattening() {
+        let json = r#"{
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "snapshot",
+            "data": [{
+                "asks": [["100.0","1.5","0","1"]],
+                "bids": [["99.0","2.0","0","2"]],
+                "ts": "0",
+                "checksum": 0
+            }]
+        }"#;
+        let msg = OkxWsMessage::from_json(json).unwrap();
+        let levels = msg.lob_levels();
+        assert_eq!(levels.len(), 2);
+        assert_eq!(levels[0].0, "bid");
+        assert_eq!(levels[0].1.price, "99.0");
+        assert_eq!(levels[1].0, "ask");
+        assert_eq!(levels[1].1.price, "100.0");
+    }
+
+    #[test]
+    fn test_lob_update_levels_flattening() {
+        let json = r#"{
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "update",
+            "data": [{
+                "asks": [["101.0","0","0","0"]],
+                "bids": [["98.0","3.0","0","1"]],
+                "ts": "1000",
+                "checksum": 0
+            }]
+        }"#;
+        let msg = OkxWsMessage::from_json(json).unwrap();
+        let levels = msg.lob_levels();
+        assert_eq!(levels.len(), 2);
+        assert_eq!(levels[0].0, "bid");
+        assert_eq!(levels[0].1.price, "98.0");
+        assert_eq!(levels[1].0, "ask");
+        assert_eq!(levels[1].1.price, "101.0");
+        assert_eq!(levels[1].1.size, "0"); // removal
+    }
+
+    #[test]
+    fn test_lob_levels_empty_for_trade() {
+        let json = r#"{
+            "arg": {"channel": "trades", "instId": "BTC-USDT"},
+            "data": [{"px":"100","sz":"1","side":"buy","ts":"0"}]
+        }"#;
+        let msg = OkxWsMessage::from_json(json).unwrap();
+        let levels = msg.lob_levels();
+        assert!(levels.is_empty());
     }
 }

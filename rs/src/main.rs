@@ -53,8 +53,8 @@ async fn main() {
         eprintln!("[DB] Migrations applied successfully");
     }
 
-    // Connect QuestDB sender for future persistence (optional, non-blocking)
-    let _sender = match connect_sender(&questdb_conf).await {
+    // Connect QuestDB sender for persistence
+    let sender = match connect_sender(&questdb_conf).await {
         Ok(s) => {
             eprintln!("[DB] QuestDB sender connected");
             Some(s)
@@ -69,6 +69,9 @@ async fn main() {
     };
 
     let mut client = OkxClient::new(&instrument, show_top_pct);
+    if let Some(sender) = sender {
+        client = client.with_sender(sender);
+    }
 
     tokio::select! {
         result = client.run() => {

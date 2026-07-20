@@ -78,7 +78,7 @@ cargo run -- --help
 cargo run -- ETH-USDT
 
 # Run with QuestDB persistence (QDB_CLIENT_CONF format)
-cargo run -- --questdb-conf "http::addr=localhost:9000;username=admin;password:quest;"
+cargo run -- --questdb-conf "http::addr=localhost:9000;username=admin;password=quest;"
 
 # Run with QuestDB via environment variable
 export QDB_CLIENT_CONF="http::addr=localhost:9000;username=admin;password:quest;"

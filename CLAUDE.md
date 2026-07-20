@@ -106,6 +106,7 @@ rs/
 - **ADR-001** (`docs/ADR-001-...`): `tokio-tungstenite` for OKX WS — async, tokio-native, stream/sink traits
 - **ADR-002** (`docs/ADR-002-...`): `BTreeMap<OrderedFloat>` for LOB2 — O(log n) insert/remove, sorted iteration for display
 - **ADR-003** (`docs/ADR-003-...`): Use QuestDB with refinery for market data persistence and SQL migrations
+- **ADR-004** (`docs/ADR-004-...`): Normalized LOB levels storage in QuestDB
 
 ---
 
