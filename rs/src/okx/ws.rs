@@ -1,6 +1,6 @@
 use crate::okx::lob::OrderBook;
 use crate::okx::types::{MessageType, OkxWsMessage, TradeData};
-use crate::db::{persist_lob_snapshot, persist_lob_update, persist_trade};
+use crate::db::{persist_lob, persist_trade};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use questdb::ingress::Sender;
@@ -144,13 +144,13 @@ impl OkxClient {
             MessageType::L2Snapshot => {
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
-                    persist_lob_snapshot(sender, inst_id, ts_ms, &levels).await?;
+                    persist_lob(sender, inst_id, ts_ms, "snapshot", &levels).await?;
                 }
             }
             MessageType::L2Update => {
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
-                    persist_lob_update(sender, inst_id, ts_ms, &levels).await?;
+                    persist_lob(sender, inst_id, ts_ms, "update", &levels).await?;
                 }
             }
             MessageType::Trade => {
