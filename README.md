@@ -81,7 +81,7 @@ cargo run -- ETH-USDT
 cargo run -- --questdb-conf "http::addr=localhost:9000;username=admin;password=quest;"
 
 # Run with QuestDB via environment variable
-export QDB_CLIENT_CONF="http::addr=localhost:9000;username=admin;password=quest;"
+export QDB_CLIENT_CONF="http::addr=localhost:9000;username=admin;password:quest;"
 cargo run -- ETH-USDT
 
 # Show more or fewer LOB2 levels (percentage from best price, default 0.1%)

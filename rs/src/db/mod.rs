@@ -87,7 +87,6 @@ pub async fn connect_sender(conf_str: &str) -> Result<Sender, Box<dyn std::error
     connect(conf_str).await
 }
 
-/// Build a LOB level row in the buffer.
 fn write_lob_level(
     buffer: &mut Buffer,
     inst_id: &str,
@@ -97,7 +96,6 @@ fn write_lob_level(
     level: &LobLevel,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (price, size, count, orders) = level.as_f64().unwrap_or((0.0, 0.0, 0.0, 0.0));
-    // TimestampNanos expects nanoseconds, convert from milliseconds
     let timestamp_nanos = (ts_ms as i64) * 1_000_000;
     buffer
         .table("lob_levels")?
@@ -112,8 +110,6 @@ fn write_lob_level(
     Ok(())
 }
 
-/// Persist LOB snapshot levels to QuestDB via ILP.
-/// Each price level becomes a separate row in lob_levels table.
 pub async fn persist_lob_snapshot(
     sender: &mut Sender,
     inst_id: &str,
@@ -128,8 +124,6 @@ pub async fn persist_lob_snapshot(
     Ok(())
 }
 
-/// Persist LOB update levels to QuestDB via ILP.
-/// Each price level becomes a separate row in lob_levels table.
 pub async fn persist_lob_update(
     sender: &mut Sender,
     inst_id: &str,
@@ -144,7 +138,6 @@ pub async fn persist_lob_update(
     Ok(())
 }
 
-/// Persist a trade to QuestDB via ILP.
 pub async fn persist_trade(
     sender: &mut Sender,
     inst_id: &str,
