@@ -9,6 +9,20 @@ The plan lives in the **GitHub issue body** (not `docs/PLAN.md`). The issue is t
 
 ## Steps
 
+### 0. Pull main and review the plan for conflicts
+
+```bash
+git checkout main && git pull origin main
+```
+
+After pulling, check if any new changes on main affect the plan (e.g. files the plan modifies were changed upstream). If the plan needs updating:
+
+1. Identify what changed in the conflicting files (`git diff HEAD@{1} -- <file>`)
+2. Update the issue body with the revised plan
+3. Re-read the plan from the updated issue body before proceeding
+
+If there are no conflicts, proceed.
+
 ### 1. Get the issue and read the plan
 
 ```bash
@@ -116,5 +130,5 @@ gh issue close "$ISSUE"
 ## Full workflow
 
 ```
-read issue → execute plan → update README → post changelog → update issue body → delete PLAN.md → create ADR → create PR → close issue
+pull main → read issue → execute plan → update README → post changelog → update issue body → delete PLAN.md → create ADR → create PR → close issue
 ```
