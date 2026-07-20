@@ -22,7 +22,7 @@ A Medium-Frequency Trading (MFT) platform for crypto derivatives, focused on the
 │   │   └── lob.py       # LOB parquet stream reader & LOB2 rebuild CLI
 │   ├── tests/
 │   │   └── test_lob.py  # Unit tests for LOB module
-│   └── main.py          # Entry point for analysis, research, and strategy work
+
 ├── rs/                  # Rust package: cryptomeria
 │   ├── Cargo.toml
 │   ├── rust-toolchain.toml
@@ -58,8 +58,8 @@ A Medium-Frequency Trading (MFT) platform for crypto derivatives, focused on the
 # Install dependencies (includes dev tools like ruff)
 uv sync --dev
 
-# Run the placeholder application
-python python/main.py
+# Run the LOB parquet reader CLI
+PYTHONPATH=python uv run python -m cryptomeria.lob input.parquet output.parquet
 ```
 
 ### Rust Environment
@@ -197,7 +197,7 @@ Streams OKX L2 orderbook parquet files row-group by row-group (memory-safe for f
 
 **Key rules:**
 - `action='snapshot'` — clears all levels and inserts fresh price/amount pairs unconditionally
-- `action='update'` with `amount_ask == 0` or `amount_bids == 0` — removes that price level
+- `action='update'` with `amount_ask == 0` or `amount_bid == 0` — removes that price level
 - `action='update'` with non-zero amount — upserts the level
 - Rows with `price_ask` or `price_bid` as `None` are skipped
 
@@ -265,8 +265,8 @@ make check     # lint + test
 ### Rust (`rs/`)
 - [x] OKX WebSocket client (public channels — books + trades)
 - [x] QuestDB persistence with ILP/HTTP and SQL migrations
-- [ ] Order book reconstruction (LOB) with snapshot + delta handling
-- [ ] Trade stream ingestion & normalization
+- [x] Order book reconstruction (LOB) with snapshot + delta handling
+- [x] Trade stream ingestion & normalization
 - [ ] Schema validation & enrichment pipelines
 - [ ] **Strategy execution engine** – signal evaluation, decision logic, position management
 - [ ] Order Management System (OMS) with OKX REST API
