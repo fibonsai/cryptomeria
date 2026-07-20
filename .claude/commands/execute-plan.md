@@ -1,6 +1,6 @@
 ---
 name: execute-plan
-description: Execute the plan stored in the GitHub issue body, step by step, then post a changelog comment and close the issue
+description: Execute the plan stored in the GitHub issue body, step by step, then post a changelog comment and close the issue. If there is more than one open issue, STOP and ask the user how the open issue can be executed. In this case, read only the open issue indicated by the user, ignoring the others.
 ---
 
 # Execute PLAN
@@ -18,7 +18,9 @@ PLAN=$(gh issue view "$ISSUE" --json body -q '.body')
 
 Read the plan body and identify all task sections (lines starting with `### `) and their `- [ ]` sub-steps.
 
-### 2. Create an exclusive branch and work in there
+### 2. Create an exclusive branch from main and work in there
+
+If the current branch is not `main`, ABORT this command, explaining that it is mandatory for the current branch to be `main` first.
 
 branch name template: <tags separated by "-">/<short description replacing spaces with "-">
 
