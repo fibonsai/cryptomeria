@@ -20,6 +20,11 @@ pub struct CliArgs {
     /// QuestDB connection string (QDB_CLIENT_CONF format).
     #[arg(long)]
     pub questdb_conf: Option<String>,
+
+    /// Data retention window in minutes. Data older than this is pruned
+    /// from QuestDB on each persistence flush. Omit to keep all data.
+    #[arg(long)]
+    pub retention_window: Option<u64>,
 }
 
 /// Parse CLI arguments using clap.  Exits with help/error on `--help` or
@@ -71,6 +76,9 @@ async fn main() {
     let mut client = OkxClient::new(&instrument, show_top_pct);
     if let Some(sender) = sender {
         client = client.with_sender(sender);
+    }
+    if let Some(window) = cli.retention_window {
+        client = client.with_retention_window(window);
     }
 
     tokio::select! {
@@ -210,5 +218,17 @@ mod tests {
     fn test_parse_args_questdb_conf_not_required() {
         let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
         assert!(cli.questdb_conf.is_none());
+    }
+
+    #[test]
+    fn test_parse_args_retention_window() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria", "--retention-window", "60"]).unwrap();
+        assert_eq!(cli.retention_window, Some(60));
+    }
+
+    #[test]
+    fn test_parse_args_retention_window_not_required() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
+        assert!(cli.retention_window.is_none());
     }
 }

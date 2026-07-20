@@ -125,6 +125,31 @@ pub async fn persist_lob(
     Ok(())
 }
 
+/// Delete data older than `retention_min` minutes from lob_levels and trades.
+pub async fn cleanup_old_data(
+    _sender: &mut Sender,
+    inst_id: &str,
+    retention_min: u64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let conf_str = "http::addr=localhost:9000;";
+    let http_addr = extract_http_addr(conf_str);
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+
+    let cutoff = format!("now() - {}m", retention_min);
+    for table in &["lob_levels", "trades"] {
+        let sql = format!(
+            "DELETE FROM {} WHERE inst_id = '{}' AND ts < {}",
+            table, inst_id, cutoff
+        );
+        if let Err(e) = execute_sql(&client, &http_addr, &sql).await {
+            eprintln!("[DB CLEANUP] {}: {}", table, e);
+        }
+    }
+    Ok(())
+}
+
 pub async fn persist_trade(
     sender: &mut Sender,
     inst_id: &str,
