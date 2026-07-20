@@ -100,7 +100,7 @@ clean: python-clean rust-clean
 # =============================================================================
 dev: python-install rust-build
 	@echo "Development environment ready"
-	@echo "  Python: uv run python python/main.py"
+	@echo "  Python: PYTHONPATH=python uv run python -m cryptomeria.lob <input> <output>"
 	@echo "  Rust:   cargo run"
 
 check: lint test
