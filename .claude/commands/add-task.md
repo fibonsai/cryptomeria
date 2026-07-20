@@ -9,7 +9,7 @@ Create a GitHub issue from the text provided after the `/add-task` slash command
 
 ## Rules
 
-1. **Read the input** — take the text after `/add-task` as the task description
+1. **Read the input** — take the text after `/add-task` as the task description ($ARGUMENTS)
 2. **Fix silently** — correct grammar, spelling, and punctuation without comment
 3. **Capitalize** the first letter of the description
 4. **End with a single period** (no trailing whitespace)
