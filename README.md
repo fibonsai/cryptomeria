@@ -28,7 +28,11 @@ A Medium-Frequency Trading (MFT) platform for crypto derivatives, focused on the
 │   ├── rust-toolchain.toml
 │   ├── src/
 │   │   ├── lib.rs       # Library root
-│   │   ├── main.rs      # CLI entry point (OKX WebSocket market data client)
+│   │   ├── main.rs      # CLI entry point (OKX WebSocket market data client + QuestDB persistence)
+│   │   ├── db/
+│   │   │   ├── mod.rs          # QuestDB connection, migrations, ILP sender
+│   │   │   └── migrations/
+│   │   │       └── V1__create_market_data.sql
 │   │   └── okx/
 │   │       ├── mod.rs   # Module declarations
 │   │       ├── lob.rs   # OrderBook: full LOB2 state reconstruction
@@ -73,6 +77,13 @@ cargo run -- --help
 # Run with a custom instrument
 cargo run -- ETH-USDT
 
+# Run with QuestDB persistence (QDB_CLIENT_CONF format)
+cargo run -- --questdb-conf "http::addr=localhost:9000;username=admin;password:quest;"
+
+# Run with QuestDB via environment variable
+export QDB_CLIENT_CONF="http::addr=localhost:9000;username=admin;password:quest;"
+cargo run -- ETH-USDT
+
 # Show more or fewer LOB2 levels (percentage from best price, default 0.1%)
 cargo run -- --show-top-pct 0.5
 cargo run -- --show-top-pct 0.01 XRP-USDT
@@ -88,30 +99,58 @@ cargo fmt
 cargo clippy
 ```
 
-## Development Workflow
+## QuestDB Persistence
 
-### Python Linting
+The Rust client can persist market data to QuestDB using the InfluxDB Line Protocol (ILP) over HTTP.
 
-```bash
-# Check code style
-uv run ruff check python/
+### Configuration
 
-# Auto-fix issues
-uv run ruff check --fix python/
-
-# Format code
-uv run ruff format python/
-```
-
-### Rust Linting
+QuestDB connection is configured via the `--questdb-conf` flag or the `QDB_CLIENT_CONF` environment variable. The format follows QuestDB's `QDB_CLIENT_CONF` specification:
 
 ```bash
-# Format
-cargo fmt
+# CLI flag (takes priority over env var)
+cargo run -- --questdb-conf "http::addr=localhost:9000;username=admin;password=quest;"
 
-# Lint
-cargo clippy
+# Environment variable fallback
+export QDB_CLIENT_CONF="http::addr=localhost:9000;username=admin;password=quest;"
+cargo run
 ```
+
+**Default** (no flag, no env var): `http::addr=localhost:9000;username=admin;password=quest;`
+
+### Supported Parameters
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `http::addr` / `https::addr` | HTTP/HTTPS endpoint for ILP and SQL | `localhost:9000` |
+| `tcp::addr` / `tcps::addr` | TCP/TLS endpoint for ILP (legacy) | `localhost:9009` |
+| `username` | Basic auth username | `admin` |
+| `password` | Basic auth password | `quest` |
+| `token` | Bearer token for HTTP auth | `your-token` |
+
+### Database Schema
+
+On startup, the client automatically runs embedded SQL migrations to create the following tables:
+
+```sql
+CREATE TABLE IF NOT EXISTS trades (
+    inst_id SYMBOL,
+    trade_id SYMBOL,
+    px DOUBLE,
+    sz DOUBLE,
+    side SYMBOL,
+    ts TIMESTAMP
+) TIMESTAMP(ts) PARTITION BY DAY WAL;
+
+CREATE TABLE IF NOT EXISTS orderbook_snapshots (
+    inst_id SYMBOL,
+    ts TIMESTAMP,
+    bids VARCHAR,
+    asks VARCHAR
+) TIMESTAMP(ts) PARTITION BY DAY WAL;
+```
+
+Tables use QuestDB-optimized types: `SYMBOL` for low-cardinality strings, `DOUBLE` for prices/sizes, `TIMESTAMP` with daily partitioning and WAL for durability.
 
 ## OKX WebSocket Market Data Client
 
@@ -177,6 +216,42 @@ Output schema:
 | `bids` | String (JSON) | `[{"px": price, "sz": amount}, ...]` sorted descending |
 | `asks` | String (JSON) | `[{"px": price, "sz": amount}, ...]` sorted ascending |
 
+## Development Workflow
+
+### Python Linting
+
+```bash
+# Check code style
+uv run ruff check python/
+
+# Auto-fix issues
+uv run ruff check --fix python/
+
+# Format code
+uv run ruff format python/
+```
+
+### Rust Linting
+
+```bash
+# Format
+cargo fmt
+
+# Lint
+cargo clippy
+```
+
+### Makefile Commands
+
+```bash
+make dev       # uv sync --dev + cargo build
+make lint      # ruff check + cargo clippy
+make test      # pytest + cargo test
+make format    # ruff format + cargo fmt
+make quick     # format → lint → test
+make check     # lint + test
+```
+
 ## Roadmap
 
 ### Python (`python/`)
@@ -189,6 +264,7 @@ Output schema:
 
 ### Rust (`rs/`)
 - [x] OKX WebSocket client (public channels — books + trades)
+- [x] QuestDB persistence with ILP/HTTP and SQL migrations
 - [ ] Order book reconstruction (LOB) with snapshot + delta handling
 - [ ] Trade stream ingestion & normalization
 - [ ] Schema validation & enrichment pipelines

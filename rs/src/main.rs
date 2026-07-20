@@ -1,4 +1,5 @@
 use clap::Parser;
+use cryptomeria::db::{connect_sender, run_migrations};
 use cryptomeria::okx::ws::OkxClient;
 
 /// OKX WebSocket market data client.
@@ -15,6 +16,10 @@ pub struct CliArgs {
     /// Show price levels within PCT% of the best price on each side.
     #[arg(long, default_value_t = 0.1)]
     pub show_top_pct: f64,
+
+    /// QuestDB connection string (QDB_CLIENT_CONF format).
+    #[arg(long)]
+    pub questdb_conf: Option<String>,
 }
 
 /// Parse CLI arguments using clap.  Exits with help/error on `--help` or
@@ -32,6 +37,36 @@ async fn main() {
     let show_top_pct = cli.show_top_pct;
 
     eprintln!("[CONNECTING] wss://ws.okx.com:8443/ws/v5/public");
+
+    // Resolve QuestDB connection from CLI flag, env var, or default
+    let questdb_conf = cryptomeria::db::resolve_questdb_conf(cli.questdb_conf.as_deref());
+
+    eprintln!(
+        "[ARGS] instrument={} questdb_conf={}",
+        instrument, questdb_conf
+    );
+
+    // Initialize QuestDB connection and run migrations
+    if let Err(e) = run_migrations(&questdb_conf).await {
+        eprintln!("[DB] Migration failed: {} — running without persistence", e);
+    } else {
+        eprintln!("[DB] Migrations applied successfully");
+    }
+
+    // Connect QuestDB sender for future persistence (optional, non-blocking)
+    let _sender = match connect_sender(&questdb_conf).await {
+        Ok(s) => {
+            eprintln!("[DB] QuestDB sender connected");
+            Some(s)
+        }
+        Err(e) => {
+            eprintln!(
+                "[DB] QuestDB not available — running without persistence: {}",
+                e
+            );
+            None
+        }
+    };
 
     let mut client = OkxClient::new(&instrument, show_top_pct);
 
@@ -53,6 +88,8 @@ async fn main() {
 mod tests {
     use super::*;
     use clap::error::ErrorKind;
+
+    // --- clap derive tests (instrument + show_top_pct) ---
 
     #[test]
     fn test_parse_args_default() {
@@ -79,7 +116,8 @@ mod tests {
     #[test]
     fn test_parse_args_show_top_pct_before_instrument() {
         let cli =
-            CliArgs::try_parse_from(&["cryptomeria", "--show-top-pct", "0.05", "XRP-USDT"]).unwrap();
+            CliArgs::try_parse_from(&["cryptomeria", "--show-top-pct", "0.05", "XRP-USDT"])
+                .unwrap();
         assert_eq!(cli.instrument, "XRP-USDT");
         assert!((cli.show_top_pct - 0.05).abs() < f64::EPSILON);
     }
@@ -115,5 +153,59 @@ mod tests {
     fn test_parse_args_unknown_flag() {
         let err = CliArgs::try_parse_from(&["cryptomeria", "--bogus"]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    }
+
+    // --- QuestDB conf tests ---
+
+    #[test]
+    fn test_parse_args_questdb_conf() {
+        let cli = CliArgs::try_parse_from(&[
+            "cryptomeria",
+            "--questdb-conf",
+            "http::addr=custom:9000;",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.questdb_conf.as_deref(),
+            Some("http::addr=custom:9000;")
+        );
+    }
+
+    #[test]
+    fn test_parse_args_instrument_with_questdb_conf() {
+        let cli = CliArgs::try_parse_from(&[
+            "cryptomeria",
+            "ETH-USDT",
+            "--questdb-conf",
+            "http::addr=test:9000;",
+        ])
+        .unwrap();
+        assert_eq!(cli.instrument, "ETH-USDT");
+        assert_eq!(
+            cli.questdb_conf.as_deref(),
+            Some("http::addr=test:9000;")
+        );
+    }
+
+    #[test]
+    fn test_parse_args_questdb_conf_first() {
+        let cli = CliArgs::try_parse_from(&[
+            "cryptomeria",
+            "--questdb-conf",
+            "http::addr=test:9000;",
+            "ETH-USDT",
+        ])
+        .unwrap();
+        assert_eq!(cli.instrument, "ETH-USDT");
+        assert_eq!(
+            cli.questdb_conf.as_deref(),
+            Some("http::addr=test:9000;")
+        );
+    }
+
+    #[test]
+    fn test_parse_args_questdb_conf_not_required() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
+        assert!(cli.questdb_conf.is_none());
     }
 }

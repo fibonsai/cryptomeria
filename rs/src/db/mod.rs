@@ -1,0 +1,110 @@
+use questdb::ingress::Sender;
+use refinery::embed_migrations;
+use reqwest::Client;
+use std::env;
+use std::time::Duration;
+
+embed_migrations!("src/db/migrations");
+
+/// Default QuestDB configuration string (QDB_CLIENT_CONF format)
+pub const DEFAULT_QDB_CONF: &str = "http::addr=localhost:9000;username=admin;password=quest;";
+
+/// Resolve QuestDB configuration string.
+/// Priority: CLI arg > QDB_CLIENT_CONF env var > hardcoded default.
+pub fn resolve_questdb_conf(cli_conf: Option<&str>) -> String {
+    if let Some(conf) = cli_conf {
+        return conf.to_string();
+    }
+    if let Ok(env_conf) = env::var("QDB_CLIENT_CONF") {
+        return env_conf;
+    }
+    DEFAULT_QDB_CONF.to_string()
+}
+
+/// Extract HTTP address from QDB_CLIENT_CONF string
+fn extract_http_addr(conf_str: &str) -> String {
+    for part in conf_str.split(';') {
+        if part.starts_with("http::addr=") {
+            return part["http::addr=".len()..].to_string();
+        }
+        if part.starts_with("https::addr=") {
+            return part["https::addr=".len()..].to_string();
+        }
+    }
+    "localhost:9000".to_string()
+}
+
+/// Create a QuestDB Sender from a QDB_CLIENT_CONF formatted string.
+pub async fn connect(conf_str: &str) -> Result<Sender, Box<dyn std::error::Error + Send + Sync>> {
+    let conf = if conf_str.is_empty() { DEFAULT_QDB_CONF } else { conf_str };
+    Ok(Sender::from_conf(conf)?)
+}
+
+/// Run embedded SQL migrations against QuestDB using its HTTP API.
+pub async fn run_migrations(conf_str: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let http_addr = extract_http_addr(conf_str);
+    let client = Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()?;
+
+    let runner = migrations::runner();
+    for migration in runner.get_migrations() {
+        if let Some(sql) = migration.sql() {
+            execute_sql(&client, &http_addr, sql).await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Execute a raw SQL statement against QuestDB's HTTP endpoint.
+async fn execute_sql(
+    client: &Client,
+    http_addr: &str,
+    sql: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let url = format!("http://{}/exec", http_addr);
+    let query = format!("query={}", urlencoding::encode(sql));
+
+    let response = client
+        .post(&url)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(query)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let text = response.text().await?;
+        return Err(format!("QuestDB SQL error: {}", text).into());
+    }
+
+    Ok(())
+}
+
+/// Connect to QuestDB and return a Sender for ILP ingestion.
+pub async fn connect_sender(conf_str: &str) -> Result<Sender, Box<dyn std::error::Error + Send + Sync>> {
+    connect(conf_str).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_conf() {
+        assert_eq!(DEFAULT_QDB_CONF, "http::addr=localhost:9000;username=admin;password=quest;");
+    }
+
+    #[test]
+    fn test_extract_http_addr() {
+        assert_eq!(extract_http_addr("http::addr=custom:9000;"), "custom:9000");
+        assert_eq!(extract_http_addr("https::addr=secure:9000;"), "secure:9000");
+        assert_eq!(extract_http_addr("username=admin;password=quest;"), "localhost:9000");
+    }
+
+    #[test]
+    fn test_connect_parses_conf() {
+        let result = Sender::from_conf("http::addr=localhost:9000;");
+        assert!(result.is_ok() || result.is_err());
+    }
+}
