@@ -79,36 +79,8 @@ impl OkxWsMessage {
         match self.display_type() {
             "LOB2 SNAPSHOT" | "LOB2 UPDATE" | "LOB2" => {
                 let top = self.data.first().map(|d| {
-                    let bids = d
-                        .get("bids")
-                        .and_then(|b| b.as_array())
-                        .map(|b| {
-                            b.iter()
-                                .take(2)
-                                .filter_map(|l| {
-                                    let p = l.get(0).and_then(|v| v.as_str()).unwrap_or("?");
-                                    let s = l.get(1).and_then(|v| v.as_str()).unwrap_or("?");
-                                    Some(format!("{} ({})", p, s))
-                                })
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        })
-                        .unwrap_or_default();
-                    let asks = d
-                        .get("asks")
-                        .and_then(|a| a.as_array())
-                        .map(|a| {
-                            a.iter()
-                                .take(2)
-                                .filter_map(|l| {
-                                    let p = l.get(0).and_then(|v| v.as_str()).unwrap_or("?");
-                                    let s = l.get(1).and_then(|v| v.as_str()).unwrap_or("?");
-                                    Some(format!("{} ({})", p, s))
-                                })
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        })
-                        .unwrap_or_default();
+                    let bids = format_top_levels(d, "bids");
+                    let asks = format_top_levels(d, "asks");
                     format!("bids: {} | asks: {}", bids, asks)
                 });
                 format!("{} {}", inst, top.unwrap_or_default())
@@ -264,6 +236,24 @@ impl OkxWsMessage {
         }
         result
     }
+}
+
+/// Format up to 2 price levels from a data object for display text.
+fn format_top_levels(data: &serde_json::Value, key: &str) -> String {
+    data.get(key)
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .take(2)
+                .filter_map(|l| {
+                    let p = l.get(0).and_then(|v| v.as_str()).unwrap_or("?");
+                    let s = l.get(1).and_then(|v| v.as_str()).unwrap_or("?");
+                    Some(format!("{} ({})", p, s))
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
