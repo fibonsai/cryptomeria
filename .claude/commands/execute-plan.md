@@ -27,18 +27,31 @@ If there are no conflicts, proceed.
 
 ```bash
 ISSUE=$(gh issue list --state open --json number -L 1 -q '.[0].number')
-gh issue view "$ISSUE" --json title,body,comments
+FULL=$(gh issue view "$ISSUE" --json title,body,comments)
 ```
 
-Read all available context: title, body, and comments. The plan may be in the body or in a comment. Identify the plan content and extract all task sections (lines starting with `### `) and their `- [ ]` sub-steps.
+Read all available context: title, body, and comments.
 
-### 2. Create an exclusive branch from main and work in there
+### 2. Find the most recent plan
+
+The plan may be in the issue body or in a comment. Scan all comments for the most recent one containing a `# PLAN` header. Use that as the active plan. If no comment contains a plan, fall back to the issue body.
+
+```bash
+# Extract the latest plan (prefer comments over body, most recent wins)
+PLAN=$(echo "$FULL" | jq -r '[.comments[] | select(.body | startswith("# PLAN"))] | last | .body // .body')
+```
+
+If the plan is outdated or missing, abort and run `/create-plan` first.
+
+Extract all task sections (lines starting with `### `) and their `- [ ]` sub-steps from the plan.
+
+### 3. Create an exclusive branch from main and work in there
 
 If the current branch is not `main`, ABORT this command, explaining that it is mandatory for the current branch to be `main` first.
 
 branch name template: <tags separated by "-">/<short description replacing spaces with "-">
 
-### 3. Execute each task section in order
+### 4. Execute each task section in order
 
 For each section:
 
@@ -55,11 +68,11 @@ For each section:
 - Do not continue to subsequent steps
 - Do not close the issue
 
-### 4. Update `README.md`
+### 5. Update `README.md`
 
 If the execution changed architecture, CLI flags, added/removed commands, or changed behavior, update `README.md` to reflect it.
 
-### 5. Post the changelog as an issue comment
+### 6. Post the changelog as an issue comment
 
 The changelog summarizes what was done. It must **not** contain a `# PLAN` section.
 
@@ -82,21 +95,23 @@ Task: <issue title>
 <count> passed, <count> failed — <notes, e.g., coverage percentage or any regressions>."
 ```
 
-### 6. Update the issue body's sub-steps with completed checkboxes
+### 7. Update the issue body's sub-steps with completed checkboxes
 
-All `[ ]` sub-steps should now be `[x]`. Update the body:
+All `[ ]` sub-steps should now be `[x]`. Post an updated plan comment with checkboxes marked complete. If the plan lives in the issue body, edit it:
 
 ```bash
 gh issue edit "$ISSUE" -b "$(echo "$PLAN" | sed 's/- \[ \]/- [x]/g')"
 ```
 
-### 7. Delete `docs/PLAN.md`
+If the plan lives in a comment, post a new comment with the completed plan.
+
+### 8. Delete `docs/PLAN.md`
 
 ```bash
 rm docs/PLAN.md
 ```
 
-### 8. Create Architecture Decision Record (ADR)
+### 9. Create Architecture Decision Record (ADR)
 
 Create an ADR doc in `docs/` with at least these sections:
 
@@ -113,7 +128,7 @@ The sequential number should be one more than the highest existing ADR in `docs/
 
 Update `CLAUDE.md`, adding a link to each ADR under an **ADRs** section.
 
-### 9. Create a PR from exclusive branch
+### 10. Create a PR from exclusive branch
 
 1. PR title is the same as the issue title.
 2. Add ref to issue in PR body — do **not** append `🤖 Generated with [Claude Code](https://claude.com/claude-code)` or any auto-attribution line
@@ -121,7 +136,7 @@ Update `CLAUDE.md`, adding a link to each ADR under an **ADRs** section.
 
 Do not merge the PR (it will be checked by a human or another agent).
 
-### 10. Close the issue
+### 11. Close the issue
 
 ```bash
 gh issue close "$ISSUE"
@@ -130,5 +145,5 @@ gh issue close "$ISSUE"
 ## Full workflow
 
 ```
-pull main → read issue → execute plan → update README → post changelog → update issue body → delete PLAN.md → create ADR → create PR → close issue
+pull main → read issue → find latest plan → create branch → execute plan → update README → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue
 ```

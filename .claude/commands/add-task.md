@@ -31,10 +31,10 @@ git checkout main && git pull --rebase origin main
 
 ### 2. Create the issue with a descriptive body
 
-Use the raw input text as the body to provide full context:
+Write the fixed description as the body to provide full context. Expand with any relevant details if the raw input was brief:
 
 ```bash
-gh issue create -t "<fixed description>" -b "<$ARGUMENTS>"
+gh issue create -t "<fixed description>" -b "<fixed description>"
 ```
 
 **ABORT ON ERROR** — if `gh` returns a non-zero exit, stop immediately. Never retry.
