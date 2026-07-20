@@ -32,7 +32,21 @@ Using the full context (title, body, comments), write `docs/PLAN.md` with:
 - **Verification** — shell commands to validate the result
 - **Changelog** — the final workflow: post changelog as an issue comment, then close the issue
 
-### 3. Check if the issue body is empty
+### 3. Create Architecture Decision Record (ADR) for behavior changes
+
+**Always** create an ADR if the plan introduces a new approach, changes architecture, or modifies behavior. For simple refactors or bug fixes with no behavioral impact, skip this step.
+
+If an ADR is needed:
+
+- Check existing ADRs in `docs/` (`ls docs/ADR-*.md 2>/dev/null`)
+- The sequential number is one more than the highest existing ADR (or 1 if none)
+- File name template: `docs/ADR-<N>-<YYYYMMDD>-<short-title-with-dashes>.md`
+- Include: Title, Context, Options Considered, Decision, Consequences, Status
+- Add a link to the ADR in the plan's `## References` section
+- Update `CLAUDE.md` with the ADR link under the **ADRs** section
+- Stage and commit the new ADR and CLAUDE.md as part of the plan creation
+
+### 4. Check if the issue body is empty
 
 ```bash
 BODY=$(gh issue view "$ISSUE" --json body -q '.body')
@@ -51,6 +65,13 @@ gh issue comment "$ISSUE" -F docs/PLAN.md
 ```
 
 Each subsequent update to the plan **must** be a new comment with the complete updated plan — never edit a previous plan comment.
+
+### 5. Commit and push
+
+```bash
+git add docs/ && git commit -m "Add ADR-<N>: <title>"
+git push origin <branch>
+```
 
 ## Template
 
