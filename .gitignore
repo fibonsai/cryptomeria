@@ -48,4 +48,4 @@ Thumbs.db
 
 # opencode links to Claude Code confs
 AGENTS.md
-.opencode/**
+.opencode
