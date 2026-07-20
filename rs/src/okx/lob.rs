@@ -1,5 +1,6 @@
 use crate::okx::types::OkxWsMessage;
 use ordered_float::OrderedFloat;
+use serde_json::Value;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
@@ -121,43 +122,12 @@ impl OrderBook {
 
         let action = msg.action.as_deref().unwrap_or("snapshot");
 
-        // Parse bids
-        if let Some(bids) = data.get("bids").and_then(|b| b.as_array()) {
-            let levels: Vec<PriceLevel> = bids
-                .iter()
-                .filter_map(|v| {
-                    v.as_array().map(|a| {
-                        a.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .collect();
+        for (key, side) in [("bids", Side::Bid), ("asks", Side::Ask)] {
+            let levels = parse_levels(data, key);
             if !levels.is_empty() {
                 match action {
-                    "snapshot" => self.apply_snapshot(&levels, Side::Bid),
-                    "update" => self.apply_update(&levels, Side::Bid),
-                    _ => {}
-                }
-            }
-        }
-
-        // Parse asks
-        if let Some(asks) = data.get("asks").and_then(|a| a.as_array()) {
-            let levels: Vec<PriceLevel> = asks
-                .iter()
-                .filter_map(|v| {
-                    v.as_array().map(|a| {
-                        a.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .collect();
-            if !levels.is_empty() {
-                match action {
-                    "snapshot" => self.apply_snapshot(&levels, Side::Ask),
-                    "update" => self.apply_update(&levels, Side::Ask),
+                    "snapshot" => self.apply_snapshot(&levels, side),
+                    "update" => self.apply_update(&levels, side),
                     _ => {}
                 }
             }
@@ -233,6 +203,24 @@ impl Default for OrderBook {
 
 /// A raw price level from OKX: `[price, size, ...]`.
 pub type PriceLevel = Vec<String>;
+
+/// Extract price levels from a JSON data object by key ("bids" or "asks").
+fn parse_levels(data: &Value, key: &str) -> Vec<PriceLevel> {
+    data.get(key)
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| {
+                    v.as_array().map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 /// Parse a `PriceLevel` into `(price, amount)` as `f64`.
 /// Returns `None` if either value is missing or unparseable.
