@@ -181,12 +181,12 @@ impl OrderBook {
         let bids_str = self.format_side(
             self.bids.iter().map(|(k, v)| (k.0 .0, *v)),
             top_pct,
-            false,
+            Side::Bid,
         );
         let asks_str = self.format_side(
             self.asks.iter().map(|(k, v)| (k.0, *v)),
             top_pct,
-            true,
+            Side::Ask,
         );
 
         format!(
@@ -200,25 +200,21 @@ impl OrderBook {
         &self,
         levels: impl Iterator<Item = (f64, f64)>,
         top_pct: f64,
-        is_ask: bool,
+        side: Side,
     ) -> String {
-        let best = if is_ask {
-            self.best_ask()
-        } else {
-            self.best_bid()
+        let best = match side {
+            Side::Ask => self.best_ask(),
+            Side::Bid => self.best_bid(),
         };
 
-        let threshold = best.map(|b| {
-            if is_ask {
-                b * (1.0 + top_pct / 100.0)
-            } else {
-                b * (1.0 - top_pct / 100.0)
-            }
+        let threshold = best.map(|b| match side {
+            Side::Ask => b * (1.0 + top_pct / 100.0),
+            Side::Bid => b * (1.0 - top_pct / 100.0),
         });
 
         let filtered: Vec<String> = levels
             .filter(|(price, _)| match threshold {
-                Some(t) if is_ask => *price <= t,
+                Some(t) if side == Side::Ask => *price <= t,
                 Some(t) => *price >= t,
                 None => true,
             })
