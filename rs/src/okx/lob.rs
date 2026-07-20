@@ -1,8 +1,10 @@
 use crate::okx::types::OkxWsMessage;
 use ordered_float::OrderedFloat;
+use prometheus::{Gauge, IntGauge, Opts, Registry};
 use serde_json::Value;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// Direction of a price level.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,6 +61,24 @@ impl OrderBook {
             (Some(a), Some(b)) => Some(a - b),
             _ => None,
         }
+    }
+
+    /// Get the top N bid levels as (price, amount) tuples, sorted descending by price.
+    pub fn top_bids(&self, n: usize) -> Vec<(f64, f64)> {
+        self.bids
+            .iter()
+            .take(n)
+            .map(|(k, v)| (k.0 .0, *v))
+            .collect()
+    }
+
+    /// Get the top N ask levels as (price, amount) tuples, sorted ascending by price.
+    pub fn top_asks(&self, n: usize) -> Vec<(f64, f64)> {
+        self.asks
+            .iter()
+            .take(n)
+            .map(|(k, v)| (k.0, *v))
+            .collect()
     }
 
     /// Clear all levels on the given side and insert fresh ones from `data`.

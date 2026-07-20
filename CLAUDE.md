@@ -108,6 +108,7 @@ rs/
 - **ADR-003** (`docs/ADR-003-...`): Use QuestDB with refinery for market data persistence and SQL migrations
 - **ADR-004** (`docs/ADR-004-...`): Normalized LOB levels storage in QuestDB
 - **ADR-005** (`docs/ADR-005-...`): QuestDB persistence cleanup with configurable retention
+- **ADR-006** (`docs/ADR-006-...`): Grafana LOB visualization with dual data source (Prometheus + QuestDB)
 
 ---
 

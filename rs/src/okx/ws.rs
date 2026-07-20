@@ -4,6 +4,7 @@ use crate::db::{persist_lob, persist_trade};
 use crate::db::cleanup_old_data;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
+use prometheus::{Encoder, Gauge, IntGauge, Opts, Registry, TextEncoder};
 use questdb::ingress::Sender;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -35,17 +36,62 @@ pub struct OkxClient {
     pub instrument: String,
     pub show_top_pct: f64,
     pub messages_received: Arc<AtomicU64>,
-    retention_window: Option<u64>,
+    pub retention_window: Option<u64>,
+    pub metrics_port: Option<u16>,
+    pub lob_metrics: Arc<LobMetrics>,
     sender: Option<Sender>,
+}
+
+#[derive(Clone)]
+pub struct LobMetrics {
+    pub best_bid: Gauge,
+    pub best_ask: Gauge,
+    pub spread: Gauge,
+    pub last_update: Gauge,
+    pub trades_total: IntGauge,
+    registry: Arc<Registry>,
+}
+
+impl LobMetrics {
+    pub fn new(registry: &Registry) -> Result<Self, prometheus::Error> {
+        let best_bid = Gauge::with_opts(Opts::new("lob_best_bid", "Best bid price"))?;
+        let best_ask = Gauge::with_opts(Opts::new("lob_best_ask", "Best ask price"))?;
+        let spread = Gauge::with_opts(Opts::new("lob_spread", "Spread between best ask and best bid"))?;
+        let last_update = Gauge::with_opts(Opts::new("lob_last_update_timestamp", "Last update timestamp in milliseconds"))?;
+        let trades_total = IntGauge::with_opts(Opts::new("trades_total", "Total number of trades"))?;
+
+        registry.register(Box::new(best_bid.clone()))?;
+        registry.register(Box::new(best_ask.clone()))?;
+        registry.register(Box::new(spread.clone()))?;
+        registry.register(Box::new(last_update.clone()))?;
+        registry.register(Box::new(trades_total.clone()))?;
+
+        Ok(Self {
+            best_bid,
+            best_ask,
+            spread,
+            last_update,
+            trades_total,
+            registry: Arc::new(registry.clone()),
+        })
+    }
+
+    pub fn gather(&self) -> Vec<prometheus::proto::MetricFamily> {
+        self.registry.gather()
+    }
 }
 
 impl OkxClient {
     pub fn new(instrument: &str, show_top_pct: f64) -> Self {
+        let registry = Registry::new();
+        let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         Self {
             instrument: instrument.to_string(),
             show_top_pct,
             messages_received: Arc::new(AtomicU64::new(0)),
             retention_window: None,
+            metrics_port: None,
+            lob_metrics,
             sender: None,
         }
     }
@@ -62,13 +108,30 @@ impl OkxClient {
         self
     }
 
+    /// Set the metrics server port.
+    pub fn with_metrics_port(mut self, port: u16) -> Self {
+        self.metrics_port = Some(port);
+        self
+    }
+
     /// Connect, subscribe, and run the event loop.
     ///
     /// The client connects to OKX public WebSocket, subscribes to `books` and
     /// `trades` channels, maintains an in-memory `OrderBook`, and displays
     /// reconstructed LOB2 state or raw trade/event messages. If a sender is
     /// configured, also persists market data to QuestDB via ILP.
-    pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Start metrics server if port is specified
+        if let Some(port) = self.metrics_port {
+            let lob_metrics = self.lob_metrics.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                if let Err(e) = rt.block_on(Self::start_metrics_server(port, lob_metrics)) {
+                    eprintln!("[METRICS] Server error: {}", e);
+                }
+            });
+        }
+
         let (ws_stream, _) = connect_async(WS_URL).await?;
         eprintln!("[CONNECTED] {}", WS_URL);
 
@@ -84,6 +147,8 @@ impl OkxClient {
         eprintln!("[SUBSCRIBED] trades {}", self.instrument);
 
         let mut order_book = OrderBook::new();
+        let mut _last_trade_count = 0u64;
+        let mut _last_trade_time = std::time::Instant::now();
 
         // Read loop
         while let Some(msg) = read.next().await {
@@ -99,10 +164,20 @@ impl OkxClient {
                                     let book_line =
                                         order_book.display(&self.instrument, self.show_top_pct);
                                     println!("[{} LOB2] {}", now, book_line);
+
+                                    // Update Prometheus metrics
+                                    self.update_lob_metrics(&order_book);
                                 }
                                 MessageType::Trade | MessageType::Event | MessageType::Unknown => {
                                     let line = display_message(&parsed);
                                     println!("{}", line);
+
+                                    // Update trades metrics
+                                    if let Some(_trade) = parsed.data.first().and_then(|d| {
+                                        serde_json::from_value::<TradeData>(d.clone()).ok()
+                                    }) {
+                                        self.lob_metrics.trades_total.inc();
+                                    }
                                 }
                             }
 
@@ -148,6 +223,25 @@ impl OkxClient {
         Ok(())
     }
 
+    fn update_lob_metrics(&self, order_book: &OrderBook) {
+        // Update best bid/ask
+        if let Some(best_bid) = order_book.best_bid() {
+            self.lob_metrics.best_bid.set(best_bid);
+        }
+        if let Some(best_ask) = order_book.best_ask() {
+            self.lob_metrics.best_ask.set(best_ask);
+        }
+        if let Some(spread) = order_book.spread() {
+            self.lob_metrics.spread.set(spread);
+        }
+        self.lob_metrics.last_update.set(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as f64,
+        );
+    }
+
     /// Persist a parsed message to QuestDB.
     async fn persist_message(
         sender: &mut Sender,
@@ -181,6 +275,42 @@ impl OkxClient {
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    /// Start the metrics HTTP server.
+    async fn start_metrics_server(
+        port: u16,
+        lob_metrics: Arc<LobMetrics>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+        use std::net::TcpListener;
+
+        let bind_addr = format!("0.0.0.0:{}", port);
+        let listener = TcpListener::bind(&bind_addr)?;
+        eprintln!("[METRICS] Listening on {}", bind_addr);
+
+        HttpServer::new(move || {
+            let lm = lob_metrics.clone();
+            App::new().route("/metrics", web::get().to(move || {
+                let lm = lm.clone();
+                async move {
+                    let encoder = TextEncoder::new();
+                    let mut buffer = Vec::new();
+                    if let Err(e) = encoder.encode(&lm.gather(), &mut buffer) {
+                        eprintln!("[METRICS] Failed to encode metrics: {}", e);
+                        return HttpResponse::InternalServerError().finish();
+                    }
+                    HttpResponse::Ok()
+                        .content_type("text/plain")
+                        .body(buffer)
+                }
+            }))
+        })
+        .listen(listener)?
+        .run()
+        .await?;
+
         Ok(())
     }
 }
