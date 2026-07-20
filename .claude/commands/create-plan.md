@@ -1,11 +1,11 @@
 ---
 name: create-plan
-description: Read the last open GitHub issue and write a PLAN.md with implementation sub-steps, then post it as an issue comment (or edit the body if empty)
+description: Read the last open GitHub issue and write a PLAN.md with implementation sub-steps, then store it in the issue body (if empty) or as a new comment
 ---
 
 # Create PLAN.md from the last open GitHub issue
 
-The plan is stored as an **issue comment** — `docs/PLAN.md` is a local working copy.
+The plan is stored in the **issue body** (if previously empty) or as a **new comment** (if body already has content or plan is being updated). `docs/PLAN.md` is a local working copy.
 
 ## Steps
 
@@ -32,21 +32,25 @@ Using the full context (title, body, comments), write `docs/PLAN.md` with:
 - **Verification** — shell commands to validate the result
 - **Changelog** — the final workflow: post changelog as an issue comment, then close the issue
 
-### 3. Store the plan
+### 3. Check if the issue body is empty
 
-If the issue body is empty, edit it with the plan:
+```bash
+BODY=$(gh issue view "$ISSUE" --json body -q '.body')
+```
+
+If the body is empty or null, store the plan there (first plan for this issue):
 
 ```bash
 gh issue edit "$ISSUE" -F docs/PLAN.md
 ```
 
-If the issue body already has content, post the plan as a comment instead:
+If the body already has content, or if this is an update to an existing plan, post the plan as a new comment instead:
 
 ```bash
 gh issue comment "$ISSUE" -F docs/PLAN.md
 ```
 
-This makes the plan accessible to `/execute-plan`.
+Each subsequent update to the plan **must** be a new comment with the complete updated plan — never edit a previous plan comment.
 
 ## Template
 
