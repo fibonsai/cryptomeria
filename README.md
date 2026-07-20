@@ -88,6 +88,9 @@ cargo run -- ETH-USDT
 cargo run -- --show-top-pct 0.5
 cargo run -- --show-top-pct 0.01 XRP-USDT
 
+# Set data retention window for QuestDB (prune data older than N minutes)
+cargo run -- --retention-window 60
+
 # Run tests
 cargo test
 
@@ -117,6 +120,20 @@ cargo run
 ```
 
 **Default** (no flag, no env var): `http::addr=localhost:9000;username=admin;password=quest;`
+
+### Data Retention
+
+To prevent unbounded storage growth, set a retention window:
+
+```bash
+# Prune data older than 60 minutes on each persistence flush
+cargo run -- --retention-window 60
+
+# Omit --retention-window to keep all data (default)
+cargo run
+```
+
+Cleanup runs automatically via `DELETE FROM <table> WHERE ts < now() - Nm` on `lob_levels` and `trades` after each persistence flush. Requires the QuestDB HTTP endpoint.
 
 ### Supported Parameters
 
