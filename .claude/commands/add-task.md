@@ -31,11 +31,15 @@ git checkout main && git pull --rebase origin main
 
 ### 2. Create the issue with a descriptive body
 
-Write the fixed description as the body to provide full context. Expand with any relevant details if the raw input was brief:
+Determine if the task requires a detailed body:
+- If the task is simple and the title fully captures the intent, the body may be left empty (`-b ""`).
+- If the task is complex or requires context, expand the fixed description into a detailed body that explains the goal, constraints, or technical la-out.
+
+Write the final text as the issue body:
 
 ```bash
-gh issue create -t "<fixed description>" -b "<fixed description>"
-```
+gh issue create -t "<fixed description>" -b "<enhanced body or empty string>"
+``` 
 
 **ABORT ON ERROR** — if `gh` returns a non-zero exit, stop immediately. Never retry.
 
