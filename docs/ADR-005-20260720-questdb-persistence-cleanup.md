@@ -8,14 +8,14 @@ The Rust OKX client persists market data to QuestDB (lob_levels, trades tables).
 
 ## Options Considered
 
-1. **CLI flag for max retention** — Add `--max-persistence-min` argument to limit data age. Data older than X minutes is deleted before each persistence flush. Simple, explicit, no external dependencies.
+1. **CLI flag for retention window** — Add `--retention-window` argument (in minutes) to limit data age. Data older than X minutes is deleted before each persistence flush. Simple, explicit, no external dependencies.
 2. **Environment variable only** — Same logic but configured via env var. Less discoverable than CLI flag.
 3. **QuestDB TTL feature** — QuestDB does not natively support TTL-based row expiration. Would rely on external cron jobs.
 4. **No cleanup** — Keep all data forever. Simplest but causes query degradation over time.
 
 ## Decision
 
-Adopt option 1: a CLI flag `--max-persistence-min <minutes>` that controls data retention. When set, the client executes `DELETE FROM <table> WHERE ts < NOW() - Xm` on lob_levels and trades before each persistence flush. When absent (default), no deletion occurs and all data is preserved.
+Adopt option 1: a CLI flag `--retention-window <minutes>` that controls data retention. When set, the client executes `DELETE FROM <table> WHERE ts < NOW() - Xm` on lob_levels and trades before each persistence flush. When absent (default), no deletion occurs and all data is preserved.
 
 ## Consequences
 
