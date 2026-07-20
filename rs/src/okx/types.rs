@@ -213,22 +213,9 @@ impl LobLevel {
     }
 }
 
-/// Parsed LOB snapshot data (action == "snapshot").
+/// Parsed LOB data (snapshot or update — same wire format).
 #[derive(Debug, Deserialize, Clone)]
-pub struct LobSnapshotData {
-    #[serde(default)]
-    pub bids: Vec<LobLevel>,
-    #[serde(default)]
-    pub asks: Vec<LobLevel>,
-    #[serde(default)]
-    pub ts: String,
-    #[serde(default)]
-    pub checksum: i64,
-}
-
-/// Parsed LOB update data (action == "update" - same wire format as snapshot).
-#[derive(Debug, Deserialize, Clone)]
-pub struct LobUpdateData {
+pub struct LobData {
     #[serde(default)]
     pub bids: Vec<LobLevel>,
     #[serde(default)]
@@ -241,7 +228,7 @@ pub struct LobUpdateData {
 
 impl OkxWsMessage {
     /// Parse LOB snapshot data when action == "snapshot".
-    pub fn lob_snapshot(&self) -> Option<LobSnapshotData> {
+    pub fn lob_snapshot(&self) -> Option<LobData> {
         if self.action.as_deref() != Some("snapshot") {
             return None;
         }
@@ -249,7 +236,7 @@ impl OkxWsMessage {
     }
 
     /// Parse LOB update data when action == "update".
-    pub fn lob_update(&self) -> Option<LobUpdateData> {
+    pub fn lob_update(&self) -> Option<LobData> {
         if self.action.as_deref() != Some("update") {
             return None;
         }
