@@ -45,3 +45,7 @@ data/**/*
 # OS
 .DS_Store
 Thumbs.db
+
+# opencode links to Claude Code confs
+AGENTS.md
+.opencode/**
