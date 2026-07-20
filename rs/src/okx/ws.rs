@@ -4,6 +4,8 @@ use crate::db::{persist_lob_snapshot, persist_lob_update, persist_trade};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use questdb::ingress::Sender;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -31,6 +33,7 @@ pub fn display_message(msg: &OkxWsMessage) -> String {
 pub struct OkxClient {
     pub instrument: String,
     pub show_top_pct: f64,
+    pub messages_received: Arc<AtomicU64>,
     sender: Option<Sender>,
 }
 
@@ -39,6 +42,7 @@ impl OkxClient {
         Self {
             instrument: instrument.to_string(),
             show_top_pct,
+            messages_received: Arc::new(AtomicU64::new(0)),
             sender: None,
         }
     }
@@ -78,6 +82,7 @@ impl OkxClient {
                 Message::Text(text) => {
                     match OkxWsMessage::from_json(&text) {
                         Ok(parsed) => {
+                            self.messages_received.fetch_add(1, Ordering::Relaxed);
                             let tag = parsed.display_type();
                             // Route based on message type
                             match tag {

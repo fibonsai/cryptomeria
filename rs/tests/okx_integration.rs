@@ -1,4 +1,5 @@
 use cryptomeria::okx::ws::OkxClient;
+use std::sync::atomic::Ordering;
 
 /// E2E test: connect to OKX public WebSocket and receive data.
 ///
@@ -8,6 +9,7 @@ use cryptomeria::okx::ws::OkxClient;
 #[ignore]
 async fn test_connect_to_okx_and_subscribe() {
     let mut client = OkxClient::new("BTC-USDT", 0.1);
+    let msg_count = client.messages_received.clone();
 
     // Run for a limited time, then disconnect
     tokio::select! {
@@ -18,4 +20,7 @@ async fn test_connect_to_okx_and_subscribe() {
             // Timeout after 10 seconds — consider this a success
         }
     }
+
+    let count = msg_count.load(Ordering::Relaxed);
+    assert!(count > 0, "Expected at least one message, got {}", count);
 }
