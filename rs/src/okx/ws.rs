@@ -1,6 +1,7 @@
 use crate::okx::lob::OrderBook;
 use crate::okx::types::{MessageType, OkxWsMessage, TradeData};
 use crate::db::{persist_lob, persist_trade};
+use crate::db::cleanup_old_data;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use questdb::ingress::Sender;
@@ -34,6 +35,7 @@ pub struct OkxClient {
     pub instrument: String,
     pub show_top_pct: f64,
     pub messages_received: Arc<AtomicU64>,
+    retention_window: Option<u64>,
     sender: Option<Sender>,
 }
 
@@ -43,6 +45,7 @@ impl OkxClient {
             instrument: instrument.to_string(),
             show_top_pct,
             messages_received: Arc::new(AtomicU64::new(0)),
+            retention_window: None,
             sender: None,
         }
     }
@@ -50,6 +53,12 @@ impl OkxClient {
     /// Set the QuestDB sender for persistence.
     pub fn with_sender(mut self, sender: Sender) -> Self {
         self.sender = Some(sender);
+        self
+    }
+
+    /// Set the data retention window in minutes.
+    pub fn with_retention_window(mut self, minutes: u64) -> Self {
+        self.retention_window = Some(minutes);
         self
     }
 
@@ -101,6 +110,13 @@ impl OkxClient {
                             if let Some(sender) = self.sender.as_mut() {
                                 if let Err(e) = Self::persist_message(sender, &parsed).await {
                                     eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                }
+                                // Prune old data if retention window is set
+                                if let Some(window) = self.retention_window {
+                                    let inst_id = parsed.arg.as_ref().map(|a| a.inst_id.as_str()).unwrap_or("?");
+                                    if let Err(e) = cleanup_old_data(sender, inst_id, window).await {
+                                        eprintln!("[DB CLEANUP ERROR] {}", e);
+                                    }
                                 }
                             }
                         }
@@ -276,5 +292,17 @@ mod tests {
     fn test_client_with_sender() {
         // This is a compile-time test - if it compiles, the method exists
         // We can't easily test with a real Sender without a DB
+    }
+
+    #[test]
+    fn test_client_retention_window() {
+        let client = OkxClient::new("BTC-USDT", 0.1).with_retention_window(60);
+        assert_eq!(client.retention_window, Some(60));
+    }
+
+    #[test]
+    fn test_client_default_no_retention() {
+        let client = OkxClient::new("BTC-USDT", 0.1);
+        assert_eq!(client.retention_window, None);
     }
 }
