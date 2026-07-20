@@ -52,7 +52,10 @@ If the body already has content, or if this is an update to an existing plan, po
 gh issue comment "$ISSUE" -F docs/PLAN.md
 ```
 
-Each subsequent update to the plan **must** be a new comment with the complete updated plan — never edit a previous plan comment.
+**IMPORTANT — Plan updates must always be the full plan.**
+- Every plan update **must** repeat the complete plan in full, never just the changes.
+- Never edit or replace a previous plan comment — always post a new comment.
+- The most recent comment containing `# PLAN` is the canonical source for `/execute-plan`.
 
 ## Template
 
