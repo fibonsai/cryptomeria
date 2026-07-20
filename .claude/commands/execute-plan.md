@@ -23,14 +23,14 @@ After pulling, check if any new changes on main affect the plan (e.g. files the 
 
 If there are no conflicts, proceed.
 
-### 1. Get the issue and read the plan
+### 1. Get the issue and read all context
 
 ```bash
 ISSUE=$(gh issue list --state open --json number -L 1 -q '.[0].number')
-PLAN=$(gh issue view "$ISSUE" --json body -q '.body')
+gh issue view "$ISSUE" --json title,body,comments
 ```
 
-Read the plan body and identify all task sections (lines starting with `### `) and their `- [ ]` sub-steps.
+Read all available context: title, body, and comments. The plan may be in the body or in a comment. Identify the plan content and extract all task sections (lines starting with `### `) and their `- [ ]` sub-steps.
 
 ### 2. Create an exclusive branch from main and work in there
 

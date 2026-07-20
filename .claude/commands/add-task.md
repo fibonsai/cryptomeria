@@ -21,10 +21,20 @@ Create a GitHub issue from the text provided after the `/add-task` slash command
 
 ## Execution
 
-Create the issue:
+### 1. Sync main branch
 
 ```bash
-gh issue create -t "<fixed description>" -b ""
+git checkout main && git pull --rebase origin main
+```
+
+**ABORT** if the pull fails (conflicts, network error, etc.).
+
+### 2. Create the issue with a descriptive body
+
+Use the raw input text as the body to provide full context:
+
+```bash
+gh issue create -t "<fixed description>" -b "<$ARGUMENTS>"
 ```
 
 **ABORT ON ERROR** — if `gh` returns a non-zero exit, stop immediately. Never retry.

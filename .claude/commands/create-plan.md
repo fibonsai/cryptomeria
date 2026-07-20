@@ -1,25 +1,26 @@
 ---
 name: create-plan
-description: Read the last open GitHub issue and write a PLAN.md with implementation sub-steps, then store it in the issue body as the canonical source
+description: Read the last open GitHub issue and write a PLAN.md with implementation sub-steps, then post it as an issue comment (or edit the body if empty)
 ---
 
 # Create PLAN.md from the last open GitHub issue
 
-The issue body is the **single source of truth** — `docs/PLAN.md` is a local working copy synced to the issue body.
+The plan is stored as an **issue comment** — `docs/PLAN.md` is a local working copy.
 
 ## Steps
 
-### 1. Get the last open issue
+### 1. Get the last open issue and all its context
 
 ```bash
-gh issue list --state open --json number -L 1 -q '.[0].number'
+ISSUE=$(gh issue list --state open --json number -L 1 -q '.[0].number')
+gh issue view "$ISSUE" --json title,body,comments
 ```
 
-Capture the number — this is the issue whose body will hold the plan.
+Read all available context: title, existing body, and previous comments.
 
 ### 2. Write `docs/PLAN.md`
 
-Read the issue title (`gh issue view <N> --json title -q '.title'`) and write `docs/PLAN.md` with:
+Using the full context (title, body, comments), write `docs/PLAN.md` with:
 
 - A `# PLAN` header followed by the task title
 - **Files to modify** — list every file that will be changed
@@ -31,13 +32,21 @@ Read the issue title (`gh issue view <N> --json title -q '.title'`) and write `d
 - **Verification** — shell commands to validate the result
 - **Changelog** — the final workflow: post changelog as an issue comment, then close the issue
 
-### 3. Sync the plan to the issue body
+### 3. Store the plan
+
+If the issue body is empty, edit it with the plan:
 
 ```bash
-gh issue edit <N> -F docs/PLAN.md
+gh issue edit "$ISSUE" -F docs/PLAN.md
 ```
 
-This makes the issue the canonical source that `/execute-plan` reads from.
+If the issue body already has content, post the plan as a comment instead:
+
+```bash
+gh issue comment "$ISSUE" -F docs/PLAN.md
+```
+
+This makes the plan accessible to `/execute-plan`.
 
 ## Template
 
