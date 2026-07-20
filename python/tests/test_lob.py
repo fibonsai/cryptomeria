@@ -20,8 +20,8 @@ def _write_parquet(rows: list[dict], path: Path) -> None:
             ("amount_ask", pa.float64()),
             ("count_ask", pa.float64()),
             ("price_bid", pa.float64()),
-            ("amount_bids", pa.float64()),
-            ("count_bids", pa.float64()),
+            ("amount_bid", pa.float64()),
+            ("count_bid", pa.float64()),
         ]
     )
     table = pa.Table.from_pylist(rows, schema=schema)
@@ -96,8 +96,8 @@ def test_read_lob_single_snapshot():
             "amount_ask": 1.0,
             "count_ask": 1.0,
             "price_bid": 100.0,
-            "amount_bids": 2.0,
-            "count_bids": 1.0,
+            "amount_bid": 2.0,
+            "count_bid": 1.0,
         },
     ]
     with tempfile.TemporaryDirectory() as tmp:
@@ -123,8 +123,8 @@ def test_read_lob_snapshot_replaces_all_levels():
             "amount_ask": 1.0,
             "count_ask": 1.0,
             "price_bid": 100.0,
-            "amount_bids": 2.0,
-            "count_bids": 1.0,
+            "amount_bid": 2.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -134,8 +134,8 @@ def test_read_lob_snapshot_replaces_all_levels():
             "amount_ask": 3.0,
             "count_ask": 1.0,
             "price_bid": 99.0,
-            "amount_bids": 4.0,
-            "count_bids": 1.0,
+            "amount_bid": 4.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -145,8 +145,8 @@ def test_read_lob_snapshot_replaces_all_levels():
             "amount_ask": 5.0,
             "count_ask": 1.0,
             "price_bid": 200.0,
-            "amount_bids": 6.0,
-            "count_bids": 1.0,
+            "amount_bid": 6.0,
+            "count_bid": 1.0,
         },
     ]
     with tempfile.TemporaryDirectory() as tmp:
@@ -176,8 +176,8 @@ def test_read_lob_update_zero_removes_ask():
             "amount_ask": 1.0,
             "count_ask": 1.0,
             "price_bid": 100.0,
-            "amount_bids": 2.0,
-            "count_bids": 1.0,
+            "amount_bid": 2.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -187,8 +187,8 @@ def test_read_lob_update_zero_removes_ask():
             "amount_ask": 0.0,
             "count_ask": 1.0,
             "price_bid": None,
-            "amount_bids": 0.0,
-            "count_bids": 0.0,
+            "amount_bid": 0.0,
+            "count_bid": 0.0,
         },
     ]
     with tempfile.TemporaryDirectory() as tmp:
@@ -213,8 +213,8 @@ def test_read_lob_update_zero_removes_bid():
             "amount_ask": 1.0,
             "count_ask": 1.0,
             "price_bid": 100.0,
-            "amount_bids": 2.0,
-            "count_bids": 1.0,
+            "amount_bid": 2.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -224,8 +224,8 @@ def test_read_lob_update_zero_removes_bid():
             "amount_ask": 0.0,
             "count_ask": 0.0,
             "price_bid": 100.0,
-            "amount_bids": 0.0,
-            "count_bids": 1.0,
+            "amount_bid": 0.0,
+            "count_bid": 1.0,
         },
     ]
     with tempfile.TemporaryDirectory() as tmp:
@@ -249,8 +249,8 @@ def test_read_lob_update_nonzero_upserts():
             "amount_ask": 1.0,
             "count_ask": 1.0,
             "price_bid": 100.0,
-            "amount_bids": 2.0,
-            "count_bids": 1.0,
+            "amount_bid": 2.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -260,8 +260,8 @@ def test_read_lob_update_nonzero_upserts():
             "amount_ask": 3.0,
             "count_ask": 1.0,
             "price_bid": 99.0,
-            "amount_bids": 4.0,
-            "count_bids": 1.0,
+            "amount_bid": 4.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -271,8 +271,8 @@ def test_read_lob_update_nonzero_upserts():
             "amount_ask": 5.0,
             "count_ask": 1.0,
             "price_bid": None,
-            "amount_bids": 0.0,
-            "count_bids": 0.0,
+            "amount_bid": 0.0,
+            "count_bid": 0.0,
         },
     ]
     with tempfile.TemporaryDirectory() as tmp:
@@ -297,8 +297,8 @@ def test_read_lob_null_prices_skipped():
             "amount_ask": 1.0,
             "count_ask": 1.0,
             "price_bid": 100.0,
-            "amount_bids": 2.0,
-            "count_bids": 1.0,
+            "amount_bid": 2.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -308,8 +308,8 @@ def test_read_lob_null_prices_skipped():
             "amount_ask": 0.0,
             "count_ask": 0.0,
             "price_bid": None,
-            "amount_bids": 0.0,
-            "count_bids": 0.0,
+            "amount_bid": 0.0,
+            "count_bid": 0.0,
         },
     ]
     with tempfile.TemporaryDirectory() as tmp:
@@ -335,8 +335,8 @@ def test_read_lob_yields_per_ts():
             "amount_ask": 1.0,
             "count_ask": 1.0,
             "price_bid": 100.0,
-            "amount_bids": 2.0,
-            "count_bids": 1.0,
+            "amount_bid": 2.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -346,8 +346,8 @@ def test_read_lob_yields_per_ts():
             "amount_ask": 3.0,
             "count_ask": 1.0,
             "price_bid": 99.0,
-            "amount_bids": 4.0,
-            "count_bids": 1.0,
+            "amount_bid": 4.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -357,8 +357,8 @@ def test_read_lob_yields_per_ts():
             "amount_ask": 5.0,
             "count_ask": 1.0,
             "price_bid": None,
-            "amount_bids": 0.0,
-            "count_bids": 0.0,
+            "amount_bid": 0.0,
+            "count_bid": 0.0,
         },
     ]
     with tempfile.TemporaryDirectory() as tmp:
@@ -383,8 +383,8 @@ def test_read_lob_multiple_row_groups():
             "amount_ask": 1.0,
             "count_ask": 1.0,
             "price_bid": 100.0,
-            "amount_bids": 2.0,
-            "count_bids": 1.0,
+            "amount_bid": 2.0,
+            "count_bid": 1.0,
         },
     ]
     rows_ts2 = [
@@ -396,8 +396,8 @@ def test_read_lob_multiple_row_groups():
             "amount_ask": 3.0,
             "count_ask": 1.0,
             "price_bid": 99.0,
-            "amount_bids": 4.0,
-            "count_bids": 1.0,
+            "amount_bid": 4.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -407,8 +407,8 @@ def test_read_lob_multiple_row_groups():
             "amount_ask": 5.0,
             "count_ask": 1.0,
             "price_bid": None,
-            "amount_bids": 0.0,
-            "count_bids": 0.0,
+            "amount_bid": 0.0,
+            "count_bid": 0.0,
         },
     ]
     with tempfile.TemporaryDirectory() as tmp:
@@ -422,8 +422,8 @@ def test_read_lob_multiple_row_groups():
                 ("amount_ask", pa.float64()),
                 ("count_ask", pa.float64()),
                 ("price_bid", pa.float64()),
-                ("amount_bids", pa.float64()),
-                ("count_bids", pa.float64()),
+                ("amount_bid", pa.float64()),
+                ("count_bid", pa.float64()),
             ]
         )
         t1 = pa.Table.from_pylist(rows_ts1, schema=schema)
@@ -458,8 +458,8 @@ def test_rebuild_to_lob2_output():
             "amount_ask": 1.0,
             "count_ask": 1.0,
             "price_bid": 100.0,
-            "amount_bids": 2.0,
-            "count_bids": 1.0,
+            "amount_bid": 2.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -469,8 +469,8 @@ def test_rebuild_to_lob2_output():
             "amount_ask": 3.0,
             "count_ask": 1.0,
             "price_bid": 99.0,
-            "amount_bids": 4.0,
-            "count_bids": 1.0,
+            "amount_bid": 4.0,
+            "count_bid": 1.0,
         },
         {
             "instId": "BTC-USDT",
@@ -480,8 +480,8 @@ def test_rebuild_to_lob2_output():
             "amount_ask": 0.0,
             "count_ask": 1.0,
             "price_bid": None,
-            "amount_bids": 0.0,
-            "count_bids": 0.0,
+            "amount_bid": 0.0,
+            "count_bid": 0.0,
         },
     ]
     with tempfile.TemporaryDirectory() as tmp:

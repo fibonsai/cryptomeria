@@ -73,7 +73,7 @@ def _read_lob_iter(
                 snapshot_cleared = True
 
             _apply_level(asks, row["price_ask"], row["amount_ask"], action)
-            _apply_level(bids, row["price_bid"], row["amount_bids"], action)
+            _apply_level(bids, row["price_bid"], row["amount_bid"], action)
 
     if current_ts is not None:
         yield {"ts": current_ts, "bids": dict(bids), "asks": dict(asks)}
