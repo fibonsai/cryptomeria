@@ -1,5 +1,5 @@
 use crate::okx::lob::OrderBook;
-use crate::okx::types::{OkxWsMessage, TradeData};
+use crate::okx::types::{MessageType, OkxWsMessage, TradeData};
 use crate::db::{persist_lob_snapshot, persist_lob_update, persist_trade};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
@@ -83,21 +83,15 @@ impl OkxClient {
                     match OkxWsMessage::from_json(&text) {
                         Ok(parsed) => {
                             self.messages_received.fetch_add(1, Ordering::Relaxed);
-                            let tag = parsed.display_type();
-                            // Route based on message type
-                            match tag {
-                                "LOB2 SNAPSHOT" | "LOB2 UPDATE" | "LOB2" => {
+                            match parsed.message_type() {
+                                MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
                                     order_book.process_msg(&parsed);
                                     let now = parsed.formatted_time();
                                     let book_line =
                                         order_book.display(&self.instrument, self.show_top_pct);
                                     println!("[{} LOB2] {}", now, book_line);
                                 }
-                                "TRADE" | "EVENT" | "UNKNOWN" => {
-                                    let line = display_message(&parsed);
-                                    println!("{}", line);
-                                }
-                                _ => {
+                                MessageType::Trade | MessageType::Event | MessageType::Unknown => {
                                     let line = display_message(&parsed);
                                     println!("{}", line);
                                 }
@@ -146,20 +140,20 @@ impl OkxClient {
         let inst_id = msg.arg.as_ref().map(|a| a.inst_id.as_str()).unwrap_or("?");
         let ts_ms = msg.timestamp_ms().unwrap_or(0);
 
-        match msg.display_type() {
-            "LOB2 SNAPSHOT" => {
+        match msg.message_type() {
+            MessageType::L2Snapshot => {
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
                     persist_lob_snapshot(sender, inst_id, ts_ms, &levels).await?;
                 }
             }
-            "LOB2 UPDATE" => {
+            MessageType::L2Update => {
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
                     persist_lob_update(sender, inst_id, ts_ms, &levels).await?;
                 }
             }
-            "TRADE" => {
+            MessageType::Trade => {
                 if let Some(trade) = msg.data.first().and_then(|d| {
                     serde_json::from_value::<TradeData>(d.clone()).ok()
                 }) {

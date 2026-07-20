@@ -27,23 +27,45 @@ pub struct ChannelArg {
 /// A single price level as a variable-length string array.
 pub type PriceLevel = Vec<String>;
 
+/// Classifies OKX WebSocket message type for dispatch and display.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MessageType {
+    L2Snapshot,
+    L2Update,
+    L2,
+    Trade,
+    Event,
+    Unknown,
+}
+
 impl OkxWsMessage {
-    /// Classify the message type for display tagging.
-    pub fn display_type(&self) -> &'static str {
-        // Check for event messages (subscribe, error, etc.) first
+    /// Classify the message type for dispatch.
+    pub fn message_type(&self) -> MessageType {
         if self.event.is_some() {
-            return "EVENT";
+            return MessageType::Event;
         }
         if let Some(ref arg) = self.arg {
             match arg.channel.as_str() {
-                "books" if self.action.as_deref() == Some("snapshot") => "LOB2 SNAPSHOT",
-                "books" if self.action.as_deref() == Some("update") => "LOB2 UPDATE",
-                "books" => "LOB2",
-                "trades" => "TRADE",
-                _ => "UNKNOWN",
+                "books" if self.action.as_deref() == Some("snapshot") => MessageType::L2Snapshot,
+                "books" if self.action.as_deref() == Some("update") => MessageType::L2Update,
+                "books" => MessageType::L2,
+                "trades" => MessageType::Trade,
+                _ => MessageType::Unknown,
             }
         } else {
-            "UNKNOWN"
+            MessageType::Unknown
+        }
+    }
+
+    /// Classify the message type for display tagging.
+    pub fn display_type(&self) -> &'static str {
+        match self.message_type() {
+            MessageType::Event => "EVENT",
+            MessageType::L2Snapshot => "LOB2 SNAPSHOT",
+            MessageType::L2Update => "LOB2 UPDATE",
+            MessageType::L2 => "LOB2",
+            MessageType::Trade => "TRADE",
+            MessageType::Unknown => "UNKNOWN",
         }
     }
 
