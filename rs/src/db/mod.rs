@@ -136,9 +136,9 @@ pub async fn apply_storage_policy(
         .build()?;
 
     let policy = format!("DROP LOCAL {} HOUR", retention_hours);
-    for table in &["lob_levels", "trades", "orderbook_snapshots"] {
+    for table in &["lob_levels", "trades"] {
         let sql = format!(
-            "ALTER TABLE {} SET STORAGE POLICY ({})",
+            "ALTER TABLE {} SET STORAGE POLICY({})",
             table, policy
         );
         if let Err(e) = execute_sql(&client, &http_addr, &sql).await {
