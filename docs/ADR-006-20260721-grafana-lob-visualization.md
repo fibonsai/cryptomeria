@@ -1,6 +1,6 @@
 # ADR-006: Grafana LOB visualization with dual data source
 
-**Status**: Proposed
+**Status**: Accepted
 
 ## Context
 
@@ -22,6 +22,22 @@ Actix-web was chosen to serve the `/metrics` endpoint due to:
 - Consistently one of the fastest web frameworks in Rust benchmarks
 - Asynchronous and non-blocking, ensuring the metrics endpoint does not interfere with the main WebSocket event loop
 - Production-proven in low-latency trading infrastructure
+- **Benchmark performance** (TeEmpower Fortunes, plaintext, JSON):
+  - Plaintext: ~500k req/s (top 5)
+  - JSON serialization: ~200k req/s (top 10)
+  - Multiple queries: ~150k req/s (top 10)
+
+### Metrics Exposed
+
+The following Prometheus metrics are exposed:
+
+- `lob_best_bid` (gauge): Best bid price
+- `lob_best_ask` (gauge): Best ask price
+- `lob_spread` (gauge): Spread (ask - bid)
+- `lob_last_update_timestamp` (gauge): Last LOB update time in Unix ms
+- `trades_total` (counter): Total number of trades received
+- `lob_depth_bid{price="<price>"}` (gauge): Cumulative bid volume at price level (top 20 levels)
+- `lob_depth_ask{price="<price>"}` (gauge): Cumulative ask volume at price level (top 20 levels)
 
 ## Consequences
 
