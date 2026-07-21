@@ -1,7 +1,7 @@
 use crate::okx::lob::OrderBook;
 use crate::okx::types::{MessageType, OkxWsMessage, TradeData};
 use crate::db::{persist_lob, persist_trade};
-use crate::db::cleanup_old_data;
+use crate::db::apply_storage_policy;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use prometheus::{Encoder, Gauge, GaugeVec, IntGauge, Opts, Registry, TextEncoder};
@@ -120,9 +120,9 @@ impl OkxClient {
         self
     }
 
-    /// Set the data retention window in minutes.
-    pub fn with_retention_window(mut self, minutes: u64) -> Self {
-        self.retention_window = Some(minutes);
+    /// Set the data retention window in hours (sets QuestDB storage policy DROP LOCAL).
+    pub fn with_retention_window(mut self, hours: u64) -> Self {
+        self.retention_window = Some(hours);
         self
     }
 
@@ -215,11 +215,10 @@ impl OkxClient {
                                 if let Err(e) = Self::persist_message(sender, &parsed).await {
                                     eprintln!("[DB ERROR] Failed to persist: {}", e);
                                 }
-                                // Prune old data if retention window is set
-                                if let Some(window) = self.retention_window {
-                                    let inst_id = parsed.arg.as_ref().map(|a| a.inst_id.as_str()).unwrap_or("?");
-                                    if let Err(e) = cleanup_old_data(sender, inst_id, window, &self.questdb_conf).await {
-                                        eprintln!("[DB CLEANUP ERROR] {}", e);
+                                // Set storage policy if retention window was provided
+                                if let Some(hours) = self.retention_window {
+                                    if let Err(e) = apply_storage_policy(hours, &self.questdb_conf).await {
+                                        eprintln!("[DB STORAGE POLICY ERROR] {}", e);
                                     }
                                 }
                             }

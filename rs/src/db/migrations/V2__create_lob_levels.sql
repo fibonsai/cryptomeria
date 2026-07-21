@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS lob_levels (
     size DOUBLE,
     count DOUBLE,
     orders DOUBLE
-) TIMESTAMP(ts) PARTITION BY DAY WAL;
+) TIMESTAMP(ts) PARTITION BY HOUR WAL
+  STORAGE POLICY (DROP LOCAL 1H);
 
 -- Index for efficient time-range queries per instrument
 CREATE INDEX IF NOT EXISTS idx_lob_levels_inst_ts ON lob_levels (inst_id, ts);
