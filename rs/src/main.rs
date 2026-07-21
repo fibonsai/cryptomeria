@@ -25,6 +25,11 @@ pub struct CliArgs {
     /// from QuestDB on each persistence flush. Omit to keep all data.
     #[arg(long)]
     pub retention_window: Option<u64>,
+
+    /// Port for the Prometheus metrics HTTP server (e.g. 9091).
+    /// Omit to disable the metrics endpoint.
+    #[arg(long)]
+    pub metrics_port: Option<u16>,
 }
 
 /// Parse CLI arguments using clap.  Exits with help/error on `--help` or
@@ -79,6 +84,9 @@ async fn main() {
     }
     if let Some(window) = cli.retention_window {
         client = client.with_retention_window(window);
+    }
+    if let Some(port) = cli.metrics_port {
+        client = client.with_metrics_port(port);
     }
 
     tokio::select! {
@@ -230,5 +238,17 @@ mod tests {
     fn test_parse_args_retention_window_not_required() {
         let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
         assert!(cli.retention_window.is_none());
+    }
+
+    #[test]
+    fn test_parse_args_metrics_port() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria", "--metrics-port", "9091"]).unwrap();
+        assert_eq!(cli.metrics_port, Some(9091));
+    }
+
+    #[test]
+    fn test_parse_args_metrics_port_not_required() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
+        assert!(cli.metrics_port.is_none());
     }
 }
