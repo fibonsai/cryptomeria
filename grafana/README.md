@@ -4,42 +4,66 @@
 
 ```
 OKX WebSocket → Rust Client → QuestDB (historical)
-                            └→ Prometheus /metrics (real-time)
-                                            └→ Grafana
+                            └→ /metrics (Prometheus text format)
+                                    └→ Grafana Infinity datasource (real-time)
+                                    └→ Prometheus server (alternative bridge)
 ```
 
 Two data sources are available:
 
-- **Prometheus (real-time)**: The Rust client exposes a `/metrics` endpoint with current top-of-book values (best bid, best ask, spread, trade count). Recommended for sub-second dashboards.
+- **Infinity (real-time)**: The Rust client exposes a `/metrics` endpoint with current top-of-book values (best bid, best ask, spread, trade count). Grafana's Infinity datasource scrapes this endpoint directly. Recommended for sub-second dashboards.
 - **QuestDB (historical/analytical)**: LOB snapshots and trade data persisted via ILP. Recommended for historical analysis, depth charts, and time-series aggregates over longer windows.
 
 ---
 
-## Approach A: Real-Time via Prometheus
+## Approach A: Real-Time via Infinity Datasource (Recommended)
 
-### 1. Enable the metrics endpoint
+The Grafana Infinity datasource scrapes Prometheus-format metrics directly from the Rust client's `/metrics` endpoint. No Prometheus server required.
+
+### 1. Install the Infinity datasource plugin
+
+```bash
+grafana-cli plugins install yesoreyeram-infinity-datasource
+# Restart Grafana after installation
+```
+
+### 2. Enable the metrics endpoint
 
 Run the Rust client with the `--metrics-port` flag:
 
 ```bash
-cargo run -- --metrics-port 9464
+cargo run -- --metrics-port 9091
 ```
 
-The `/metrics` endpoint will be available at `http://localhost:9464/metrics`. Verify with:
+The `/metrics` endpoint will be available at `http://localhost:9091/metrics`. Verify with:
 
 ```bash
-curl http://localhost:9464/metrics
+curl http://localhost:9091/metrics
 ```
 
-### 2. Add a Prometheus data source in Grafana
+### 3. Add an Infinity data source in Grafana
 
 1. Open Grafana (`http://localhost:3000`)
 2. Go to **Configuration → Data Sources → Add data source**
-3. Select **Prometheus**
-4. Set URL to `http://prometheus:9090` (or your Prometheus server address)
-5. Click **Save & Test**
+3. Search for "Infinity" and select it
+4. Set **Name** to `Cryptomeria Metrics`
+5. Under **Query**, set:
+   - **URL**: `http://host.docker.internal:9091/metrics` (or `http://localhost:9091/metrics` depending on your Grafana deployment)
+   - **Parser**: `Prometheus`
+6. Click **Save & Test**
 
-If you don't have a Prometheus server, add the Rust client directly as a Prometheus scrape target:
+### 4. Import the dashboard
+
+1. Go to **+ → Import** in Grafana
+2. Upload `grafana/dashboard.json` or paste its contents
+3. Select the Infinity data source as the data source
+4. Click **Import**
+
+---
+
+## Approach A (Alternative): Real-Time via Prometheus Server
+
+If you want the full Prometheus API (PromQL, alerting, etc.), run a Prometheus server that scrapes the Rust client:
 
 ```yaml
 # prometheus.yml
@@ -47,15 +71,10 @@ scrape_configs:
   - job_name: 'cryptomeria'
     scrape_interval: 1s
     static_configs:
-      - targets: ['localhost:9464']
+      - targets: ['localhost:9091']
 ```
 
-### 3. Import the dashboard
-
-1. Go to **+ → Import** in Grafana
-2. Upload `grafana/dashboard.json` or paste its contents
-3. Select the Prometheus data source
-4. Click **Import**
+Then configure Grafana with a standard Prometheus datasource pointing to `http://prometheus:9090`.
 
 ---
 
@@ -115,7 +134,13 @@ WHERE inst_id = 'BTC-USDT' AND ts > now() - 1h
 
 ## Hybrid Usage
 
-For the best experience, configure **both** data sources in Grafana and use the variable `$datasource` to switch per panel. Use Prometheus for real-time panels (bid/ask gauges) and QuestDB for historical charts.
+For the best experience, configure **both** data sources in Grafana and use the variable `$datasource` to switch per panel:
+
+| Panel Type | Recommended Datasource |
+|------------|----------------------|
+| Real-time top-of-book (bid/ask/spread) | Infinity (scrapes `/metrics`) |
+| Historical depth charts | QuestDB (SQL queries over persisted data) |
+| Trade volume over time | QuestDB |
 
 ## Dashboard Panels
 
