@@ -68,9 +68,9 @@ For each section:
 - Do not continue to subsequent steps
 - Do not close the issue
 
-### 5. Update `README.md`
+### 5. Update `README.md`, `AGENTS.md`, and `CLAUDE.md`
 
-If the execution changed architecture, CLI flags, added/removed commands, or changed behavior, update `README.md` to reflect it.
+If the execution changed architecture, CLI flags, added/removed commands, or changed behavior, update `README.md`, `AGENTS.md`, and `CLAUDE.md` to reflect it.
 
 ### 6. Post the changelog as an issue comment
 
@@ -126,13 +126,13 @@ File name template: `docs/ADR-<sequential-number>-<YYYYMMDD>-<short-title-with-d
 
 The sequential number should be one more than the highest existing ADR in `docs/`. The datetime is the date of creation in UTC.
 
-Update `CLAUDE.md`, adding a link to each ADR under an **ADRs** section.
+Update `AGENTS.md` and `CLAUDE.md`, adding a link to each ADR under an **ADRs** section.
 
 ### 10. Create a PR from exclusive branch
 
 1. PR title is the same as the issue title.
 2. Add ref to issue in PR body — do **not** append `🤖 Generated with [Claude Code](https://claude.com/claude-code)` or any auto-attribution line
-3. Execute /commit (check .claude/commands/commit.md) in this branch
+3. Execute /commit (check .opencode/commands/commit.md) in this branch
 
 Do not merge the PR (it will be checked by a human or another agent).
 
@@ -145,5 +145,5 @@ gh issue close "$ISSUE"
 ## Full workflow
 
 ```
-pull main → read issue → find latest plan → create branch → execute plan → update README → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue
+pull main → read issue → find latest plan → create branch → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue
 ```

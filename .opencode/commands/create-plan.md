@@ -88,7 +88,7 @@ Issues found:
 + - <why an ADR is needed>
 +
 +- [ ] Create `docs/ADR-<N>-<YYYYMMDD>-<short-title>.md`
-+- [ ] Update `CLAUDE.md` with ADR link
++- [ ] Update `AGENTS.md` and `CLAUDE.md` with ADR link
 +
  ## Verification
 

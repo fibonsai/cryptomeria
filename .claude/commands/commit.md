@@ -21,8 +21,10 @@ Identify the files that belong to the last task:
 - Source files (`**/*.rs`, `**/*.py`)
 - Test files (`**/tests/**`)
 - `README.md`
+- `AGENTS.md`
 - `CLAUDE.md`
 - `.claude/**`
+- `.opencode/**`
 - `docs/` (if any)
 
 ### 2. Stage only those files
