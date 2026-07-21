@@ -19,13 +19,9 @@ Implement Option 3: the Rust client exposes a `/metrics` endpoint via Prometheus
 ### Actix-web as HTTP framework
 
 Actix-web was chosen to serve the `/metrics` endpoint due to:
-- Consistently one of the fastest web frameworks in Rust benchmarks
+- Being one of the fastest asynchronous web frameworks in Rust
 - Asynchronous and non-blocking, ensuring the metrics endpoint does not interfere with the main WebSocket event loop
 - Production-proven in low-latency trading infrastructure
-- **Benchmark performance** (TeEmpower Fortunes, plaintext, JSON):
-  - Plaintext: ~500k req/s (top 5)
-  - JSON serialization: ~200k req/s (top 10)
-  - Multiple queries: ~150k req/s (top 10)
 
 ### Metrics Exposed
 
@@ -52,4 +48,3 @@ The following Prometheus metrics are exposed:
 - ADR-003: QuestDB persistence with refinery migrations
 - ADR-005: QuestDB persistence cleanup with configurable retention
 - Grafana docs: https://grafana.com/docs/
-- Actix-web performance benchmarks: https://www.techempower.com/benchmarks/
