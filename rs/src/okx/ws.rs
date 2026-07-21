@@ -170,6 +170,13 @@ impl OkxClient {
         write.send(Message::Text(trades_msg.into())).await?;
         eprintln!("[SUBSCRIBED] trades {}", self.instrument);
 
+        // Set TTL once at startup (one-time table config, not per-message)
+        if let Some(hours) = self.retention_window {
+            if let Err(e) = apply_ttl(hours, &self.questdb_conf).await {
+                eprintln!("[DB TTL ERROR] {}", e);
+            }
+        }
+
         let mut order_book = OrderBook::new();
         let mut _last_trade_count = 0u64;
         let mut _last_trade_time = std::time::Instant::now();
@@ -214,12 +221,6 @@ impl OkxClient {
                             if let Some(sender) = self.sender.as_mut() {
                                 if let Err(e) = Self::persist_message(sender, &parsed).await {
                                     eprintln!("[DB ERROR] Failed to persist: {}", e);
-                                }
-                                // Set TTL if retention window was provided
-                                if let Some(hours) = self.retention_window {
-                                    if let Err(e) = apply_ttl(hours, &self.questdb_conf).await {
-                                        eprintln!("[DB TTL ERROR] {}", e);
-                                    }
                                 }
                             }
                         }

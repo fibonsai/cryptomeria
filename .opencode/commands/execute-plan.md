@@ -142,8 +142,14 @@ Do not merge the PR (it will be checked by a human or another agent).
 gh issue close "$ISSUE"
 ```
 
+### 12. Return to main branch
+
+```bash
+git checkout main
+```
+
 ## Full workflow
 
 ```
-pull main → read issue → find latest plan → create branch → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue
+pull main → read issue → find latest plan → create branch → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue → return to main
 ```
