@@ -110,7 +110,7 @@ rs/
 - **ADR-005** (`docs/ADR-005-...`): QuestDB persistence cleanup with configurable retention
 - **ADR-006** (`docs/ADR-006-...`): Grafana LOB visualization with dual data source (Prometheus + QuestDB)
 - **ADR-007** (`docs/ADR-007-...`): Data output flag (`--data-output`) for LOB/trade logging control
-- **ADR-008** (`docs/ADR-008-...`): QuestDB storage policy (`DROP LOCAL N HOUR`) for automatic data retention
+- **ADR-008** (`docs/ADR-008-...`): QuestDB TTL (`SET TTL N HOURS`) for automatic data retention
 
 ---
 

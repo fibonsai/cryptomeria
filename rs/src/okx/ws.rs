@@ -1,7 +1,7 @@
 use crate::okx::lob::OrderBook;
 use crate::okx::types::{MessageType, OkxWsMessage, TradeData};
 use crate::db::{persist_lob, persist_trade};
-use crate::db::apply_storage_policy;
+use crate::db::apply_ttl;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use prometheus::{Encoder, Gauge, GaugeVec, IntGauge, Opts, Registry, TextEncoder};
@@ -120,7 +120,7 @@ impl OkxClient {
         self
     }
 
-    /// Set the data retention window in hours (sets QuestDB storage policy DROP LOCAL).
+    /// Set the data retention window in hours (sets QuestDB TTL DROP LOCAL).
     pub fn with_retention_window(mut self, hours: u64) -> Self {
         self.retention_window = Some(hours);
         self
@@ -215,10 +215,10 @@ impl OkxClient {
                                 if let Err(e) = Self::persist_message(sender, &parsed).await {
                                     eprintln!("[DB ERROR] Failed to persist: {}", e);
                                 }
-                                // Set storage policy if retention window was provided
+                                // Set TTL if retention window was provided
                                 if let Some(hours) = self.retention_window {
-                                    if let Err(e) = apply_storage_policy(hours, &self.questdb_conf).await {
-                                        eprintln!("[DB STORAGE POLICY ERROR] {}", e);
+                                    if let Err(e) = apply_ttl(hours, &self.questdb_conf).await {
+                                        eprintln!("[DB TTL ERROR] {}", e);
                                     }
                                 }
                             }

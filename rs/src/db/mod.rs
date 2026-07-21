@@ -122,12 +122,12 @@ pub async fn persist_lob(
     Ok(())
 }
 
-/// Set QuestDB storage policy with DROP LOCAL for lob_levels and trades.
+/// Set QuestDB TTL for lob_levels and trades.
 ///
-/// `retention_hours` controls how long data is kept before automatic partition
-/// expiry. Call once at startup; QuestDB enforces it server-side thereafter.
-pub async fn apply_storage_policy(
-    retention_hours: u64,
+/// `ttl_hours` controls how many hours of data are kept. Older partitions
+/// are automatically dropped by QuestDB's TTL engine. Call once at startup.
+pub async fn apply_ttl(
+    ttl_hours: u64,
     questdb_conf: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let http_addr = extract_http_addr(questdb_conf);
@@ -135,14 +135,13 @@ pub async fn apply_storage_policy(
         .timeout(Duration::from_secs(10))
         .build()?;
 
-    let policy = format!("DROP LOCAL {} HOUR", retention_hours);
     for table in &["lob_levels", "trades"] {
         let sql = format!(
-            "ALTER TABLE {} SET STORAGE POLICY({})",
-            table, policy
+            "ALTER TABLE {} SET TTL {} HOURS",
+            table, ttl_hours
         );
         if let Err(e) = execute_sql(&client, &http_addr, &sql).await {
-            eprintln!("[DB POLICY] {}: {}", table, e);
+            eprintln!("[DB TTL] {}: {}", table, e);
         }
     }
     Ok(())
