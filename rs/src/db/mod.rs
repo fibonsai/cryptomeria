@@ -64,13 +64,10 @@ async fn execute_sql(
     http_addr: &str,
     sql: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let url = format!("http://{}/exec", http_addr);
-    let query = format!("query={}", urlencoding::encode(sql));
+    let url = format!("http://{}/exec?query={}", http_addr, urlencoding::encode(sql));
 
     let response = client
-        .post(&url)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(query)
+        .get(&url)
         .send()
         .await?;
 
@@ -130,9 +127,9 @@ pub async fn cleanup_old_data(
     _sender: &mut Sender,
     inst_id: &str,
     retention_min: u64,
+    questdb_conf: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let conf_str = "http::addr=localhost:9000;";
-    let http_addr = extract_http_addr(conf_str);
+    let http_addr = extract_http_addr(questdb_conf);
     let client = Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;

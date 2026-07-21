@@ -39,6 +39,7 @@ pub struct OkxClient {
     pub retention_window: Option<u64>,
     pub metrics_port: Option<u16>,
     pub lob_metrics: Arc<LobMetrics>,
+    pub questdb_conf: String,
     sender: Option<Sender>,
 }
 
@@ -82,7 +83,7 @@ impl LobMetrics {
 }
 
 impl OkxClient {
-    pub fn new(instrument: &str, show_top_pct: f64) -> Self {
+    pub fn new(instrument: &str, show_top_pct: f64, questdb_conf: &str) -> Self {
         let registry = Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         Self {
@@ -92,6 +93,7 @@ impl OkxClient {
             retention_window: None,
             metrics_port: None,
             lob_metrics,
+            questdb_conf: questdb_conf.to_string(),
             sender: None,
         }
     }
@@ -189,7 +191,7 @@ impl OkxClient {
                                 // Prune old data if retention window is set
                                 if let Some(window) = self.retention_window {
                                     let inst_id = parsed.arg.as_ref().map(|a| a.inst_id.as_str()).unwrap_or("?");
-                                    if let Err(e) = cleanup_old_data(sender, inst_id, window).await {
+                                    if let Err(e) = cleanup_old_data(sender, inst_id, window, &self.questdb_conf).await {
                                         eprintln!("[DB CLEANUP ERROR] {}", e);
                                     }
                                 }
@@ -371,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_client_new_sets_instrument() {
-        let client = OkxClient::new("ETH-USDT", 0.1);
+        let client = OkxClient::new("ETH-USDT", 0.1, "http::addr=localhost:9000;");
         assert_eq!(client.instrument, "ETH-USDT");
         assert!((client.show_top_pct - 0.1).abs() < f64::EPSILON);
     }
@@ -426,13 +428,13 @@ mod tests {
 
     #[test]
     fn test_client_retention_window() {
-        let client = OkxClient::new("BTC-USDT", 0.1).with_retention_window(60);
+        let client = OkxClient::new("BTC-USDT", 0.1, "http::addr=localhost:9000;").with_retention_window(60);
         assert_eq!(client.retention_window, Some(60));
     }
 
     #[test]
     fn test_client_default_no_retention() {
-        let client = OkxClient::new("BTC-USDT", 0.1);
+        let client = OkxClient::new("BTC-USDT", 0.1, "http::addr=localhost:9000;");
         assert_eq!(client.retention_window, None);
     }
 }

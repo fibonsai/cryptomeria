@@ -78,7 +78,7 @@ async fn main() {
         }
     };
 
-    let mut client = OkxClient::new(&instrument, show_top_pct);
+    let mut client = OkxClient::new(&instrument, show_top_pct, &questdb_conf);
     if let Some(sender) = sender {
         client = client.with_sender(sender);
     }
