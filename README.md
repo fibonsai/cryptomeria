@@ -30,17 +30,17 @@ A Medium-Frequency Trading (MFT) platform for crypto derivatives, focused on the
 │   │   ├── lib.rs       # Library root
 │   │   ├── main.rs      # CLI entry point (OKX WebSocket market data client + QuestDB persistence)
 │   │   ├── db/
-│   │   │   ├── mod.rs          # QuestDB connection, migrations, ILP sender
+│   │   │   ├── mod.rs          # QuestDB connection, migrations, ILP sender, data cleanup
 │   │   │   └── migrations/
 │   │   │       └── V1__create_market_data.sql
 │   │   └── okx/
 │   │       ├── mod.rs   # Module declarations
 │   │       ├── lob.rs   # OrderBook: full LOB2 state reconstruction
 │   │       ├── types.rs # OKX message type definitions + JSON parsing + display helpers
-│   │       └── ws.rs    # WebSocket client (connect, subscribe, read loop, display)
+│   │       └── ws.rs    # WebSocket client (connect, subscribe, read loop, display, data retention cleanup, Prometheus metrics)
 │   └── tests/
 │       └── okx_integration.rs  # E2E test (requires network, #[ignore] by default)
-├── docs/                # Documentation (to be expanded)
+├── docs/                # ADRs (Architecture Decision Records) + documentation
 ├── pyproject.toml       # Python project config (requires Python >=3.13)
 └── CLAUDE.md            # Guidance for AI assistants working in this repo
 ```
@@ -205,6 +205,55 @@ cargo run -- --show-top-pct 0.5 XRP-USDT
 - `okx/types.rs` — serde structs for the OKX JSON envelope, message classification (`display_type()`), and one-line summary (`summary()`)
 - `okx/ws.rs` — `OkxClient` with `run()` method that maintains an in-memory `OrderBook`, applies incoming LOB2 messages, and displays the reconstructed state. Trade and event messages are shown directly.
 - `tests/okx_integration.rs` — ignored by default (requires network); run with `cargo test -- --include-ignored`
+
+## Grafana LOB Visualization
+
+The Rust client exposes a Prometheus `/metrics` HTTP endpoint for real-time LOB visualization in Grafana. Combined with QuestDB's native Grafana data source, this enables hybrid dashboards with both sub-second updates and historical analysis.
+
+### Architecture
+
+```
+┌──────────────┐    Prometheus scrape     ┌──────────┐
+│  Rust Client ├─────────────────────────▶│ Prometheus│
+│  /metrics    │                          │ (optional)│
+└──────────────┘                          └─────┬────┘
+       │                                        │
+       │ QuestDB ILP/HTTP                       │ Grafana
+       ▼                                        ▼
+┌──────────────┐                          ┌──────────┐
+│   QuestDB    │◀─────────────────────────│  Grafana │
+│              │    Grafana data source    │          │
+└──────────────┘                          └──────────┘
+```
+
+### Metrics Exposed
+
+All metrics are served at `/metrics` in Prometheus text format:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `lob_best_bid` | Gauge | Best bid price |
+| `lob_best_ask` | Gauge | Best ask price |
+| `lob_spread` | Gauge | Spread (ask - bid) |
+| `lob_last_update_timestamp` | Gauge | Last LOB update time (Unix ms) |
+| `trades_total` | Counter | Total trades received |
+| `lob_depth_bid{price="<price>"}` | Gauge | Cumulative bid volume at price level |
+| `lob_depth_ask{price="<price>"}` | Gauge | Cumulative ask volume at price level |
+
+### Usage
+
+Enable the metrics server by passing `--metrics-port`:
+
+```bash
+# Start the client with metrics on port 9091
+cargo run -- --metrics-port 9091
+```
+
+For Grafana, add one or both data sources:
+- **Prometheus** — point to your Prometheus server (or directly to `http://<client-host>:9091/metrics` for quick testing with the Prometheus data source)
+- **QuestDB** — point to your QuestDB HTTP endpoint (e.g. `http://localhost:9000`)
+
+A sample Grafana dashboard JSON is available in `docs/` (see ADR-006 for details).
 
 ## LOB Data Processing
 
