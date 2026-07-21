@@ -113,6 +113,7 @@ rs/
 - **ADR-008** (`docs/ADR-008-...`): QuestDB TTL (`SET TTL N HOURS`) for automatic data retention
 - **ADR-009** (`docs/ADR-009-...`): Use Grafana Infinity datasource for real-time metrics visualization
 - **ADR-010** (`docs/ADR-010-...`): Move TTL execution from per-message loop to application startup
+- **ADR-011** (`docs/ADR-011-...`): Serve /metrics as JSON for Grafana Infinity datasource
 
 ---
 
