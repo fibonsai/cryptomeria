@@ -88,6 +88,9 @@ cargo run -- ETH-USDT
 cargo run -- --show-top-pct 0.5
 cargo run -- --show-top-pct 0.01 XRP-USDT
 
+# Enable LOB/trade data output (default: off, only lifecycle events shown)
+cargo run -- --data-output
+
 # Set data retention window for QuestDB (prune data older than N minutes)
 cargo run -- --retention-window 60
 
@@ -188,7 +191,9 @@ cargo run -- --show-top-pct 0.01   # narrower window
 cargo run -- --show-top-pct 0.5 XRP-USDT
 ```
 
-### Terminal output format
+By default, only connection lifecycle events (`[CONNECTING]`, `[CONNECTED]`, `[SUBSCRIBED]`, `[DISCONNECTED]`) are shown on stderr. Pass `--data-output` to print LOB and trade data to stdout.
+
+### Terminal output format (with `--data-output`)
 
 ```
 [HH:MM:SS LOB2] BTC-USDT  bids=143  asks=137  spread=0.10  bids: [ 64157.3 (2.41), 64156.7 (0.27), ... ] | asks: [ 64157.5 (0.82), 64158.1 (0.06), ... ]

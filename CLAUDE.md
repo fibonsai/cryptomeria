@@ -109,6 +109,7 @@ rs/
 - **ADR-004** (`docs/ADR-004-...`): Normalized LOB levels storage in QuestDB
 - **ADR-005** (`docs/ADR-005-...`): QuestDB persistence cleanup with configurable retention
 - **ADR-006** (`docs/ADR-006-...`): Grafana LOB visualization with dual data source (Prometheus + QuestDB)
+- **ADR-007** (`docs/ADR-007-...`): Data output flag (`--data-output`) for LOB/trade logging control
 
 ---
 

@@ -30,6 +30,11 @@ pub struct CliArgs {
     /// Omit to disable the metrics endpoint.
     #[arg(long)]
     pub metrics_port: Option<u16>,
+
+    /// Show LOB and trade data in stdout. Default is false (only lifecycle
+    /// events like connect/subscribe/disconnect are shown).
+    #[arg(long, default_value_t = false)]
+    pub data_output: bool,
 }
 
 /// Parse CLI arguments using clap.  Exits with help/error on `--help` or
@@ -45,6 +50,7 @@ async fn main() {
     // Normalise to uppercase so "eth-usdt" and "ETH-USDT" work
     let instrument = cli.instrument.to_uppercase();
     let show_top_pct = cli.show_top_pct;
+    let data_output = cli.data_output;
 
     eprintln!("[CONNECTING] wss://ws.okx.com:8443/ws/v5/public");
 
@@ -52,8 +58,8 @@ async fn main() {
     let questdb_conf = cryptomeria::db::resolve_questdb_conf(cli.questdb_conf.as_deref());
 
     eprintln!(
-        "[ARGS] instrument={} questdb_conf={}",
-        instrument, questdb_conf
+        "[ARGS] instrument={} questdb_conf={} data_output={}",
+        instrument, questdb_conf, data_output
     );
 
     // Initialize QuestDB connection and run migrations
@@ -78,7 +84,7 @@ async fn main() {
         }
     };
 
-    let mut client = OkxClient::new(&instrument, show_top_pct, &questdb_conf);
+    let mut client = OkxClient::new(&instrument, show_top_pct, data_output, &questdb_conf);
     if let Some(sender) = sender {
         client = client.with_sender(sender);
     }
@@ -250,5 +256,25 @@ mod tests {
     fn test_parse_args_metrics_port_not_required() {
         let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
         assert!(cli.metrics_port.is_none());
+    }
+
+    #[test]
+    fn test_parse_args_data_output_default_is_false() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
+        assert!(!cli.data_output);
+    }
+
+    #[test]
+    fn test_parse_args_data_output_true() {
+        let cli =
+            CliArgs::try_parse_from(&["cryptomeria", "--data-output", "true"]).unwrap();
+        assert!(cli.data_output);
+    }
+
+    #[test]
+    fn test_parse_args_data_output_flag_requires_no_value() {
+        let cli =
+            CliArgs::try_parse_from(&["cryptomeria", "--data-output"]);
+        assert!(cli.is_ok() && cli.unwrap().data_output);
     }
 }
