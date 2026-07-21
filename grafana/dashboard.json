@@ -6,22 +6,68 @@
   "panels": [
     {
       "id": 1,
-      "title": "LOB Depth (Bids & Asks)",
+      "title": "LOB Depth (Bids & Asks) — top levels by show-top-pct",
       "type": "barchart",
       "datasource": "${DS_PROMETHEUS}",
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
-        }
+          "unit": "short",
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Size",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "asks"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bids"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "targets": [
         {
-          "expr": "lob_best_bid",
-          "legendFormat": "Best Bid"
+          "expr": "lob_depth_bid{price=~\".+\"}",
+          "legendFormat": "bids"
         },
         {
-          "expr": "lob_best_ask",
-          "legendFormat": "Best Ask"
+          "expr": "lob_depth_ask{price=~\".+\"}",
+          "legendFormat": "asks"
         }
       ]
     },

@@ -4,7 +4,7 @@ use crate::db::{persist_lob, persist_trade};
 use crate::db::cleanup_old_data;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
-use prometheus::{Encoder, Gauge, IntGauge, Opts, Registry, TextEncoder};
+use prometheus::{Encoder, Gauge, GaugeVec, IntGauge, Opts, Registry, TextEncoder};
 use questdb::ingress::Sender;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -51,6 +51,8 @@ pub struct LobMetrics {
     pub spread: Gauge,
     pub last_update: Gauge,
     pub trades_total: IntGauge,
+    pub lob_depth_bid: GaugeVec,
+    pub lob_depth_ask: GaugeVec,
     registry: Arc<Registry>,
 }
 
@@ -61,12 +63,22 @@ impl LobMetrics {
         let spread = Gauge::with_opts(Opts::new("lob_spread", "Spread between best ask and best bid"))?;
         let last_update = Gauge::with_opts(Opts::new("lob_last_update_timestamp", "Last update timestamp in milliseconds"))?;
         let trades_total = IntGauge::with_opts(Opts::new("trades_total", "Total number of trades"))?;
+        let lob_depth_bid = GaugeVec::new(
+            Opts::new("lob_depth_bid", "Cumulative bid volume at price level"),
+            &["price"],
+        )?;
+        let lob_depth_ask = GaugeVec::new(
+            Opts::new("lob_depth_ask", "Cumulative ask volume at price level"),
+            &["price"],
+        )?;
 
         registry.register(Box::new(best_bid.clone()))?;
         registry.register(Box::new(best_ask.clone()))?;
         registry.register(Box::new(spread.clone()))?;
         registry.register(Box::new(last_update.clone()))?;
         registry.register(Box::new(trades_total.clone()))?;
+        registry.register(Box::new(lob_depth_bid.clone()))?;
+        registry.register(Box::new(lob_depth_ask.clone()))?;
 
         Ok(Self {
             best_bid,
@@ -74,6 +86,8 @@ impl LobMetrics {
             spread,
             last_update,
             trades_total,
+            lob_depth_bid,
+            lob_depth_ask,
             registry: Arc::new(registry.clone()),
         })
     }
@@ -179,6 +193,7 @@ impl OkxClient {
 
                                     // Update Prometheus metrics
                                     self.update_lob_metrics(&order_book);
+                                    self.update_depth_metrics(&order_book);
                                 }
                                 MessageType::Trade | MessageType::Event | MessageType::Unknown => {
                                     if self.data_output {
@@ -254,6 +269,28 @@ impl OkxClient {
                 .unwrap_or_default()
                 .as_millis() as f64,
         );
+    }
+
+    fn update_depth_metrics(&self, order_book: &OrderBook) {
+        // Reset all depth labels to clear stale prices
+        self.lob_metrics.lob_depth_bid.reset();
+        self.lob_metrics.lob_depth_ask.reset();
+
+        let (bids, asks) = order_book.levels_within_pct(self.show_top_pct);
+        for (price, size) in &bids {
+            let price_str = format!("{:.2}", price);
+            self.lob_metrics
+                .lob_depth_bid
+                .with_label_values(&[&price_str])
+                .set(*size);
+        }
+        for (price, size) in &asks {
+            let price_str = format!("{:.2}", price);
+            self.lob_metrics
+                .lob_depth_ask
+                .with_label_values(&[&price_str])
+                .set(*size);
+        }
     }
 
     /// Persist a parsed message to QuestDB.

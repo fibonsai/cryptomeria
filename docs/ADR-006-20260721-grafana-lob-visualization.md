@@ -32,8 +32,8 @@ The following Prometheus metrics are exposed:
 - `lob_spread` (gauge): Spread (ask - bid)
 - `lob_last_update_timestamp` (gauge): Last LOB update time in Unix ms
 - `trades_total` (counter): Total number of trades received
-- `lob_depth_bid{price="<price>"}` (gauge): Cumulative bid volume at price level (top 20 levels)
-- `lob_depth_ask{price="<price>"}` (gauge): Cumulative ask volume at price level (top 20 levels)
+- `lob_depth_bid{price="<price>"}` (gauge): Cumulative bid volume at price level (filtered by `--show-top-pct` from best bid)
+- `lob_depth_ask{price="<price>"}` (gauge): Cumulative ask volume at price level (filtered by `--show-top-pct` from best ask)
 
 ## Consequences
 

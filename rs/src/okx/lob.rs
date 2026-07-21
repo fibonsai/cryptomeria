@@ -81,6 +81,42 @@ impl OrderBook {
             .collect()
     }
 
+    /// Get (bids, asks) within `top_pct` of the best price on each side.
+    ///
+    /// Returns `(Vec<(price, size)>, Vec<(price, size)>)` with bids descending
+    /// and asks ascending. Only levels within `top_pct%` of the best price
+    /// are included, matching the terminal display filter.
+    pub fn levels_within_pct(&self, top_pct: f64) -> (Vec<(f64, f64)>, Vec<(f64, f64)>) {
+        let bid_threshold = self
+            .best_bid()
+            .map(|b| b * (1.0 - top_pct / 100.0));
+        let ask_threshold = self
+            .best_ask()
+            .map(|a| a * (1.0 + top_pct / 100.0));
+
+        let bids: Vec<(f64, f64)> = self
+            .bids
+            .iter()
+            .filter(|(k, _)| match bid_threshold {
+                Some(t) => k.0 .0 >= t,
+                None => true,
+            })
+            .map(|(k, v)| (k.0 .0, *v))
+            .collect();
+
+        let asks: Vec<(f64, f64)> = self
+            .asks
+            .iter()
+            .filter(|(k, _)| match ask_threshold {
+                Some(t) => k.0 <= t,
+                None => true,
+            })
+            .map(|(k, v)| (k.0, *v))
+            .collect();
+
+        (bids, asks)
+    }
+
     /// Clear all levels on the given side and insert fresh ones from `data`.
     pub fn apply_snapshot(&mut self, data: &[PriceLevel], side: Side) {
         match side {
@@ -504,5 +540,68 @@ mod tests {
                 .unwrap(),
             5.0
         ); // upserted
+    }
+
+    #[test]
+    fn test_levels_within_pct_filters_bids() {
+        let mut book = OrderBook::new();
+        book.apply_snapshot(
+            &[
+                price_level("100.0", "1.0"),
+                price_level("99.5", "2.0"),
+                price_level("99.0", "3.0"),
+                price_level("98.0", "4.0"),
+            ],
+            Side::Bid,
+        );
+        // top_pct=0.5 → only bids >= 100.0 * (1 - 0.5/100) = 99.5
+        let (bids, asks) = book.levels_within_pct(0.5);
+        assert_eq!(asks.len(), 0);
+        assert_eq!(bids.len(), 2);
+        assert!((bids[0].0 - 100.0).abs() < f64::EPSILON);
+        assert!((bids[1].0 - 99.5).abs() < f64::EPSILON);
+        assert!((bids[0].1 - 1.0).abs() < f64::EPSILON);
+        assert!((bids[1].1 - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_levels_within_pct_filters_asks() {
+        let mut book = OrderBook::new();
+        book.apply_snapshot(
+            &[
+                price_level("101.0", "1.0"),
+                price_level("101.5", "2.0"),
+                price_level("102.0", "3.0"),
+            ],
+            Side::Ask,
+        );
+        // top_pct=0.5 → only asks <= 101.0 * (1 + 0.5/100) = 101.505
+        let (bids, asks) = book.levels_within_pct(0.5);
+        assert_eq!(bids.len(), 0);
+        assert_eq!(asks.len(), 2);
+        assert!((asks[0].0 - 101.0).abs() < f64::EPSILON);
+        assert!((asks[1].0 - 101.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_levels_within_pct_empty_handling() {
+        let book = OrderBook::new();
+        let (bids, asks) = book.levels_within_pct(0.1);
+        assert!(bids.is_empty());
+        assert!(asks.is_empty());
+    }
+
+    #[test]
+    fn test_levels_within_pct_shows_all_at_100() {
+        let mut book = OrderBook::new();
+        book.apply_snapshot(
+            &[
+                price_level("100.0", "1.0"),
+                price_level("50.0", "2.0"),
+            ],
+            Side::Bid,
+        );
+        let (bids, _) = book.levels_within_pct(100.0);
+        assert_eq!(bids.len(), 2);
     }
 }
