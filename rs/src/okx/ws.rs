@@ -149,8 +149,8 @@ impl OkxClient {
         if let Some(port) = self.metrics_port {
             let lob_metrics = self.lob_metrics.clone();
             std::thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                if let Err(e) = rt.block_on(Self::start_metrics_server(port, lob_metrics)) {
+                let system = actix_web::rt::System::new();
+                if let Err(e) = system.block_on(Self::start_metrics_server(port, lob_metrics)) {
                     eprintln!("[METRICS] Server error: {}", e);
                 }
             });
@@ -368,6 +368,7 @@ impl OkxClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use prometheus::Registry;
 
     #[test]
     fn test_build_subscribe_msg() {
@@ -503,5 +504,41 @@ mod tests {
         let client = OkxClient::new("BTC-USDT", 0.1, false, "http::addr=localhost:9000;")
             .with_data_output(true);
         assert!(client.data_output);
+    }
+
+    #[test]
+    fn test_metrics_endpoint_responds_with_prometheus_format() {
+        let registry = Registry::new();
+        let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
+        let port = 19092;
+
+        let handle = std::thread::spawn(move || {
+            let system = actix_web::rt::System::new();
+            if let Err(e) =
+                system.block_on(OkxClient::start_metrics_server(port, lob_metrics))
+            {
+                eprintln!("[METRICS TEST] Server error: {}", e);
+            }
+        });
+
+        // Wait for server to start
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        let url = format!("http://127.0.0.1:{}/metrics", port);
+        match reqwest::blocking::get(&url) {
+            Ok(resp) => {
+                assert!(resp.status().is_success(), "Expected 200 OK, got {}", resp.status());
+                let body: String = resp.text().unwrap_or_default();
+                assert!(body.contains("lob_best_bid"), "Body should contain lob_best_bid");
+                assert!(body.contains("lob_best_ask"), "Body should contain lob_best_ask");
+                assert!(body.contains("lob_spread"), "Body should contain lob_spread");
+                assert!(body.contains("lob_best_bid"), "Body should contain lob_best_bid");
+                assert!(body.contains("lob_best_ask"), "Body should contain lob_best_ask");
+                assert!(body.contains("lob_spread"), "Body should contain lob_spread");
+            }
+            Err(e) => {
+                panic!("Failed to connect to metrics endpoint: {}", e);
+            }
+        }
     }
 }
