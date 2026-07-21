@@ -47,4 +47,21 @@ make test   # pytest python/ + cargo test (rs)
 make format # ruff format + cargo fmt
 ```
 
-For full details on tests, architecture, conventions, ADRs, and LOB semantics, see `CLAUDE.md`.
+For full details on tests, architecture, conventions, and LOB semantics, see `CLAUDE.md`.
+
+---
+
+## ADRs
+
+| # | Title | File |
+|---|-------|------|
+| 001 | `tokio-tungstenite` for OKX WS | `docs/ADR-001-...` |
+| 002 | `BTreeMap<OrderedFloat>` for LOB2 | `docs/ADR-002-...` |
+| 003 | QuestDB with refinery for persistence | `docs/ADR-003-...` |
+| 004 | Normalized LOB levels storage | `docs/ADR-004-...` |
+| 005 | QuestDB persistence cleanup | `docs/ADR-005-...` |
+| 006 | Grafana LOB visualization | `docs/ADR-006-...` |
+| 007 | Data output flag | `docs/ADR-007-...` |
+| 008 | QuestDB TTL for automatic retention | `docs/ADR-008-...` |
+| 009 | Grafana Infinity datasource | `docs/ADR-009-...` |
+| 010 | Move TTL execution to startup | `docs/ADR-010-...` |
