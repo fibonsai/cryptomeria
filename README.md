@@ -126,7 +126,7 @@ cargo run
 
 ### Data Retention
 
-To prevent unbounded storage growth, set a retention window. QuestDB automatically drops hour-partitioned data older than N hours via storage policy:
+To prevent unbounded storage growth, set a retention window. QuestDB automatically drops hour-partitioned data older than N hours via TTL:
 
 ```bash
 # Set retention to 2 hours (QuestDB auto-drops older partitions)
@@ -136,8 +136,8 @@ cargo run -- --retention-window 2
 cargo run
 ```
 
-**Note**: Retention is enforced server-side by QuestDB's `STORAGE POLICY (DROP LOCAL N HOUR)`.
-The `--retention-window` flag sets this policy once at startup. Precision is 1 hour (matching `PARTITION BY HOUR`).
+**Note**: Retention is enforced server-side by QuestDB's TTL (`ALTER TABLE SET TTL N HOURS`).
+The `--retention-window` flag sets this TTL once at startup. Precision is 1 hour (matching `PARTITION BY HOUR`).
 
 Cleanup runs automatically via `DELETE FROM <table> WHERE ts < now() - Nm` on `lob_levels` and `trades` after each persistence flush. Requires the QuestDB HTTP endpoint.
 
