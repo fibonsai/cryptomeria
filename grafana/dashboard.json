@@ -8,7 +8,7 @@
       "id": 1,
       "title": "LOB Depth (Bids & Asks) — top levels by show-top-pct",
       "type": "barchart",
-      "datasource": "${DS_PROMETHEUS}",
+      "datasource": "${DS_INFINITY}",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -75,7 +75,7 @@
       "id": 2,
       "title": "Top-of-Book",
       "type": "stat",
-      "datasource": "${DS_PROMETHEUS}",
+      "datasource": "${DS_INFINITY}",
       "targets": [
         { "expr": "lob_best_bid", "legendFormat": "Best Bid" },
         { "expr": "lob_best_ask", "legendFormat": "Best Ask" },
@@ -86,7 +86,7 @@
       "id": 3,
       "title": "Trades Over Time",
       "type": "timeseries",
-      "datasource": "${DS_PROMETHEUS}",
+      "datasource": "${DS_INFINITY}",
       "targets": [
         { "expr": "rate(trades_total[1m])", "legendFormat": "Trades/sec" }
       ]
@@ -95,10 +95,10 @@
   "templating": {
     "list": [
       {
-        "name": "DS_PROMETHEUS",
+        "name": "DS_INFINITY",
         "type": "datasource",
-        "query": "prometheus",
-        "description": "Prometheus data source for real-time LOB metrics"
+        "query": "yesoreyeram-infinity-datasource",
+        "description": "Infinity datasource scraping the Rust /metrics endpoint"
       }
     ]
   }
