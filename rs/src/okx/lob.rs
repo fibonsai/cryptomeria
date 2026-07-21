@@ -1,10 +1,8 @@
 use crate::okx::types::OkxWsMessage;
 use ordered_float::OrderedFloat;
-use prometheus::{Gauge, IntGauge, Opts, Registry};
 use serde_json::Value;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 /// Direction of a price level.
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -4,7 +4,7 @@ use crate::db::{persist_lob, persist_trade};
 use crate::db::apply_ttl;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
-use prometheus::{Encoder, Gauge, GaugeVec, IntGauge, Opts, Registry, TextEncoder};
+use prometheus::{Gauge, GaugeVec, IntGauge, Opts, Registry};
 use questdb::ingress::Sender;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -51,6 +51,7 @@ pub struct LobMetrics {
     pub spread: Gauge,
     pub last_update: Gauge,
     pub trades_total: IntGauge,
+    pub trades_per_second: Arc<AtomicU64>,
     pub lob_depth_bid: GaugeVec,
     pub lob_depth_ask: GaugeVec,
     registry: Arc<Registry>,
@@ -86,6 +87,7 @@ impl LobMetrics {
             spread,
             last_update,
             trades_total,
+            trades_per_second: Arc::new(AtomicU64::new(0)),
             lob_depth_bid,
             lob_depth_ask,
             registry: Arc::new(registry.clone()),
@@ -178,8 +180,8 @@ impl OkxClient {
         }
 
         let mut order_book = OrderBook::new();
-        let mut _last_trade_count = 0u64;
-        let mut _last_trade_time = std::time::Instant::now();
+        let mut last_trade_count = 0u64;
+        let mut last_trade_time = std::time::Instant::now();
 
         // Read loop
         while let Some(msg) = read.next().await {
@@ -213,6 +215,15 @@ impl OkxClient {
                                         serde_json::from_value::<TradeData>(d.clone()).ok()
                                     }) {
                                         self.lob_metrics.trades_total.inc();
+                                        last_trade_count += 1;
+                                        let elapsed = last_trade_time.elapsed();
+                                        if elapsed >= std::time::Duration::from_secs(1) {
+                                            let rate = last_trade_count as f64 / elapsed.as_secs_f64();
+                                            self.lob_metrics.trades_per_second
+                                                .store(f64::to_bits(rate), Ordering::Relaxed);
+                                            last_trade_count = 0;
+                                            last_trade_time = std::time::Instant::now();
+                                        }
                                     }
                                 }
                             }
@@ -334,7 +345,7 @@ impl OkxClient {
         port: u16,
         lob_metrics: Arc<LobMetrics>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+        use actix_web::{web, App, HttpResponse, HttpServer};
         use std::net::TcpListener;
 
         let bind_addr = format!("0.0.0.0:{}", port);
@@ -346,15 +357,35 @@ impl OkxClient {
             App::new().route("/metrics", web::get().to(move || {
                 let lm = lm.clone();
                 async move {
-                    let encoder = TextEncoder::new();
-                    let mut buffer = Vec::new();
-                    if let Err(e) = encoder.encode(&lm.gather(), &mut buffer) {
-                        eprintln!("[METRICS] Failed to encode metrics: {}", e);
-                        return HttpResponse::InternalServerError().finish();
+                    let families = lm.gather();
+                    let mut rows: Vec<serde_json::Value> = Vec::new();
+
+                    for mf in &families {
+                        let name = mf.get_name();
+                        for m in mf.get_metric() {
+                            let gauge = m.get_gauge();
+                            let mut row = serde_json::json!({
+                                "name": name,
+                                "value": gauge.get_value()
+                            });
+                            for label in m.get_label() {
+                                row[label.get_name()] =
+                                    serde_json::json!(label.get_value());
+                            }
+                            rows.push(row);
+                        }
                     }
+
+                    let tps_bits = lm.trades_per_second.load(Ordering::Relaxed);
+                    let tps = f64::from_bits(tps_bits);
+                    rows.push(serde_json::json!({
+                        "name": "trades_per_second",
+                        "value": tps
+                    }));
+
                     HttpResponse::Ok()
-                        .content_type("text/plain")
-                        .body(buffer)
+                        .content_type("application/json")
+                        .body(serde_json::to_string(&rows).unwrap())
                 }
             }))
         })
@@ -508,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn test_metrics_endpoint_responds_with_prometheus_format() {
+    fn test_metrics_endpoint_responds_with_json() {
         let registry = Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         let port = 19092;
@@ -529,13 +560,22 @@ mod tests {
         match reqwest::blocking::get(&url) {
             Ok(resp) => {
                 assert!(resp.status().is_success(), "Expected 200 OK, got {}", resp.status());
+                let content_type = resp.headers().get("content-type")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+                assert!(content_type.contains("application/json"),
+                    "Expected application/json, got {}", content_type);
                 let body: String = resp.text().unwrap_or_default();
-                assert!(body.contains("lob_best_bid"), "Body should contain lob_best_bid");
-                assert!(body.contains("lob_best_ask"), "Body should contain lob_best_ask");
-                assert!(body.contains("lob_spread"), "Body should contain lob_spread");
-                assert!(body.contains("lob_best_bid"), "Body should contain lob_best_bid");
-                assert!(body.contains("lob_best_ask"), "Body should contain lob_best_ask");
-                assert!(body.contains("lob_spread"), "Body should contain lob_spread");
+                let parsed: serde_json::Value = serde_json::from_str(&body)
+                    .expect("Response should be valid JSON");
+                let arr = parsed.as_array().expect("Response should be a JSON array");
+                let names: Vec<&str> = arr.iter()
+                    .filter_map(|v| v.get("name").and_then(|n| n.as_str()))
+                    .collect();
+                assert!(names.contains(&"lob_best_bid"), "Should contain lob_best_bid, got {:?}", names);
+                assert!(names.contains(&"lob_best_ask"), "Should contain lob_best_ask");
+                assert!(names.contains(&"lob_spread"), "Should contain lob_spread");
+                assert!(names.contains(&"trades_total"), "Should contain trades_total");
             }
             Err(e) => {
                 panic!("Failed to connect to metrics endpoint: {}", e);

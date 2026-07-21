@@ -84,11 +84,11 @@
     },
     {
       "id": 3,
-      "title": "Trades Over Time",
-      "type": "timeseries",
+      "title": "Trades Per Second",
+      "type": "stat",
       "datasource": "${DS_INFINITY}",
       "targets": [
-        { "expr": "rate(trades_total[1m])", "legendFormat": "Trades/sec" }
+        { "expr": "trades_per_second", "legendFormat": "Trades/sec" }
       ]
     }
   ],
