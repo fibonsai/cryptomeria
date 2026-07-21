@@ -22,8 +22,6 @@ Identify the files that belong to the last task:
 - Test files (`**/tests/**`)
 - `README.md`
 - `AGENTS.md`
-- `CLAUDE.md`
-- `.claude/**`
 - `.opencode/**`
 - `docs/` (if any)
 
