@@ -38,6 +38,7 @@ pub struct OkxClient {
     pub messages_received: Arc<AtomicU64>,
     pub retention_window: Option<u64>,
     pub metrics_port: Option<u16>,
+    pub data_output: bool,
     pub lob_metrics: Arc<LobMetrics>,
     pub questdb_conf: String,
     sender: Option<Sender>,
@@ -83,7 +84,7 @@ impl LobMetrics {
 }
 
 impl OkxClient {
-    pub fn new(instrument: &str, show_top_pct: f64, questdb_conf: &str) -> Self {
+    pub fn new(instrument: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
         let registry = Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         Self {
@@ -92,6 +93,7 @@ impl OkxClient {
             messages_received: Arc::new(AtomicU64::new(0)),
             retention_window: None,
             metrics_port: None,
+            data_output,
             lob_metrics,
             questdb_conf: questdb_conf.to_string(),
             sender: None,
@@ -113,6 +115,12 @@ impl OkxClient {
     /// Set the metrics server port.
     pub fn with_metrics_port(mut self, port: u16) -> Self {
         self.metrics_port = Some(port);
+        self
+    }
+
+    /// Enable or disable output of LOB/trade data to stdout.
+    pub fn with_data_output(mut self, enabled: bool) -> Self {
+        self.data_output = enabled;
         self
     }
 
@@ -162,17 +170,21 @@ impl OkxClient {
                             match parsed.message_type() {
                                 MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
                                     order_book.process_msg(&parsed);
-                                    let now = parsed.formatted_time();
-                                    let book_line =
-                                        order_book.display(&self.instrument, self.show_top_pct);
-                                    println!("[{} LOB2] {}", now, book_line);
+                                    if self.data_output {
+                                        let now = parsed.formatted_time();
+                                        let book_line =
+                                            order_book.display(&self.instrument, self.show_top_pct);
+                                        println!("[{} LOB2] {}", now, book_line);
+                                    }
 
                                     // Update Prometheus metrics
                                     self.update_lob_metrics(&order_book);
                                 }
                                 MessageType::Trade | MessageType::Event | MessageType::Unknown => {
-                                    let line = display_message(&parsed);
-                                    println!("{}", line);
+                                    if self.data_output {
+                                        let line = display_message(&parsed);
+                                        println!("{}", line);
+                                    }
 
                                     // Update trades metrics
                                     if let Some(_trade) = parsed.data.first().and_then(|d| {
@@ -373,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_client_new_sets_instrument() {
-        let client = OkxClient::new("ETH-USDT", 0.1, "http::addr=localhost:9000;");
+        let client = OkxClient::new("ETH-USDT", 0.1, false, "http::addr=localhost:9000;");
         assert_eq!(client.instrument, "ETH-USDT");
         assert!((client.show_top_pct - 0.1).abs() < f64::EPSILON);
     }
@@ -428,13 +440,32 @@ mod tests {
 
     #[test]
     fn test_client_retention_window() {
-        let client = OkxClient::new("BTC-USDT", 0.1, "http::addr=localhost:9000;").with_retention_window(60);
+        let client = OkxClient::new("BTC-USDT", 0.1, false, "http::addr=localhost:9000;").with_retention_window(60);
         assert_eq!(client.retention_window, Some(60));
     }
 
     #[test]
     fn test_client_default_no_retention() {
-        let client = OkxClient::new("BTC-USDT", 0.1, "http::addr=localhost:9000;");
+        let client = OkxClient::new("BTC-USDT", 0.1, false, "http::addr=localhost:9000;");
         assert_eq!(client.retention_window, None);
+    }
+
+    #[test]
+    fn test_client_data_output_default_is_false() {
+        let client = OkxClient::new("BTC-USDT", 0.1, false, "http::addr=localhost:9000;");
+        assert!(!client.data_output);
+    }
+
+    #[test]
+    fn test_client_data_output_true() {
+        let client = OkxClient::new("BTC-USDT", 0.1, true, "http::addr=localhost:9000;");
+        assert!(client.data_output);
+    }
+
+    #[test]
+    fn test_client_with_data_output_builder() {
+        let client = OkxClient::new("BTC-USDT", 0.1, false, "http::addr=localhost:9000;")
+            .with_data_output(true);
+        assert!(client.data_output);
     }
 }
