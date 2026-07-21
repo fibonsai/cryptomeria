@@ -122,11 +122,12 @@ pub async fn persist_lob(
     Ok(())
 }
 
-/// Delete data older than `retention_min` minutes from lob_levels and trades.
-pub async fn cleanup_old_data(
-    _sender: &mut Sender,
-    inst_id: &str,
-    retention_min: u64,
+/// Set QuestDB storage policy with DROP LOCAL for lob_levels and trades.
+///
+/// `retention_hours` controls how long data is kept before automatic partition
+/// expiry. Call once at startup; QuestDB enforces it server-side thereafter.
+pub async fn apply_storage_policy(
+    retention_hours: u64,
     questdb_conf: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let http_addr = extract_http_addr(questdb_conf);
@@ -134,14 +135,14 @@ pub async fn cleanup_old_data(
         .timeout(Duration::from_secs(10))
         .build()?;
 
-    let cutoff = format!("now() - {}m", retention_min);
-    for table in &["lob_levels", "trades"] {
+    let policy = format!("DROP LOCAL {} HOUR", retention_hours);
+    for table in &["lob_levels", "trades", "orderbook_snapshots"] {
         let sql = format!(
-            "DELETE FROM {} WHERE inst_id = '{}' AND ts < {}",
-            table, inst_id, cutoff
+            "ALTER TABLE {} SET STORAGE POLICY ({})",
+            table, policy
         );
         if let Err(e) = execute_sql(&client, &http_addr, &sql).await {
-            eprintln!("[DB CLEANUP] {}: {}", table, e);
+            eprintln!("[DB POLICY] {}: {}", table, e);
         }
     }
     Ok(())

@@ -21,8 +21,9 @@ pub struct CliArgs {
     #[arg(long)]
     pub questdb_conf: Option<String>,
 
-    /// Data retention window in minutes. Data older than this is pruned
-    /// from QuestDB on each persistence flush. Omit to keep all data.
+    /// Data retention window in hours (sets QuestDB storage policy DROP LOCAL).
+    /// Data older than N hours is auto-dropped by QuestDB partitions.
+    /// Omit to keep all data (or rely on table default: 1 hour).
     #[arg(long)]
     pub retention_window: Option<u64>,
 

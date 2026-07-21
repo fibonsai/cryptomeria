@@ -91,8 +91,8 @@ cargo run -- --show-top-pct 0.01 XRP-USDT
 # Enable LOB/trade data output (default: off, only lifecycle events shown)
 cargo run -- --data-output
 
-# Set data retention window for QuestDB (prune data older than N minutes)
-cargo run -- --retention-window 60
+# Set data retention window for QuestDB (auto-drops partitions older than N hours)
+cargo run -- --retention-window 2
 
 # Run tests
 cargo test
@@ -126,15 +126,18 @@ cargo run
 
 ### Data Retention
 
-To prevent unbounded storage growth, set a retention window:
+To prevent unbounded storage growth, set a retention window. QuestDB automatically drops hour-partitioned data older than N hours via storage policy:
 
 ```bash
-# Prune data older than 60 minutes on each persistence flush
-cargo run -- --retention-window 60
+# Set retention to 2 hours (QuestDB auto-drops older partitions)
+cargo run -- --retention-window 2
 
-# Omit --retention-window to keep all data (default)
+# Omit --retention-window to keep all data (default is 1 hour from table default)
 cargo run
 ```
+
+**Note**: Retention is enforced server-side by QuestDB's `STORAGE POLICY (DROP LOCAL N HOUR)`.
+The `--retention-window` flag sets this policy once at startup. Precision is 1 hour (matching `PARTITION BY HOUR`).
 
 Cleanup runs automatically via `DELETE FROM <table> WHERE ts < now() - Nm` on `lob_levels` and `trades` after each persistence flush. Requires the QuestDB HTTP endpoint.
 
