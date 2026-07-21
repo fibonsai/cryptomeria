@@ -1,18 +1,10 @@
--- V2: Create LOB levels table for normalized order book persistence
--- Stores individual price levels from OKX WebSocket books channel (snapshots + updates)
--- QuestDB-native types: SYMBOL for low-cardinality strings, DOUBLE for numerics, TIMESTAMP with partitioning
-
 CREATE TABLE IF NOT EXISTS lob_levels (
-    inst_id SYMBOL,
+    inst_id SYMBOL INDEX TYPE POSTING,
     ts TIMESTAMP,
-    action SYMBOL,      -- 'snapshot' or 'update'
-    side SYMBOL,        -- 'bids' or 'asks'
+    action SYMBOL,      		           -- 'snapshot' or 'update'
+    side SYMBOL INDEX TYPE POSTING INCLUDE(price), -- 'bids' or 'asks'
     price DOUBLE,
     size DOUBLE,
     count DOUBLE,
     orders DOUBLE
-) TIMESTAMP(ts) PARTITION BY HOUR WAL
-  TTL 1 HOURS;
-
--- Index for efficient time-range queries per instrument
-CREATE INDEX IF NOT EXISTS idx_lob_levels_inst_ts ON lob_levels (inst_id, ts);
+) TIMESTAMP(ts) PARTITION BY HOUR TTL 1 HOURS;

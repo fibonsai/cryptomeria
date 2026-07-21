@@ -1,20 +1,8 @@
--- V1: Create market data tables for QuestDB
--- QuestDB uses SYMBOL for low-cardinality strings, TIMESTAMP for time, DOUBLE for floats
-
 CREATE TABLE IF NOT EXISTS trades (
-    inst_id SYMBOL,
+    inst_id SYMBOL INDEX TYPE POSTING,
     trade_id SYMBOL,
     px DOUBLE,
     sz DOUBLE,
     side SYMBOL,
     ts TIMESTAMP
-) TIMESTAMP(ts) PARTITION BY HOUR WAL
-  TTL 1 HOURS;
-
-CREATE TABLE IF NOT EXISTS orderbook_snapshots (
-    inst_id SYMBOL,
-    ts TIMESTAMP,
-    bids VARCHAR,
-    asks VARCHAR
-) TIMESTAMP(ts) PARTITION BY HOUR WAL
-  TTL 1 HOURS;
+) TIMESTAMP(ts) PARTITION BY HOUR TTL 1 HOURS;
