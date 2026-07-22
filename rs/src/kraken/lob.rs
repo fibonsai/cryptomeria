@@ -220,7 +220,7 @@ impl Default for OrderBook {
     }
 }
 
-pub type PriceLevel = Vec<String>;
+pub type PriceLevel = (f64, f64);
 
 fn parse_levels(data: &Value, key: &str) -> Vec<PriceLevel> {
     data.get(key)
@@ -228,11 +228,9 @@ fn parse_levels(data: &Value, key: &str) -> Vec<PriceLevel> {
         .map(|arr| {
             arr.iter()
                 .filter_map(|v| {
-                    v.as_array().map(|a| {
-                        a.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect::<Vec<_>>()
-                    })
+                    let price = v.get("price")?.as_f64()?;
+                    let qty = v.get("qty")?.as_f64()?;
+                    Some((price, qty))
                 })
                 .collect()
         })
@@ -240,18 +238,16 @@ fn parse_levels(data: &Value, key: &str) -> Vec<PriceLevel> {
 }
 
 fn parse_level(level: &PriceLevel) -> Option<(f64, f64)> {
-    let price = level.first()?.parse::<f64>().ok()?;
-    let amount = level.get(1)?.parse::<f64>().ok()?;
+    let (price, amount) = *level;
+    if price.is_nan() || amount.is_nan() {
+        return None;
+    }
     Some((price, amount))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn price_level(price: &str, size: &str) -> PriceLevel {
-        vec![price.to_string(), size.to_string()]
-    }
 
     #[test]
     fn test_new_book_empty() {
@@ -264,21 +260,21 @@ mod tests {
     fn test_apply_snapshot_replaces_levels() {
         let mut book = OrderBook::new();
         book.apply_snapshot(
-            &[price_level("50000.0", "1.0"), price_level("49900.0", "2.0")],
+            &[(50000.0, 1.0), (49900.0, 2.0)],
             Side::Bid,
         );
         assert_eq!(book.num_bids(), 2);
         assert!((book.best_bid().unwrap() - 50000.0).abs() < f64::EPSILON);
 
-        book.apply_snapshot(&[price_level("49800.0", "3.0")], Side::Bid);
+        book.apply_snapshot(&[(49800.0, 3.0)], Side::Bid);
         assert_eq!(book.num_bids(), 1);
     }
 
     #[test]
     fn test_apply_update_upserts() {
         let mut book = OrderBook::new();
-        book.apply_snapshot(&[price_level("50000.0", "1.0")], Side::Bid);
-        book.apply_update(&[price_level("50000.0", "5.0")], Side::Bid);
+        book.apply_snapshot(&[(50000.0, 1.0)], Side::Bid);
+        book.apply_update(&[(50000.0, 5.0)], Side::Bid);
         assert_eq!(
             *book.bids
                 .get(&Reverse(OrderedFloat(50000.0)))
@@ -291,18 +287,18 @@ mod tests {
     fn test_apply_update_removes() {
         let mut book = OrderBook::new();
         book.apply_snapshot(
-            &[price_level("50000.0", "1.0"), price_level("49900.0", "2.0")],
+            &[(50000.0, 1.0), (49900.0, 2.0)],
             Side::Bid,
         );
-        book.apply_update(&[price_level("50000.0", "0.0")], Side::Bid);
+        book.apply_update(&[(50000.0, 0.0)], Side::Bid);
         assert_eq!(book.num_bids(), 1);
     }
 
     #[test]
     fn test_spread_calculation() {
         let mut book = OrderBook::new();
-        book.apply_snapshot(&[price_level("50000.0", "1.0")], Side::Bid);
-        book.apply_snapshot(&[price_level("50100.0", "1.0")], Side::Ask);
+        book.apply_snapshot(&[(50000.0, 1.0)], Side::Bid);
+        book.apply_snapshot(&[(50100.0, 1.0)], Side::Ask);
         let s = book.spread();
         assert!(s.is_some());
         assert!((s.unwrap() - 100.0).abs() < f64::EPSILON);
@@ -312,10 +308,10 @@ mod tests {
     fn test_display_contains_counts() {
         let mut book = OrderBook::new();
         book.apply_snapshot(
-            &[price_level("50000.0", "1.0"), price_level("49900.0", "2.0")],
+            &[(50000.0, 1.0), (49900.0, 2.0)],
             Side::Bid,
         );
-        book.apply_snapshot(&[price_level("50100.0", "3.0")], Side::Ask);
+        book.apply_snapshot(&[(50100.0, 3.0)], Side::Ask);
         let out = book.display("XBT/USD", 100.0);
         assert!(out.contains("bids=2"));
         assert!(out.contains("asks=1"));
@@ -328,8 +324,14 @@ mod tests {
             "type": "snapshot",
             "data": [{
                 "symbol": "XBT/USD",
-                "bids": [["50000.0", "1.0", "1"], ["49900.0", "2.0", "2"]],
-                "asks": [["50100.0", "1.5", "1"]],
+                "bids": [
+                    {"price": 50000.0, "qty": 1.0},
+                    {"price": 49900.0, "qty": 2.0}
+                ],
+                "asks": [
+                    {"price": 50100.0, "qty": 1.5}
+                ],
+                "checksum": 0,
                 "timestamp": "2024-01-15T10:30:00.000000Z"
             }]
         }"#;
@@ -347,8 +349,13 @@ mod tests {
             "type": "snapshot",
             "data": [{
                 "symbol": "XBT/USD",
-                "bids": [["50000.0", "1.0", "1"]],
-                "asks": [["50100.0", "1.0", "1"]],
+                "bids": [
+                    {"price": 50000.0, "qty": 1.0}
+                ],
+                "asks": [
+                    {"price": 50100.0, "qty": 1.0}
+                ],
+                "checksum": 0,
                 "timestamp": "2024-01-15T10:30:00.000000Z"
             }]
         }"#;
@@ -357,8 +364,13 @@ mod tests {
             "type": "update",
             "data": [{
                 "symbol": "XBT/USD",
-                "bids": [["50000.0", "0", "0"]],
-                "asks": [["50100.0", "5.0", "1"]],
+                "bids": [
+                    {"price": 50000.0, "qty": 5.0}
+                ],
+                "asks": [
+                    {"price": 50100.0, "qty": 0}
+                ],
+                "checksum": 0,
                 "timestamp": "2024-01-15T10:30:01.000000Z"
             }]
         }"#;
@@ -368,10 +380,7 @@ mod tests {
         assert_eq!(book.num_asks(), 1);
 
         book.process_msg(&KrakenWsMessage::from_json(upd).unwrap());
-        assert_eq!(book.num_bids(), 0);
-        assert_eq!(
-            *book.asks.get(&OrderedFloat(50100.0)).unwrap(),
-            5.0
-        );
+        assert_eq!(book.num_bids(), 1);
+        assert_eq!(book.num_asks(), 0);
     }
 }
