@@ -1,0 +1,377 @@
+use crate::kraken::types::KrakenWsMessage;
+use ordered_float::OrderedFloat;
+use serde_json::Value;
+use std::cmp::Reverse;
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Side {
+    Bid,
+    Ask,
+}
+
+#[derive(Debug, Clone)]
+pub struct OrderBook {
+    pub bids: BTreeMap<Reverse<OrderedFloat<f64>>, f64>,
+    pub asks: BTreeMap<OrderedFloat<f64>, f64>,
+}
+
+impl OrderBook {
+    pub fn new() -> Self {
+        Self {
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
+        }
+    }
+
+    pub fn num_bids(&self) -> usize {
+        self.bids.len()
+    }
+
+    pub fn num_asks(&self) -> usize {
+        self.asks.len()
+    }
+
+    pub fn best_bid(&self) -> Option<f64> {
+        self.bids.first_key_value().map(|(k, _)| k.0 .0)
+    }
+
+    pub fn best_ask(&self) -> Option<f64> {
+        self.asks.first_key_value().map(|(k, _)| k.0)
+    }
+
+    pub fn spread(&self) -> Option<f64> {
+        match (self.best_ask(), self.best_bid()) {
+            (Some(a), Some(b)) => Some(a - b),
+            _ => None,
+        }
+    }
+
+    pub fn top_bids(&self, n: usize) -> Vec<(f64, f64)> {
+        self.bids
+            .iter()
+            .take(n)
+            .map(|(k, v)| (k.0 .0, *v))
+            .collect()
+    }
+
+    pub fn top_asks(&self, n: usize) -> Vec<(f64, f64)> {
+        self.asks
+            .iter()
+            .take(n)
+            .map(|(k, v)| (k.0, *v))
+            .collect()
+    }
+
+    pub fn levels_within_pct(&self, top_pct: f64) -> (Vec<(f64, f64)>, Vec<(f64, f64)>) {
+        let bid_threshold = self
+            .best_bid()
+            .map(|b| b * (1.0 - top_pct / 100.0));
+        let ask_threshold = self
+            .best_ask()
+            .map(|a| a * (1.0 + top_pct / 100.0));
+
+        let bids: Vec<(f64, f64)> = self
+            .bids
+            .iter()
+            .filter(|(k, _)| match bid_threshold {
+                Some(t) => k.0 .0 >= t,
+                None => true,
+            })
+            .map(|(k, v)| (k.0 .0, *v))
+            .collect();
+
+        let asks: Vec<(f64, f64)> = self
+            .asks
+            .iter()
+            .filter(|(k, _)| match ask_threshold {
+                Some(t) => k.0 <= t,
+                None => true,
+            })
+            .map(|(k, v)| (k.0, *v))
+            .collect();
+
+        (bids, asks)
+    }
+
+    pub fn apply_snapshot(&mut self, data: &[PriceLevel], side: Side) {
+        match side {
+            Side::Bid => {
+                self.bids.clear();
+                for level in data {
+                    if let Some((price, amount)) = parse_level(level) {
+                        self.bids
+                            .insert(Reverse(OrderedFloat(price)), amount);
+                    }
+                }
+            }
+            Side::Ask => {
+                self.asks.clear();
+                for level in data {
+                    if let Some((price, amount)) = parse_level(level) {
+                        self.asks.insert(OrderedFloat(price), amount);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn apply_update(&mut self, data: &[PriceLevel], side: Side) {
+        for level in data {
+            if let Some((price, amount)) = parse_level(level) {
+                match side {
+                    Side::Bid => {
+                        if amount == 0.0 {
+                            self.bids.remove(&Reverse(OrderedFloat(price)));
+                        } else {
+                            self.bids
+                                .insert(Reverse(OrderedFloat(price)), amount);
+                        }
+                    }
+                    Side::Ask => {
+                        if amount == 0.0 {
+                            self.asks.remove(&OrderedFloat(price));
+                        } else {
+                            self.asks.insert(OrderedFloat(price), amount);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn process_msg(&mut self, msg: &KrakenWsMessage) {
+        let data = match msg.data.first() {
+            Some(d) => d,
+            None => return,
+        };
+
+        let action = msg.msg_type.as_deref().unwrap_or("snapshot");
+
+        for (key, side) in [("bids", Side::Bid), ("asks", Side::Ask)] {
+            let levels = parse_levels(data, key);
+            if !levels.is_empty() {
+                match action {
+                    "snapshot" => self.apply_snapshot(&levels, side),
+                    "update" => self.apply_update(&levels, side),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub fn display(&self, instrument: &str, top_pct: f64) -> String {
+        let num_bids = self.num_bids();
+        let num_asks = self.num_asks();
+        let spread_str = match self.spread() {
+            Some(s) => format!("{:.2}", s),
+            None => "?".to_string(),
+        };
+
+        let bids_str = self.format_side(
+            self.bids.iter().map(|(k, v)| (k.0 .0, *v)),
+            top_pct,
+            Side::Bid,
+        );
+        let asks_str = self.format_side(
+            self.asks.iter().map(|(k, v)| (k.0, *v)),
+            top_pct,
+            Side::Ask,
+        );
+
+        format!(
+            "{}  bids={}  asks={}  spread={}  bids: [ {} ] | asks: [ {} ]",
+            instrument, num_bids, num_asks, spread_str, bids_str, asks_str
+        )
+    }
+
+    fn format_side(
+        &self,
+        levels: impl Iterator<Item = (f64, f64)>,
+        top_pct: f64,
+        side: Side,
+    ) -> String {
+        let best = match side {
+            Side::Ask => self.best_ask(),
+            Side::Bid => self.best_bid(),
+        };
+
+        let threshold = best.map(|b| match side {
+            Side::Ask => b * (1.0 + top_pct / 100.0),
+            Side::Bid => b * (1.0 - top_pct / 100.0),
+        });
+
+        let filtered: Vec<String> = levels
+            .filter(|(price, _)| match threshold {
+                Some(t) if side == Side::Ask => *price <= t,
+                Some(t) => *price >= t,
+                None => true,
+            })
+            .map(|(price, amount)| format!("{:.2} ({})", price, amount))
+            .collect();
+
+        filtered.join(", ")
+    }
+}
+
+impl Default for OrderBook {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub type PriceLevel = Vec<String>;
+
+fn parse_levels(data: &Value, key: &str) -> Vec<PriceLevel> {
+    data.get(key)
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| {
+                    v.as_array().map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_level(level: &PriceLevel) -> Option<(f64, f64)> {
+    let price = level.first()?.parse::<f64>().ok()?;
+    let amount = level.get(1)?.parse::<f64>().ok()?;
+    Some((price, amount))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn price_level(price: &str, size: &str) -> PriceLevel {
+        vec![price.to_string(), size.to_string()]
+    }
+
+    #[test]
+    fn test_new_book_empty() {
+        let book = OrderBook::new();
+        assert_eq!(book.num_bids(), 0);
+        assert_eq!(book.num_asks(), 0);
+    }
+
+    #[test]
+    fn test_apply_snapshot_replaces_levels() {
+        let mut book = OrderBook::new();
+        book.apply_snapshot(
+            &[price_level("50000.0", "1.0"), price_level("49900.0", "2.0")],
+            Side::Bid,
+        );
+        assert_eq!(book.num_bids(), 2);
+        assert!((book.best_bid().unwrap() - 50000.0).abs() < f64::EPSILON);
+
+        book.apply_snapshot(&[price_level("49800.0", "3.0")], Side::Bid);
+        assert_eq!(book.num_bids(), 1);
+    }
+
+    #[test]
+    fn test_apply_update_upserts() {
+        let mut book = OrderBook::new();
+        book.apply_snapshot(&[price_level("50000.0", "1.0")], Side::Bid);
+        book.apply_update(&[price_level("50000.0", "5.0")], Side::Bid);
+        assert_eq!(
+            *book.bids
+                .get(&Reverse(OrderedFloat(50000.0)))
+                .unwrap(),
+            5.0
+        );
+    }
+
+    #[test]
+    fn test_apply_update_removes() {
+        let mut book = OrderBook::new();
+        book.apply_snapshot(
+            &[price_level("50000.0", "1.0"), price_level("49900.0", "2.0")],
+            Side::Bid,
+        );
+        book.apply_update(&[price_level("50000.0", "0.0")], Side::Bid);
+        assert_eq!(book.num_bids(), 1);
+    }
+
+    #[test]
+    fn test_spread_calculation() {
+        let mut book = OrderBook::new();
+        book.apply_snapshot(&[price_level("50000.0", "1.0")], Side::Bid);
+        book.apply_snapshot(&[price_level("50100.0", "1.0")], Side::Ask);
+        let s = book.spread();
+        assert!(s.is_some());
+        assert!((s.unwrap() - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_display_contains_counts() {
+        let mut book = OrderBook::new();
+        book.apply_snapshot(
+            &[price_level("50000.0", "1.0"), price_level("49900.0", "2.0")],
+            Side::Bid,
+        );
+        book.apply_snapshot(&[price_level("50100.0", "3.0")], Side::Ask);
+        let out = book.display("XBT/USD", 100.0);
+        assert!(out.contains("bids=2"));
+        assert!(out.contains("asks=1"));
+    }
+
+    #[test]
+    fn test_process_msg_snapshot() {
+        let json = r#"{
+            "channel": "book",
+            "type": "snapshot",
+            "data": [{
+                "symbol": "XBT/USD",
+                "bids": [["50000.0", "1.0", "1"], ["49900.0", "2.0", "2"]],
+                "asks": [["50100.0", "1.5", "1"]],
+                "timestamp": "2024-01-15T10:30:00.000000Z"
+            }]
+        }"#;
+        let msg = KrakenWsMessage::from_json(json).unwrap();
+        let mut book = OrderBook::new();
+        book.process_msg(&msg);
+        assert_eq!(book.num_bids(), 2);
+        assert_eq!(book.num_asks(), 1);
+    }
+
+    #[test]
+    fn test_process_msg_update() {
+        let snap = r#"{
+            "channel": "book",
+            "type": "snapshot",
+            "data": [{
+                "symbol": "XBT/USD",
+                "bids": [["50000.0", "1.0", "1"]],
+                "asks": [["50100.0", "1.0", "1"]],
+                "timestamp": "2024-01-15T10:30:00.000000Z"
+            }]
+        }"#;
+        let upd = r#"{
+            "channel": "book",
+            "type": "update",
+            "data": [{
+                "symbol": "XBT/USD",
+                "bids": [["50000.0", "0", "0"]],
+                "asks": [["50100.0", "5.0", "1"]],
+                "timestamp": "2024-01-15T10:30:01.000000Z"
+            }]
+        }"#;
+        let mut book = OrderBook::new();
+        book.process_msg(&KrakenWsMessage::from_json(snap).unwrap());
+        assert_eq!(book.num_bids(), 1);
+        assert_eq!(book.num_asks(), 1);
+
+        book.process_msg(&KrakenWsMessage::from_json(upd).unwrap());
+        assert_eq!(book.num_bids(), 0);
+        assert_eq!(
+            *book.asks.get(&OrderedFloat(50100.0)).unwrap(),
+            5.0
+        );
+    }
+}

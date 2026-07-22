@@ -51,16 +51,20 @@ python/
 ├── tests/test_lob.py         # Fixtures via pa.Table.from_pylist() → temp dirs
 ├── main.py                   # Research entry point (empty)
 rs/
-├── src/main.rs               # CLI entry (OKX WS client, clap args)
-├── src/okx/types.rs          # WS message types + JSON parsing + display
-├── src/okx/ws.rs             # WS client + pure helpers (build_subscribe_msg, display_message)
-├── src/okx/lob.rs            # OrderBook: BTreeMap<OrderedFloat> for LOB2 state
-└── tests/okx_integration.rs  # #[ignore] E2E test (needs network)
+├── src/main.rs               # CLI entry (clap args, --exchange flag, okx/kraken dispatch)
+├── src/okx/types.rs          # OKX WS message types + JSON parsing + display
+├── src/okx/ws.rs             # OKX WS client + pure helpers + LobMetrics (shared)
+├── src/okx/lob.rs            # OKX OrderBook: BTreeMap<OrderedFloat> for LOB2 state
+├── src/kraken/types.rs       # Kraken WS message types + JSON parsing + display
+├── src/kraken/ws.rs          # Kraken WS client (heartbeat handling, exponential backoff)
+├── src/kraken/lob.rs         # Kraken OrderBook: BTreeMap<OrderedFloat> for LOB2 state
+├── tests/okx_integration.rs  # #[ignore] E2E test (needs network)
+└── tests/kraken_integration.rs # #[ignore] E2E test (needs network)
 ```
 
 **Python package** is `cryptomeria` (src layout in `python/`). Tests discovered from `python/`, not inside package.
 
-**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod okx`.
+**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod okx`, `pub mod kraken`.
 
 ---
 
@@ -117,6 +121,7 @@ rs/
 - **ADR-012** (`docs/ADR-012-...`): Exponential backoff with jitter for WebSocket reconnection
 - **ADR-013** (`docs/ADR-013-...`): Restructure /metrics endpoint to single aggregated JSON object
 - **ADR-014** (`docs/ADR-014-...`): Graceful shutdown for SIGINT and SIGTERM signals
+- **ADR-015** (`docs/ADR-015-...`): Kraken exchange module for market data ingestion
 
 ---
 
@@ -175,8 +180,10 @@ rs/
 | Task | Command |
 |------|---------|
 | Run Python LOB CLI | `PYTHONPATH=python uv run python -m cryptomeria.lob in.parquet out.parquet` |
-| Run Rust WS client (BTC-USDT) | `cargo run` |
-| Run Rust WS client (custom) | `cargo run -- ETH-USDT --show-top-pct 0.5` |
+| Run Rust WS client (OKX, BTC-USDT) | `cargo run` |
+| Run Rust WS client (OKX, custom) | `cargo run -- ETH-USDT --show-top-pct 0.5` |
+| Run Rust WS client (Kraken) | `cargo run -- --exchange kraken XBT/USD` |
+| Run Rust WS client (Kraken, custom) | `cargo run -- --exchange kraken ETH/USD --show-top-pct 0.5` |
 | Single Python test | `uv run pytest python/tests/test_lob.py::test_name -v` |
 | Single Rust test | `cargo test test_name` |
 | Format all | `make format` |

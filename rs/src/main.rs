@@ -1,14 +1,19 @@
 use clap::Parser;
 use cryptomeria::db::{connect_sender, run_migrations};
+use cryptomeria::kraken::ws::KrakenClient;
 use cryptomeria::okx::ws::OkxClient;
 
-/// OKX WebSocket market data client.
+/// Cryptomeria — real-time market data client.
 ///
-/// Connect to the OKX public WebSocket API and display real-time L2 order
-/// book and trade data.
+/// Connect to a supported exchange's public WebSocket API and display
+/// real-time L2 order book and trade data.
 #[derive(Parser, Debug)]
 #[command(name = "cryptomeria", verbatim_doc_comment)]
 pub struct CliArgs {
+    /// Exchange to connect to (okx or kraken).
+    #[arg(long, default_value = "okx")]
+    pub exchange: String,
+
     /// Instrument ID (e.g. BTC-USDT, ETH-USDT).
     #[arg(default_value = "BTC-USDT")]
     pub instrument: String,
@@ -48,29 +53,47 @@ pub fn parse_args() -> CliArgs {
 #[tokio::main]
 async fn main() {
     let cli = parse_args();
-    // Normalise to uppercase so "eth-usdt" and "ETH-USDT" work
-    let instrument = cli.instrument.to_uppercase();
+    let exchange = cli.exchange.to_lowercase();
     let show_top_pct = cli.show_top_pct;
     let data_output = cli.data_output;
 
-    eprintln!("[CONNECTING] wss://ws.okx.com:8443/ws/v5/public");
+    let ws_url = match exchange.as_str() {
+        "kraken" => "wss://ws.kraken.com/v2",
+        _ => "wss://ws.okx.com:8443/ws/v5/public",
+    };
 
-    // Resolve QuestDB connection from CLI flag, env var, or default
+    let instrument = match exchange.as_str() {
+        "kraken" => {
+            // Map common instruments to Kraken format
+            let upper = cli.instrument.to_uppercase();
+            // OKX format like BTC-USDT -> XBT/USD
+            let mapped = upper.replace("-", "/").replace("BTC", "XBT");
+            eprintln!(
+                "[ARGS] exchange=kraken instrument={} (was {}) questdb_conf=.. data_output={}",
+                mapped, cli.instrument, data_output
+            );
+            mapped
+        }
+        _ => {
+            let upper = cli.instrument.to_uppercase();
+            eprintln!(
+                "[ARGS] exchange=okx instrument={} questdb_conf=.. data_output={}",
+                upper, data_output
+            );
+            upper
+        }
+    };
+
+    eprintln!("[CONNECTING] {}", ws_url);
+
     let questdb_conf = cryptomeria::db::resolve_questdb_conf(cli.questdb_conf.as_deref());
 
-    eprintln!(
-        "[ARGS] instrument={} questdb_conf={} data_output={}",
-        instrument, questdb_conf, data_output
-    );
-
-    // Initialize QuestDB connection and run migrations
     if let Err(e) = run_migrations(&questdb_conf).await {
         eprintln!("[DB] Migration failed: {} — running without persistence", e);
     } else {
         eprintln!("[DB] Migrations applied successfully");
     }
 
-    // Connect QuestDB sender for persistence
     let sender = match connect_sender(&questdb_conf).await {
         Ok(s) => {
             eprintln!("[DB] QuestDB sender connected");
@@ -85,19 +108,37 @@ async fn main() {
         }
     };
 
-    let mut client = OkxClient::new(&instrument, show_top_pct, data_output, &questdb_conf);
-    if let Some(sender) = sender {
-        client = client.with_sender(sender);
-    }
-    if let Some(window) = cli.retention_window {
-        client = client.with_retention_window(window);
-    }
-    if let Some(port) = cli.metrics_port {
-        client = client.with_metrics_port(port);
-    }
-
-    if let Err(e) = client.run().await {
-        eprintln!("[ERROR] {}", e);
+    match exchange.as_str() {
+        "kraken" => {
+            let mut client = KrakenClient::new(&instrument, show_top_pct, data_output, &questdb_conf);
+            if let Some(sender) = sender {
+                client = client.with_sender(sender);
+            }
+            if let Some(window) = cli.retention_window {
+                client = client.with_retention_window(window);
+            }
+            if let Some(port) = cli.metrics_port {
+                client = client.with_metrics_port(port);
+            }
+            if let Err(e) = client.run().await {
+                eprintln!("[ERROR] {}", e);
+            }
+        }
+        _ => {
+            let mut client = OkxClient::new(&instrument, show_top_pct, data_output, &questdb_conf);
+            if let Some(sender) = sender {
+                client = client.with_sender(sender);
+            }
+            if let Some(window) = cli.retention_window {
+                client = client.with_retention_window(window);
+            }
+            if let Some(port) = cli.metrics_port {
+                client = client.with_metrics_port(port);
+            }
+            if let Err(e) = client.run().await {
+                eprintln!("[ERROR] {}", e);
+            }
+        }
     }
 
     eprintln!("[DISCONNECTED]");
@@ -270,5 +311,19 @@ mod tests {
         let cli =
             CliArgs::try_parse_from(&["cryptomeria", "--data-output"]);
         assert!(cli.is_ok() && cli.unwrap().data_output);
+    }
+
+    // --- Exchange flag tests ---
+
+    #[test]
+    fn test_parse_args_exchange_default_okx() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
+        assert_eq!(cli.exchange, "okx");
+    }
+
+    #[test]
+    fn test_parse_args_exchange_kraken() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria", "--exchange", "kraken"]).unwrap();
+        assert_eq!(cli.exchange, "kraken");
     }
 }

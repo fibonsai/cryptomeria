@@ -483,7 +483,7 @@ impl OkxClient {
     /// `best_bid`, `best_ask`, `last_spread`, `last_update_timestamp`,
     /// `trades_total`, `trades_per_second`, and a `depth` array ordered by
     /// ascending price.
-    async fn start_metrics_server(
+    pub(crate) async fn start_metrics_server(
         port: u16,
         lob_metrics: Arc<LobMetrics>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
