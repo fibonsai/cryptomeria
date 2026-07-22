@@ -428,6 +428,11 @@ impl OkxClient {
     }
 
     /// Start the metrics HTTP server.
+    ///
+    /// Returns a single JSON object with all market data:
+    /// `best_bid`, `best_ask`, `last_spread`, `last_update_timestamp`,
+    /// `trades_total`, `trades_per_second`, and a `depth` array ordered by
+    /// ascending price.
     async fn start_metrics_server(
         port: u16,
         lob_metrics: Arc<LobMetrics>,
@@ -445,34 +450,68 @@ impl OkxClient {
                 let lm = lm.clone();
                 async move {
                     let families = lm.gather();
-                    let mut rows: Vec<serde_json::Value> = Vec::new();
+
+                    let mut best_bid = 0.0f64;
+                    let mut best_ask = 0.0f64;
+                    let mut last_spread = 0.0f64;
+                    let mut last_update_timestamp = 0u64;
+                    let mut trades_total = 0i64;
+                    let mut depth: Vec<serde_json::Value> = Vec::new();
 
                     for mf in &families {
                         let name = mf.get_name();
                         for m in mf.get_metric() {
                             let gauge = m.get_gauge();
-                            let mut row = serde_json::json!({
-                                "name": name,
-                                "value": gauge.get_value()
-                            });
-                            for label in m.get_label() {
-                                row[label.get_name()] =
-                                    serde_json::json!(label.get_value());
+                            let value = gauge.get_value();
+
+                            match name {
+                                "lob_best_bid" => best_bid = value,
+                                "lob_best_ask" => best_ask = value,
+                                "lob_spread" => last_spread = value,
+                                "lob_last_update_timestamp" => {
+                                    last_update_timestamp = value as u64;
+                                }
+                                "trades_total" => trades_total = value as i64,
+                                "lob_depth_bid" | "lob_depth_ask" => {
+                                    let side = if name == "lob_depth_bid" { "bid" } else { "ask" };
+                                    let price: f64 = m.get_label().iter()
+                                        .find(|l| l.get_name() == "price")
+                                        .and_then(|l| l.get_value().parse().ok())
+                                        .unwrap_or(0.0);
+                                    depth.push(serde_json::json!({
+                                        "price": price,
+                                        "volume": value,
+                                        "side": side
+                                    }));
+                                }
+                                _ => {}
                             }
-                            rows.push(row);
                         }
                     }
 
+                    depth.sort_by(|a, b| {
+                        a["price"]
+                            .as_f64()
+                            .partial_cmp(&b["price"].as_f64())
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
+
                     let tps_bits = lm.trades_per_second.load(Ordering::Relaxed);
                     let tps = f64::from_bits(tps_bits);
-                    rows.push(serde_json::json!({
-                        "name": "trades_per_second",
-                        "value": tps
-                    }));
+
+                    let response = serde_json::json!({
+                        "best_bid": best_bid,
+                        "best_ask": best_ask,
+                        "last_spread": last_spread,
+                        "last_update_timestamp": last_update_timestamp,
+                        "trades_total": trades_total,
+                        "trades_per_second": tps,
+                        "depth": depth,
+                    });
 
                     HttpResponse::Ok()
                         .content_type("application/json")
-                        .body(serde_json::to_string(&rows).unwrap())
+                        .body(serde_json::to_string(&response).unwrap())
                 }
             }))
         })
@@ -655,14 +694,20 @@ mod tests {
                 let body: String = resp.text().unwrap_or_default();
                 let parsed: serde_json::Value = serde_json::from_str(&body)
                     .expect("Response should be valid JSON");
-                let arr = parsed.as_array().expect("Response should be a JSON array");
-                let names: Vec<&str> = arr.iter()
-                    .filter_map(|v| v.get("name").and_then(|n| n.as_str()))
-                    .collect();
-                assert!(names.contains(&"lob_best_bid"), "Should contain lob_best_bid, got {:?}", names);
-                assert!(names.contains(&"lob_best_ask"), "Should contain lob_best_ask");
-                assert!(names.contains(&"lob_spread"), "Should contain lob_spread");
-                assert!(names.contains(&"trades_total"), "Should contain trades_total");
+                let obj = parsed.as_object().expect("Response should be a JSON object");
+                assert!(obj.contains_key("best_bid"), "Should contain best_bid, got keys: {:?}", obj.keys());
+                assert!(obj.contains_key("best_ask"), "Should contain best_ask");
+                assert!(obj.contains_key("last_spread"), "Should contain last_spread");
+                assert!(obj.contains_key("trades_total"), "Should contain trades_total");
+                assert!(obj.contains_key("trades_per_second"), "Should contain trades_per_second");
+                assert!(obj.contains_key("last_update_timestamp"), "Should contain last_update_timestamp");
+                assert!(obj.contains_key("depth"), "Should contain depth");
+                let depth = obj.get("depth").and_then(|v| v.as_array()).expect("depth should be an array");
+                if !depth.is_empty() {
+                    assert!(depth[0].get("price").is_some(), "depth entry missing price");
+                    assert!(depth[0].get("volume").is_some(), "depth entry missing volume");
+                    assert!(depth[0].get("side").is_some(), "depth entry missing side");
+                }
             }
             Err(e) => {
                 panic!("Failed to connect to metrics endpoint: {}", e);

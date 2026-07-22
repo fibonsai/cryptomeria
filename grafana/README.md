@@ -49,7 +49,7 @@ curl http://localhost:9091/metrics
 4. Set **Name** to `Cryptomeria Metrics`
 5. Under **Query**, set:
    - **URL**: `http://host.docker.internal:9091/metrics` (or `http://localhost:9091/metrics` depending on your Grafana deployment)
-   - **Parser**: `Prometheus`
+   - **Parser**: `JSON`
 6. Click **Save & Test**
 
 ### 4. Import the dashboard
@@ -58,6 +58,15 @@ curl http://localhost:9091/metrics
 2. Upload `grafana/dashboard.json` or paste its contents
 3. Select the Infinity data source as the data source
 4. Click **Import**
+
+### 5. Dashboard layout
+
+The dashboard has 6 panels across 3 rows:
+- **Top** (full width): timeseries bar chart of LOB depth (bids/asks by price level)
+- **Middle** (3 stat blocks): Best Bid, Best Ask, Last Update (ISO datetime)
+- **Bottom** (2 gauges): Spread, Trades Per Second
+
+Panels reference the `/metrics` JSON fields: `best_bid`, `best_ask`, `last_spread`, `last_update_timestamp`, `trades_per_second`, and `depth`.
 
 ---
 

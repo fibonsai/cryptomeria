@@ -115,6 +115,7 @@ rs/
 - **ADR-010** (`docs/ADR-010-...`): Move TTL execution from per-message loop to application startup
 - **ADR-011** (`docs/ADR-011-...`): Serve /metrics as JSON for Grafana Infinity datasource
 - **ADR-012** (`docs/ADR-012-...`): Exponential backoff with jitter for WebSocket reconnection
+- **ADR-013** (`docs/ADR-013-...`): Restructure /metrics endpoint to single aggregated JSON object
 
 ---
 
