@@ -64,10 +64,10 @@ async fn main() {
 
     let instrument = match exchange.as_str() {
         "kraken" => {
-            // Map common instruments to Kraken format
+            // Map common instruments to Kraken format (BTC/USD, not XBT/USD)
             let upper = cli.instrument.to_uppercase();
-            // OKX format like BTC-USDT -> XBT/USD
-            let mapped = upper.replace("-", "/").replace("BTC", "XBT");
+            // OKX format like BTC-USDT -> BTC/USDT (Kraken uses BTC, not XBT)
+            let mapped = upper.replace("-", "/");
             eprintln!(
                 "[ARGS] exchange=kraken instrument={} (was {}) questdb_conf=.. data_output={}",
                 mapped, cli.instrument, data_output
