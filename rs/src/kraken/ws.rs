@@ -192,6 +192,8 @@ impl KrakenClient {
                                                         order_book.display(&self.instrument, self.show_top_pct);
                                                     println!("[{} LOB2] {}", now, book_line);
                                                 }
+                                                self.update_lob_metrics(&order_book);
+                                                self.update_depth_metrics(&order_book);
                                             }
                                             MessageType::Trade => {
                                                 if self.data_output {
@@ -320,6 +322,45 @@ impl KrakenClient {
                     true
                 }
             }
+        }
+    }
+
+    fn update_lob_metrics(&self, order_book: &OrderBook) {
+        if let Some(best_bid) = order_book.best_bid() {
+            self.lob_metrics.best_bid.set(best_bid);
+        }
+        if let Some(best_ask) = order_book.best_ask() {
+            self.lob_metrics.best_ask.set(best_ask);
+        }
+        if let Some(spread) = order_book.spread() {
+            self.lob_metrics.spread.set(spread);
+        }
+        self.lob_metrics.last_update.set(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as f64,
+        );
+    }
+
+    fn update_depth_metrics(&self, order_book: &OrderBook) {
+        self.lob_metrics.lob_depth_bid.reset();
+        self.lob_metrics.lob_depth_ask.reset();
+
+        let (bids, asks) = order_book.levels_within_pct(self.show_top_pct);
+        for (price, size) in &bids {
+            let price_str = format!("{:.2}", price);
+            self.lob_metrics
+                .lob_depth_bid
+                .with_label_values(&[&price_str])
+                .set(*size);
+        }
+        for (price, size) in &asks {
+            let price_str = format!("{:.2}", price);
+            self.lob_metrics
+                .lob_depth_ask
+                .with_label_values(&[&price_str])
+                .set(*size);
         }
     }
 
