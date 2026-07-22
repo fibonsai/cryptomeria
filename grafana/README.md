@@ -146,7 +146,7 @@ For the best experience, configure **both** data sources in Grafana and use the 
 
 The included dashboard provides:
 
-1. **LOB Depth Histogram**: Classic two-sided depth chart (bids green, asks red) with price on x-axis and cumulative volume on y-axis.
-2. **Top-of-Book Gauges**: Best bid, best ask, and spread (single-stat panels).
-3. **Trade Rate**: Trades per second over time.
-4. **Depth Comparison**: Side-by-side bid/ask volume for each price level.
+1. **LOB Depth Timeseries** (full width, top): Two-sided depth chart (bids green, asks red) with price on x-axis and cumulative volume on y-axis. Uses Infinity datasource to scrape `lob_depth_bid` and `lob_depth_ask` metrics.
+2. **Best Bid / Best Ask / Last Update** (middle row): Three individual stat blocks showing current best bid price, best ask price, and the timestamp of the last LOB update (formatted as ISO datetime).
+3. **Spread Gauge** (bottom left): Radial gauge showing the current bid-ask spread.
+4. **Trades Per Second Gauge** (bottom right): Radial gauge showing the current trade rate.

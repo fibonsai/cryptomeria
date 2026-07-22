@@ -7,24 +7,30 @@
     {
       "id": 1,
       "title": "LOB Depth (Bids & Asks) — top levels by show-top-pct",
-      "type": "barchart",
+      "type": "timeseries",
       "datasource": "${DS_INFINITY}",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "Size",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
             "drawStyle": "bars",
             "fillOpacity": 80,
             "lineWidth": 0,
             "stacking": {
               "mode": "normal",
               "group": "A"
-            }
+            },
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Size",
+            "axisPlacement": "auto",
+            "barAlignment": 0
           }
         },
         "overrides": [
@@ -73,22 +79,130 @@
     },
     {
       "id": 2,
-      "title": "Top-of-Book",
+      "title": "Best Bid",
       "type": "stat",
       "datasource": "${DS_INFINITY}",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          }
+        }
+      },
       "targets": [
-        { "expr": "lob_best_bid", "legendFormat": "Best Bid" },
-        { "expr": "lob_best_ask", "legendFormat": "Best Ask" },
-        { "expr": "lob_spread", "legendFormat": "Spread" }
+        {
+          "expr": "lob_best_bid",
+          "legendFormat": "Best Bid"
+        }
       ]
     },
     {
       "id": 3,
-      "title": "Trades Per Second",
+      "title": "Best Ask",
       "type": "stat",
       "datasource": "${DS_INFINITY}",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          }
+        }
+      },
       "targets": [
-        { "expr": "trades_per_second", "legendFormat": "Trades/sec" }
+        {
+          "expr": "lob_best_ask",
+          "legendFormat": "Best Ask"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Last Update",
+      "type": "stat",
+      "datasource": "${DS_INFINITY}",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso",
+          "color": {
+            "mode": "fixed"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "lob_last_update_timestamp",
+          "legendFormat": "Last Update"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Spread",
+      "type": "gauge",
+      "datasource": "${DS_INFINITY}",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "displayMode": "gradient"
+          },
+          "min": 0
+        }
+      },
+      "targets": [
+        {
+          "expr": "lob_spread",
+          "legendFormat": "Spread"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Trades Per Second",
+      "type": "gauge",
+      "datasource": "${DS_INFINITY}",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "displayMode": "gradient"
+          },
+          "min": 0
+        }
+      },
+      "targets": [
+        {
+          "expr": "trades_per_second",
+          "legendFormat": "Trades/sec"
+        }
       ]
     }
   ],
