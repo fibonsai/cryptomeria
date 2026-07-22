@@ -34,14 +34,6 @@ pub fn build_subscribe_msg(channel: &str, instrument: &str) -> String {
     .to_string()
 }
 
-pub fn build_unsubscribe_msg(channel: &str, instrument: &str) -> String {
-    serde_json::json!({
-        "method": "unsubscribe",
-        "params": {"channel": channel, "symbol": [instrument]}
-    })
-    .to_string()
-}
-
 pub fn display_message(msg: &KrakenWsMessage) -> String {
     let now = msg.formatted_time();
     let tag = msg.display_type();
@@ -223,6 +215,9 @@ impl KrakenClient {
                                                     println!("{}", line);
                                                 }
                                             }
+                                            MessageType::Status => {
+                                                // no-op (skip display)
+                                            }
                                             MessageType::Heartbeat => {
                                                 // no-op
                                             }
@@ -346,9 +341,9 @@ impl KrakenClient {
                     .into_iter()
                     .map(|(side, kl)| {
                         let l = crate::okx::types::LobLevel {
-                            price: kl.price,
-                            size: kl.size,
-                            count: kl.count,
+                            price: format!("{:.8}", kl.price),
+                            size: format!("{:.8}", kl.qty),
+                            count: String::new(),
                             orders: String::new(),
                         };
                         (side, l)
@@ -364,9 +359,9 @@ impl KrakenClient {
                     .into_iter()
                     .map(|(side, kl)| {
                         let l = crate::okx::types::LobLevel {
-                            price: kl.price,
-                            size: kl.size,
-                            count: kl.count,
+                            price: format!("{:.8}", kl.price),
+                            size: format!("{:.8}", kl.qty),
+                            count: String::new(),
                             orders: String::new(),
                         };
                         (side, l)
@@ -381,9 +376,7 @@ impl KrakenClient {
                     if let Some(trade) = msg.data.first().and_then(|d| {
                         serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
                     }) {
-                        let px = trade.price.parse().unwrap_or(0.0);
-                        let sz = trade.qty.parse().unwrap_or(0.0);
-                        db::persist_trade(sender, symbol, &trade.trade_id, px, sz, &trade.side, ts_ms)
+                        db::persist_trade(sender, symbol, &trade.trade_id, trade.price, trade.qty, &trade.side, ts_ms)
                             .await?;
                     }
                 }
@@ -420,7 +413,7 @@ mod tests {
         let json = r#"{
             "channel": "trade",
             "type": "snapshot",
-            "data": [{"symbol": "XBT/USD", "side": "buy", "price": "50000.0", "qty": "0.5", "trade_id": "t1", "timestamp": "2024-01-15T10:30:00.000000Z"}]
+            "data": [{"symbol": "XBT/USD", "side": "buy", "price": 50000.0, "qty": 0.5, "trade_id": 12345, "timestamp": "2024-01-15T10:30:00.000000Z"}]
         }"#;
         let msg = KrakenWsMessage::from_json(json).unwrap();
         let out = display_message(&msg);
@@ -452,8 +445,9 @@ mod tests {
             "type": "snapshot",
             "data": [{
                 "symbol": "XBT/USD",
-                "bids": [["50000.0", "1.0", "1"]],
-                "asks": [["50100.0", "1.0", "1"]],
+                "bids": [{"price": 50000.0, "qty": 1.0}],
+                "asks": [{"price": 50100.0, "qty": 1.0}],
+                "checksum": 0,
                 "timestamp": "2024-01-15T10:30:00.000000Z"
             }]
         }"#;
@@ -462,8 +456,9 @@ mod tests {
             "type": "update",
             "data": [{
                 "symbol": "XBT/USD",
-                "bids": [["50000.0", "5.0", "1"]],
-                "asks": [["50100.0", "0", "0"]],
+                "bids": [{"price": 50000.0, "qty": 5.0}],
+                "asks": [{"price": 50100.0, "qty": 0}],
+                "checksum": 0,
                 "timestamp": "2024-01-15T10:30:01.000000Z"
             }]
         }"#;
@@ -487,8 +482,9 @@ mod tests {
             "type": "snapshot",
             "data": [{
                 "symbol": "XBT/USD",
-                "bids": [["50000.0", "1.0", "1"]],
-                "asks": [["50100.0", "1.0", "1"]],
+                "bids": [{"price": 50000.0, "qty": 1.0}],
+                "asks": [{"price": 50100.0, "qty": 1.0}],
+                "checksum": 0,
                 "timestamp": "2024-01-15T10:30:00.000000Z"
             }]
         }"#;
