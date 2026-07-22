@@ -1,13 +1,9 @@
 {
-  "title": "Cryptomeria - LOB Depth & Market Data",
-  "uid": "cryptomeria-lob",
-  "schemaVersion": 38,
-  "version": 1,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
   "panels": [
     {
-      "id": 1,
-      "title": "LOB Depth (Bids & Asks) — top levels by show-top-pct",
-      "type": "timeseries",
       "datasource": "${DS_INFINITY}",
       "gridPos": {
         "h": 8,
@@ -17,231 +13,542 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
           "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 80,
-            "lineWidth": 0,
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
             },
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "Volume",
-            "axisPlacement": "auto",
-            "barAlignment": 0
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "id": 1,
+      "options": {
+        "calculate": false,
+        "calculation": {
+          "xBuckets": {
+            "mode": "size",
+            "value": ""
+          },
+          "yBuckets": {
+            "scale": {
+              "type": "linear"
+            },
+            "value": ""
           }
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "ask"
+        "cellGap": 1,
+        "cellValues": {
+          "decimals": 2,
+          "unit": "none"
+        },
+        "color": {
+          "exponent": 0.5,
+          "fill": "dark-orange",
+          "mode": "scheme",
+          "reverse": false,
+          "scale": "exponential",
+          "scheme": "Spectral",
+          "steps": 64
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "le": 1e-9
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "tooltip": {
+          "mode": "single",
+          "showColorScale": false,
+          "yHistogram": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "decimals": 4,
+          "reverse": false,
+          "unit": "none"
+        }
+      },
+      "pluginVersion": "12.4.5",
+      "targets": [
+        {
+          "columns": [
+            {
+              "selector": "price",
+              "text": "price",
+              "type": "number"
             },
-            "properties": [
+            {
+              "selector": "volume",
+              "text": "volume",
+              "type": "number"
+            },
+            {
+              "selector": "side",
+              "text": "side",
+              "type": "string"
+            }
+          ],
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "efsswn6dlgjk0e"
+          },
+          "filters": [],
+          "format": "table",
+          "global_query_id": "",
+          "json_options": {
+            "columnar": false,
+            "root_is_not_array": false
+          },
+          "refId": "A",
+          "root": "$.depth",
+          "root_selector": "$.depth",
+          "source": "url",
+          "type": "json",
+          "url": "http://127.0.0.1:9091/metrics",
+          "url_options": {
+            "data": "",
+            "method": "GET"
+          }
+        }
+      ],
+      "title": "LOB Depth (Bids & Asks) — top levels by show-top-pct",
+      "type": "heatmap"
+    },
+    {
+      "datasource": "${DS_INFINITY}",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "dark-green",
+            "mode": "fixed"
+          },
+          "decimals": 2,
+          "fieldMinMax": false,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
               {
-                "id": "color",
-                "value": {
-                  "fixedColor": "red",
-                  "mode": "fixed"
-                }
+                "color": "green",
+                "value": 0
               }
             ]
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "bid"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+          "unit": "none"
+        },
+        "overrides": []
       },
-      "targets": [
-        {
-          "refId": "A",
-          "type": "json",
-          "format": "table",
-          "root": "$.depth",
-          "columns": [
-            {"selector": "price", "text": "price", "type": "number"},
-            {"selector": "volume", "text": "volume", "type": "number"},
-            {"selector": "side", "text": "side", "type": "string"}
-          ]
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "title": "Best Bid",
-      "type": "stat",
-      "datasource": "${DS_INFINITY}",
       "gridPos": {
         "h": 4,
         "w": 8,
         "x": 0,
         "y": 8
       },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Best Bid$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.4.5",
+      "targets": [
+        {
+          "columns": [
+            {
+              "selector": "best_bid",
+              "text": "Best Bid",
+              "type": "number"
+            }
+          ],
+          "filters": [],
+          "format": "table",
+          "global_query_id": "",
+          "refId": "A",
+          "root": "$",
+          "root_selector": "$",
+          "source": "url",
+          "type": "json",
+          "url": "http://127.0.0.1:9091/metrics",
+          "url_options": {
+            "data": "",
+            "method": "GET"
+          }
+        }
+      ],
+      "title": "Best Bid",
+      "type": "stat"
+    },
+    {
+      "datasource": "${DS_INFINITY}",
       "fieldConfig": {
         "defaults": {
           "color": {
+            "fixedColor": "dark-red",
             "mode": "fixed"
-          }
-        }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
       },
-      "targets": [
-        {
-          "refId": "A",
-          "type": "json",
-          "format": "table",
-          "root": "$",
-          "columns": [
-            {"selector": "best_bid", "text": "Best Bid", "type": "number"}
-          ]
-        }
-      ]
-    },
-    {
-      "id": 3,
-      "title": "Best Ask",
-      "type": "stat",
-      "datasource": "${DS_INFINITY}",
       "gridPos": {
         "h": 4,
         "w": 8,
         "x": 8,
         "y": 8
       },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Best Ask$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.4.5",
+      "targets": [
+        {
+          "columns": [
+            {
+              "selector": "best_ask",
+              "text": "Best Ask",
+              "type": "number"
+            }
+          ],
+          "filters": [],
+          "format": "table",
+          "global_query_id": "",
+          "refId": "A",
+          "root": "$",
+          "root_selector": "$",
+          "source": "url",
+          "type": "json",
+          "url": "",
+          "url_options": {
+            "data": "",
+            "method": "GET"
+          }
+        }
+      ],
+      "title": "Best Ask",
+      "type": "stat"
+    },
+    {
+      "datasource": "${DS_INFINITY}",
       "fieldConfig": {
         "defaults": {
           "color": {
+            "fixedColor": "semi-dark-blue",
             "mode": "fixed"
-          }
-        }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "dateTimeAsLocalNoDateIfToday"
+        },
+        "overrides": []
       },
-      "targets": [
-        {
-          "refId": "A",
-          "type": "json",
-          "format": "table",
-          "root": "$",
-          "columns": [
-            {"selector": "best_ask", "text": "Best Ask", "type": "number"}
-          ]
-        }
-      ]
-    },
-    {
-      "id": 4,
-      "title": "Last Update",
-      "type": "stat",
-      "datasource": "${DS_INFINITY}",
       "gridPos": {
         "h": 4,
         "w": 8,
         "x": 16,
         "y": 8
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "dateTimeAsIso",
-          "color": {
-            "mode": "fixed"
-          }
-        }
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Last Update$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.4.5",
       "targets": [
         {
-          "refId": "A",
-          "type": "json",
-          "format": "table",
-          "root": "$",
           "columns": [
-            {"selector": "last_update_timestamp", "text": "Last Update", "type": "number"}
-          ]
+            {
+              "selector": "last_update_timestamp",
+              "text": "Last Update",
+              "type": "number"
+            }
+          ],
+          "filters": [],
+          "format": "table",
+          "global_query_id": "",
+          "refId": "A",
+          "root": "$",
+          "root_selector": "$",
+          "source": "url",
+          "type": "json",
+          "url": "",
+          "url_options": {
+            "data": "",
+            "method": "GET"
+          }
         }
-      ]
+      ],
+      "title": "Last Update",
+      "type": "stat"
     },
     {
-      "id": 5,
-      "title": "Spread",
-      "type": "gauge",
       "datasource": "${DS_INFINITY}",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "fieldMinMax": false,
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "#EAB839",
+                "value": 1
+              },
+              {
+                "color": "dark-red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
       "gridPos": {
         "h": 6,
         "w": 12,
         "x": 0,
         "y": 12
       },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "displayMode": "gradient"
-          },
-          "min": 0
-        }
+      "id": 5,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Spread$/",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
+      "pluginVersion": "12.4.5",
       "targets": [
         {
-          "refId": "A",
-          "type": "json",
-          "format": "table",
-          "root": "$",
           "columns": [
-            {"selector": "last_spread", "text": "Spread", "type": "number"}
-          ]
+            {
+              "selector": "last_spread",
+              "text": "Spread",
+              "type": "number"
+            }
+          ],
+          "filters": [],
+          "format": "table",
+          "global_query_id": "",
+          "refId": "A",
+          "root": "$",
+          "root_selector": "$",
+          "source": "url",
+          "type": "json",
+          "url": "",
+          "url_options": {
+            "data": "",
+            "method": "GET"
+          }
         }
-      ]
+      ],
+      "title": "Spread",
+      "type": "gauge"
     },
     {
-      "id": 6,
-      "title": "Trades Per Second",
-      "type": "gauge",
       "datasource": "${DS_INFINITY}",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "light-blue",
+                "value": 1
+              },
+              {
+                "color": "dark-yellow",
+                "value": 5
+              },
+              {
+                "color": "dark-orange",
+                "value": 10
+              },
+              {
+                "color": "dark-red",
+                "value": 20
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
       "gridPos": {
         "h": 6,
         "w": 12,
         "x": 12,
         "y": 12
       },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "displayMode": "gradient"
-          },
-          "min": 0
-        }
+      "id": 6,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
+      "pluginVersion": "12.4.5",
       "targets": [
         {
-          "refId": "A",
-          "type": "json",
-          "format": "table",
-          "root": "$",
           "columns": [
-            {"selector": "trades_per_second", "text": "Trades/sec", "type": "number"}
-          ]
+            {
+              "selector": "trades_per_second",
+              "text": "Trades/sec",
+              "type": "number"
+            }
+          ],
+          "filters": [],
+          "format": "table",
+          "global_query_id": "",
+          "refId": "A",
+          "root": "$",
+          "root_selector": "$",
+          "source": "url",
+          "type": "json",
+          "url": "",
+          "url_options": {
+            "data": "",
+            "method": "GET"
+          }
         }
-      ]
+      ],
+      "title": "Trades Per Second",
+      "type": "gauge"
     }
   ],
+  "preload": false,
+  "refresh": "5s",
+  "schemaVersion": 42,
+  "tags": [],
   "templating": {
     "list": [
       {
+        "current": {
+          "text": "criptomeria-datasource",
+          "value": "efsswn6dlgjk0e"
+        },
+        "description": "Infinity datasource with JSON parser scraping the Rust /metrics endpoint",
         "name": "DS_INFINITY",
-        "type": "datasource",
+        "options": [],
         "query": "yesoreyeram-infinity-datasource",
-        "description": "Infinity datasource with JSON parser scraping the Rust /metrics endpoint"
+        "refresh": 1,
+        "type": "datasource"
       }
     ]
-  }
+  },
+  "time": {
+    "from": "now-5m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Cryptomeria - LOB Depth & Market Data",
+  "uid": "cryptomeria-lob",
+  "version": 13,
+  "weekStart": ""
 }
