@@ -30,3 +30,8 @@ name = "okx_integration"
 path = "tests/okx_integration.rs"
 harness = true
 
+[[test]]
+name = "kraken_integration"
+path = "tests/kraken_integration.rs"
+harness = true
+

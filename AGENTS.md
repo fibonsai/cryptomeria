@@ -69,3 +69,4 @@ For full details on tests, architecture, conventions, and LOB semantics, see `CL
 | 012 | Exponential backoff for WS reconnect | `docs/ADR-012-...` |
 | 013 | Restructure /metrics to single JSON object | `docs/ADR-013-...` |
 | 014 | Graceful shutdown for SIGINT and SIGTERM | `docs/ADR-014-...` |
+| 015 | Kraken exchange module | `docs/ADR-015-...` |
