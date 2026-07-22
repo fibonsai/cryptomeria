@@ -28,7 +28,7 @@
             },
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "Size",
+            "axisLabel": "Volume",
             "axisPlacement": "auto",
             "barAlignment": 0
           }
@@ -37,7 +37,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "asks"
+              "options": "ask"
             },
             "properties": [
               {
@@ -52,7 +52,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "bids"
+              "options": "bid"
             },
             "properties": [
               {
@@ -68,12 +68,15 @@
       },
       "targets": [
         {
-          "expr": "lob_depth_bid{price=~\".+\"}",
-          "legendFormat": "bids"
-        },
-        {
-          "expr": "lob_depth_ask{price=~\".+\"}",
-          "legendFormat": "asks"
+          "refId": "A",
+          "type": "json",
+          "format": "table",
+          "root": "$.depth",
+          "columns": [
+            {"selector": "price", "text": "price", "type": "number"},
+            {"selector": "volume", "text": "volume", "type": "number"},
+            {"selector": "side", "text": "side", "type": "string"}
+          ]
         }
       ]
     },
@@ -97,8 +100,13 @@
       },
       "targets": [
         {
-          "expr": "lob_best_bid",
-          "legendFormat": "Best Bid"
+          "refId": "A",
+          "type": "json",
+          "format": "table",
+          "root": "$",
+          "columns": [
+            {"selector": "best_bid", "text": "Best Bid", "type": "number"}
+          ]
         }
       ]
     },
@@ -122,8 +130,13 @@
       },
       "targets": [
         {
-          "expr": "lob_best_ask",
-          "legendFormat": "Best Ask"
+          "refId": "A",
+          "type": "json",
+          "format": "table",
+          "root": "$",
+          "columns": [
+            {"selector": "best_ask", "text": "Best Ask", "type": "number"}
+          ]
         }
       ]
     },
@@ -148,8 +161,13 @@
       },
       "targets": [
         {
-          "expr": "lob_last_update_timestamp",
-          "legendFormat": "Last Update"
+          "refId": "A",
+          "type": "json",
+          "format": "table",
+          "root": "$",
+          "columns": [
+            {"selector": "last_update_timestamp", "text": "Last Update", "type": "number"}
+          ]
         }
       ]
     },
@@ -174,8 +192,13 @@
       },
       "targets": [
         {
-          "expr": "lob_spread",
-          "legendFormat": "Spread"
+          "refId": "A",
+          "type": "json",
+          "format": "table",
+          "root": "$",
+          "columns": [
+            {"selector": "last_spread", "text": "Spread", "type": "number"}
+          ]
         }
       ]
     },
@@ -200,8 +223,13 @@
       },
       "targets": [
         {
-          "expr": "trades_per_second",
-          "legendFormat": "Trades/sec"
+          "refId": "A",
+          "type": "json",
+          "format": "table",
+          "root": "$",
+          "columns": [
+            {"selector": "trades_per_second", "text": "Trades/sec", "type": "number"}
+          ]
         }
       ]
     }
@@ -212,7 +240,7 @@
         "name": "DS_INFINITY",
         "type": "datasource",
         "query": "yesoreyeram-infinity-datasource",
-        "description": "Infinity datasource scraping the Rust /metrics endpoint"
+        "description": "Infinity datasource with JSON parser scraping the Rust /metrics endpoint"
       }
     ]
   }
