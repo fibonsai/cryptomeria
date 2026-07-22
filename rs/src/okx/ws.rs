@@ -185,6 +185,12 @@ impl OkxClient {
         }
 
         let mut attempt = 0u32;
+        let mut shutdown = false;
+
+        #[cfg(unix)]
+        let mut sigterm = tokio::signal::unix::signal(
+            tokio::signal::unix::SignalKind::terminate(),
+        )?;
 
         loop {
             // Attempt connection
@@ -201,9 +207,7 @@ impl OkxClient {
                         "[CONNECT ERROR] {} — attempt {}, reconnecting in {:?}",
                         e, attempt, delay
                     );
-                    if Self::sleep_or_shutdown(delay).await {
-                        return Ok(());
-                    }
+                    shutdown = Self::signal_sleep(delay, &mut sigterm).await;
                     continue;
                 }
             };
@@ -219,9 +223,7 @@ impl OkxClient {
                     "[SUBSCRIBE ERROR] books: {} — reconnecting in {:?}",
                     e, delay
                 );
-                if Self::sleep_or_shutdown(delay).await {
-                    return Ok(());
-                }
+                shutdown = Self::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
             eprintln!("[SUBSCRIBED] books {}", self.instrument);
@@ -235,9 +237,7 @@ impl OkxClient {
                     "[SUBSCRIBE ERROR] trades: {} — reconnecting in {:?}",
                     e, delay
                 );
-                if Self::sleep_or_shutdown(delay).await {
-                    return Ok(());
-                }
+                shutdown = Self::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
             eprintln!("[SUBSCRIBED] trades {}", self.instrument);
@@ -247,84 +247,107 @@ impl OkxClient {
             let mut last_trade_count = 0u64;
             let mut last_trade_time = std::time::Instant::now();
 
-            // Read loop
-            while let Some(msg) = read.next().await {
-                match msg {
-                    Ok(Message::Text(text)) => {
-                        match OkxWsMessage::from_json(&text) {
-                            Ok(parsed) => {
-                                self.messages_received.fetch_add(1, Ordering::Relaxed);
-                                match parsed.message_type() {
-                                    MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
-                                        order_book.process_msg(&parsed);
-                                        if self.data_output {
-                                            let now = parsed.formatted_time();
-                                            let book_line =
-                                                order_book.display(&self.instrument, self.show_top_pct);
-                                            println!("[{} LOB2] {}", now, book_line);
+            // Read loop with signal detection
+            loop {
+                tokio::select! {
+                    msg = read.next() => {
+                        let should_break = match msg {
+                            None => true,
+                            Some(Err(e)) => {
+                                eprintln!("[WS ERROR] {}", e);
+                                true
+                            }
+                            Some(Ok(Message::Close(frame))) => {
+                                eprintln!("[CLOSE] {:?}", frame);
+                                true
+                            }
+                            Some(Ok(Message::Text(text))) => {
+                                match OkxWsMessage::from_json(&text) {
+                                    Ok(parsed) => {
+                                        self.messages_received.fetch_add(1, Ordering::Relaxed);
+                                        match parsed.message_type() {
+                                            MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
+                                                order_book.process_msg(&parsed);
+                                                if self.data_output {
+                                                    let now = parsed.formatted_time();
+                                                    let book_line =
+                                                        order_book.display(&self.instrument, self.show_top_pct);
+                                                    println!("[{} LOB2] {}", now, book_line);
+                                                }
+
+                                                // Update Prometheus metrics
+                                                self.update_lob_metrics(&order_book);
+                                                self.update_depth_metrics(&order_book);
+                                            }
+                                            MessageType::Trade | MessageType::Event | MessageType::Unknown => {
+                                                if self.data_output {
+                                                    let line = display_message(&parsed);
+                                                    println!("{}", line);
+                                                }
+
+                                                // Update trades metrics
+                                                if let Some(_trade) = parsed.data.first().and_then(|d| {
+                                                    serde_json::from_value::<TradeData>(d.clone()).ok()
+                                                }) {
+                                                    self.lob_metrics.trades_total.inc();
+                                                    last_trade_count += 1;
+                                                    let elapsed = last_trade_time.elapsed();
+                                                    if elapsed >= std::time::Duration::from_secs(1) {
+                                                        let rate = last_trade_count as f64 / elapsed.as_secs_f64();
+                                                        self.lob_metrics.trades_per_second
+                                                            .store(f64::to_bits(rate), Ordering::Relaxed);
+                                                        last_trade_count = 0;
+                                                        last_trade_time = std::time::Instant::now();
+                                                    }
+                                                }
+                                            }
                                         }
 
-                                        // Update Prometheus metrics
-                                        self.update_lob_metrics(&order_book);
-                                        self.update_depth_metrics(&order_book);
-                                    }
-                                    MessageType::Trade | MessageType::Event | MessageType::Unknown => {
-                                        if self.data_output {
-                                            let line = display_message(&parsed);
-                                            println!("{}", line);
-                                        }
-
-                                        // Update trades metrics
-                                        if let Some(_trade) = parsed.data.first().and_then(|d| {
-                                            serde_json::from_value::<TradeData>(d.clone()).ok()
-                                        }) {
-                                            self.lob_metrics.trades_total.inc();
-                                            last_trade_count += 1;
-                                            let elapsed = last_trade_time.elapsed();
-                                            if elapsed >= std::time::Duration::from_secs(1) {
-                                                let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                                self.lob_metrics.trades_per_second
-                                                    .store(f64::to_bits(rate), Ordering::Relaxed);
-                                                last_trade_count = 0;
-                                                last_trade_time = std::time::Instant::now();
+                                        // Persist to QuestDB if sender is configured
+                                        if let Some(sender) = self.sender.as_mut() {
+                                            if let Err(e) = Self::persist_message(sender, &parsed).await {
+                                                eprintln!("[DB ERROR] Failed to persist: {}", e);
                                             }
                                         }
                                     }
-                                }
-
-                                // Persist to QuestDB if sender is configured
-                                if let Some(sender) = self.sender.as_mut() {
-                                    if let Err(e) = Self::persist_message(sender, &parsed).await {
-                                        eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                    Err(e) => {
+                                        eprintln!(
+                                            "[PARSE ERROR] {} — raw: {}",
+                                            e,
+                                            &text[..text.len().min(200)]
+                                        );
                                     }
                                 }
+                                false
                             }
-                            Err(e) => {
-                                eprintln!(
-                                    "[PARSE ERROR] {} — raw: {}",
-                                    e,
-                                    &text[..text.len().min(200)]
-                                );
+                            Some(Ok(Message::Ping(data))) => {
+                                eprintln!("[PING] {} bytes", data.len());
+                                false
                             }
+                            Some(Ok(Message::Pong(_))) => false,
+                            Some(Ok(Message::Binary(_))) => {
+                                eprintln!("[BINARY] received (unexpected)");
+                                false
+                            }
+                            Some(Ok(Message::Frame(_))) => false,
+                        };
+                        if should_break {
+                            break;
                         }
                     }
-                    Ok(Message::Ping(data)) => {
-                        eprintln!("[PING] {} bytes", data.len());
-                    }
-                    Ok(Message::Pong(_)) => {}
-                    Ok(Message::Close(frame)) => {
-                        eprintln!("[CLOSE] {:?}", frame);
+                    _ = tokio::signal::ctrl_c() => {
+                        eprintln!("[SHUTDOWN] received SIGINT");
+                        shutdown = true;
                         break;
-                    }
-                    Ok(Message::Binary(_)) => {
-                        eprintln!("[BINARY] received (unexpected)");
-                    }
-                    Ok(Message::Frame(_)) => {}
-                    Err(e) => {
-                        eprintln!("[WS ERROR] {}", e);
-                        break;
-                    }
+                    },
                 }
+                if shutdown {
+                    break;
+                }
+            }
+
+            if shutdown {
+                break;
             }
 
             attempt += 1;
@@ -333,23 +356,50 @@ impl OkxClient {
                 "[DISCONNECTED] attempt {}, reconnecting in {:?}",
                 attempt, delay
             );
-            if Self::sleep_or_shutdown(delay).await {
-                return Ok(());
+
+            shutdown = Self::signal_sleep(delay, &mut sigterm).await;
+
+            if shutdown {
+                break;
+            }
+        }
+
+        eprintln!("[SHUTDOWN]");
+        Ok(())
+    }
+
+    /// Sleep for the given duration, or return `true` if a termination signal
+    /// (SIGINT on all platforms, plus SIGTERM on Unix) is received.
+    #[allow(unused_variables)]
+    async fn signal_sleep(
+        delay: std::time::Duration,
+        sigterm: &mut tokio::signal::unix::Signal,
+    ) -> bool {
+        #[cfg(unix)]
+        {
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => false,
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("[SHUTDOWN] received SIGINT");
+                    true
+                }
+                _ = sigterm.recv() => {
+                    eprintln!("[SHUTDOWN] received SIGTERM");
+                    true
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => false,
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("[SHUTDOWN] received SIGINT");
+                    true
+                }
             }
         }
     }
-
-    /// Sleep for the given duration, or return `true` if SIGINT is received.
-    async fn sleep_or_shutdown(delay: std::time::Duration) -> bool {
-        tokio::select! {
-            _ = tokio::time::sleep(delay) => false,
-            _ = tokio::signal::ctrl_c() => {
-                eprintln!("[SHUTDOWN] received SIGINT");
-                true
-            }
-        }
-    }
-
     fn update_lob_metrics(&self, order_book: &OrderBook) {
         // Update best bid/ask
         if let Some(best_bid) = order_book.best_bid() {
