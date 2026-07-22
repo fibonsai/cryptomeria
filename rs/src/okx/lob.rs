@@ -602,4 +602,111 @@ mod tests {
         let (bids, _) = book.levels_within_pct(100.0);
         assert_eq!(bids.len(), 2);
     }
+
+    #[test]
+    fn test_full_lob_flow_snapshot_update_depth() {
+        let mut book = OrderBook::new();
+
+        // 1. Apply a snapshot with multiple levels on both sides
+        book.apply_snapshot(
+            &[
+                price_level("100.0", "1.0"),
+                price_level("99.5", "2.0"),
+                price_level("99.0", "3.0"),
+                price_level("98.0", "4.0"),
+            ],
+            Side::Bid,
+        );
+        book.apply_snapshot(
+            &[
+                price_level("101.0", "1.5"),
+                price_level("101.5", "2.5"),
+                price_level("102.0", "3.5"),
+            ],
+            Side::Ask,
+        );
+
+        assert_eq!(book.num_bids(), 4);
+        assert_eq!(book.num_asks(), 3);
+
+        // 2. Apply an update that removes a bid level (zero volume) and adds a new ask level
+        book.apply_update(
+            &[price_level("99.5", "0.0")], // remove bid at 99.5
+            Side::Bid,
+        );
+        book.apply_update(
+            &[price_level("103.0", "5.0")], // new ask at 103.0
+            Side::Ask,
+        );
+
+        assert_eq!(book.num_bids(), 3);
+        assert_eq!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON, true);
+        assert_eq!(book.num_asks(), 4);
+
+        // 3. Verify levels_within_pct with narrow filter (0.1%)
+        let (bids, asks) = book.levels_within_pct(0.1);
+        // top_pct=0.1: bid_threshold=100*0.999=99.9, ask_threshold=101*1.001=101.101
+        // Bids >= 99.9: only 100.0 (1 level)
+        // Asks <= 101.101: only 101.0 (1 level)
+        assert_eq!(bids.len(), 1, "narrow filter: only best bid");
+        assert_eq!(asks.len(), 1, "narrow filter: only best ask");
+
+        // 4. Verify levels_within_pct with wider filter (1.0%)
+        let (bids, asks) = book.levels_within_pct(1.0);
+        // top_pct=1.0: bid_threshold=100*0.99=99.0, ask_threshold=101*1.01=102.01
+        // Bids >= 99.0: 100.0, 99.0 (2 levels — 99.5 was removed)
+        // Asks <= 102.01: 101.0, 101.5, 102.0 (3 levels)
+        assert_eq!(bids.len(), 2, "1% filter shows 2 bids");
+        assert_eq!(asks.len(), 3, "1% filter shows 3 asks");
+
+        // 5. Verify that removed level (99.5) does not appear even with 100% filter
+        let (bids, _) = book.levels_within_pct(100.0);
+        assert_eq!(bids.len(), 3, "after removal, only 3 bids remain");
+        assert!(!bids.iter().any(|(p, _)| (*p - 99.5).abs() < f64::EPSILON),
+            "removed bid at 99.5 should not appear");
+    }
+
+    #[test]
+    fn test_zero_amount_passes_parse_level() {
+        // parse_level must pass through zero amounts for correct removal
+        let level = price_level("100.0", "0.0");
+        let result = parse_level(&level);
+        assert!(result.is_some(), "zero amount should parse");
+        let (price, amount) = result.unwrap();
+        assert!((price - 100.0).abs() < f64::EPSILON);
+        assert!((amount - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_depth_ordering_descending_bids_ascending_asks() {
+        let mut book = OrderBook::new();
+        // Insert bids at various prices (BTreeMap with Reverse iterates descending)
+        book.apply_snapshot(
+            &[
+                price_level("100.0", "1.0"),
+                price_level("99.0", "2.0"),
+                price_level("98.0", "3.0"),
+                price_level("97.0", "4.0"),
+            ],
+            Side::Bid,
+        );
+        // Insert asks at various prices (BTreeMap iterates ascending)
+        book.apply_snapshot(
+            &[
+                price_level("101.0", "1.0"),
+                price_level("102.0", "2.0"),
+                price_level("103.0", "3.0"),
+            ],
+            Side::Ask,
+        );
+
+        let (bids, asks) = book.levels_within_pct(100.0);
+
+        // Bids should be descending (best first)
+        assert!(bids.windows(2).all(|w| w[0].0 >= w[1].0),
+            "bids should be descending: {:?}", bids);
+        // Asks should be ascending (best first)
+        assert!(asks.windows(2).all(|w| w[0].0 <= w[1].0),
+            "asks should be ascending: {:?}", asks);
+    }
 }
