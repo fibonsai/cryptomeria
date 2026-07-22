@@ -66,3 +66,4 @@ For full details on tests, architecture, conventions, and LOB semantics, see `CL
 | 009 | Grafana Infinity datasource | `docs/ADR-009-...` |
 | 010 | Move TTL execution to startup | `docs/ADR-010-...` |
 | 011 | Serve /metrics as JSON | `docs/ADR-011-...` |
+| 012 | Exponential backoff for WS reconnect | `docs/ADR-012-...` |
