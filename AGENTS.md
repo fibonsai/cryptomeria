@@ -11,8 +11,8 @@ Defined in `.opencode/commands/`. Available in the TUI:
 | Command | Action |
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
-| `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps |
-| `/execute-plan` | Execute PLAN.md stepwise, update README, post changelog, delete PLAN.md |
+| `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
+| `/execute-plan` | Execute PLAN.md stepwise → update docs → post changelog → delete PLAN.md → create ADR → create PR → close issue → return to main |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 These are ports of the original `.claude/commands/` equivalents. The `.claude/` versions are legacy and may diverge.
