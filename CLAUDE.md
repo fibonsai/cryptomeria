@@ -114,6 +114,7 @@ rs/
 - **ADR-009** (`docs/ADR-009-...`): Use Grafana Infinity datasource for real-time metrics visualization
 - **ADR-010** (`docs/ADR-010-...`): Move TTL execution from per-message loop to application startup
 - **ADR-011** (`docs/ADR-011-...`): Serve /metrics as JSON for Grafana Infinity datasource
+- **ADR-012** (`docs/ADR-012-...`): Exponential backoff with jitter for WebSocket reconnection
 
 ---
 
@@ -156,7 +157,7 @@ rs/
 ## Dependencies (Pinned in Lockfiles)
 
 **Python (dev extras)**: `ruff≥0.6`, `pytest≥8`, `typer≥0.12`, `pyarrow≥15`
-**Rust**: `tokio` (full), `tokio-tungstenite` (native-tls), `futures-util`, `serde`+`serde_json`, `ordered-float`, `clap` (derive), `serde_test` (dev)
+**Rust**: `tokio` (full), `tokio-tungstenite` (native-tls), `futures-util`, `serde`+`serde_json`, `ordered-float`, `clap` (derive), `rand`, `serde_test` (dev)
 
 ---
 

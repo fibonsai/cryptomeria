@@ -96,15 +96,8 @@ async fn main() {
         client = client.with_metrics_port(port);
     }
 
-    tokio::select! {
-        result = client.run() => {
-            if let Err(e) = result {
-                eprintln!("[ERROR] {}", e);
-            }
-        }
-        _ = tokio::signal::ctrl_c() => {
-            eprintln!("[SHUTDOWN] received SIGINT");
-        }
+    if let Err(e) = client.run().await {
+        eprintln!("[ERROR] {}", e);
     }
 
     eprintln!("[DISCONNECTED]");

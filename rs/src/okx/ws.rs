@@ -6,12 +6,26 @@ use futures_util::SinkExt;
 use futures_util::StreamExt;
 use prometheus::{Gauge, GaugeVec, IntGauge, Opts, Registry};
 use questdb::ingress::Sender;
+use rand::Rng;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 const WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/public";
+
+// Reconnect backoff constants
+const INITIAL_BACKOFF_MS: u64 = 1000;
+const MAX_BACKOFF_MS: u64 = 60_000;
+const BACKOFF_MULTIPLIER: f64 = 2.0;
+const JITTER_MS: u64 = 1000;
+
+fn backoff_delay(attempt: u32) -> std::time::Duration {
+    let base_ms = INITIAL_BACKOFF_MS as f64 * BACKOFF_MULTIPLIER.powi(attempt as i32);
+    let base_ms = base_ms.min(MAX_BACKOFF_MS as f64);
+    let jitter: u64 = rand::thread_rng().gen_range(0..JITTER_MS);
+    std::time::Duration::from_millis(base_ms as u64 + jitter)
+}
 
 /// Subscribe message builder — pure function, testable without I/O.
 pub fn build_subscribe_msg(channel: &str, instrument: &str) -> String {
@@ -140,14 +154,19 @@ impl OkxClient {
         self
     }
 
-    /// Connect, subscribe, and run the event loop.
+    /// Connect, subscribe, run the event loop, and reconnect indefinitely on
+    /// disconnection with exponential backoff and random jitter.
     ///
     /// The client connects to OKX public WebSocket, subscribes to `books` and
     /// `trades` channels, maintains an in-memory `OrderBook`, and displays
     /// reconstructed LOB2 state or raw trade/event messages. If a sender is
     /// configured, also persists market data to QuestDB via ILP.
+    ///
+    /// On connection loss, the client retries forever using exponential backoff
+    /// with jitter. A SIGINT signal during a backoff sleep exits the process
+    /// cleanly.
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Start metrics server if port is specified
+        // Start metrics server if port is specified (once, outside reconnect loop)
         if let Some(port) = self.metrics_port {
             let lob_metrics = self.lob_metrics.clone();
             std::thread::spawn(move || {
@@ -158,20 +177,6 @@ impl OkxClient {
             });
         }
 
-        let (ws_stream, _) = connect_async(WS_URL).await?;
-        eprintln!("[CONNECTED] {}", WS_URL);
-
-        let (mut write, mut read) = ws_stream.split();
-
-        // Subscribe to books and trades channels
-        let books_msg = build_subscribe_msg("books", &self.instrument);
-        write.send(Message::Text(books_msg.into())).await?;
-        eprintln!("[SUBSCRIBED] books {}", self.instrument);
-
-        let trades_msg = build_subscribe_msg("trades", &self.instrument);
-        write.send(Message::Text(trades_msg.into())).await?;
-        eprintln!("[SUBSCRIBED] trades {}", self.instrument);
-
         // Set TTL once at startup (one-time table config, not per-message)
         if let Some(hours) = self.retention_window {
             if let Err(e) = apply_ttl(hours, &self.questdb_conf).await {
@@ -179,88 +184,170 @@ impl OkxClient {
             }
         }
 
-        let mut order_book = OrderBook::new();
-        let mut last_trade_count = 0u64;
-        let mut last_trade_time = std::time::Instant::now();
+        let mut attempt = 0u32;
 
-        // Read loop
-        while let Some(msg) = read.next().await {
-            match msg? {
-                Message::Text(text) => {
-                    match OkxWsMessage::from_json(&text) {
-                        Ok(parsed) => {
-                            self.messages_received.fetch_add(1, Ordering::Relaxed);
-                            match parsed.message_type() {
-                                MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
-                                    order_book.process_msg(&parsed);
-                                    if self.data_output {
-                                        let now = parsed.formatted_time();
-                                        let book_line =
-                                            order_book.display(&self.instrument, self.show_top_pct);
-                                        println!("[{} LOB2] {}", now, book_line);
+        loop {
+            // Attempt connection
+            let ws_stream = match connect_async(WS_URL).await {
+                Ok((stream, _)) => {
+                    attempt = 0;
+                    eprintln!("[CONNECTED] {}", WS_URL);
+                    stream
+                }
+                Err(e) => {
+                    attempt += 1;
+                    let delay = backoff_delay(attempt - 1);
+                    eprintln!(
+                        "[CONNECT ERROR] {} — attempt {}, reconnecting in {:?}",
+                        e, attempt, delay
+                    );
+                    if Self::sleep_or_shutdown(delay).await {
+                        return Ok(());
+                    }
+                    continue;
+                }
+            };
+
+            let (mut write, mut read) = ws_stream.split();
+
+            // Subscribe to books channel
+            let books_msg = build_subscribe_msg("books", &self.instrument);
+            if let Err(e) = write.send(Message::Text(books_msg.into())).await {
+                attempt += 1;
+                let delay = backoff_delay(attempt - 1);
+                eprintln!(
+                    "[SUBSCRIBE ERROR] books: {} — reconnecting in {:?}",
+                    e, delay
+                );
+                if Self::sleep_or_shutdown(delay).await {
+                    return Ok(());
+                }
+                continue;
+            }
+            eprintln!("[SUBSCRIBED] books {}", self.instrument);
+
+            // Subscribe to trades channel
+            let trades_msg = build_subscribe_msg("trades", &self.instrument);
+            if let Err(e) = write.send(Message::Text(trades_msg.into())).await {
+                attempt += 1;
+                let delay = backoff_delay(attempt - 1);
+                eprintln!(
+                    "[SUBSCRIBE ERROR] trades: {} — reconnecting in {:?}",
+                    e, delay
+                );
+                if Self::sleep_or_shutdown(delay).await {
+                    return Ok(());
+                }
+                continue;
+            }
+            eprintln!("[SUBSCRIBED] trades {}", self.instrument);
+
+            // Re-initialize order book and tracking state on each connection
+            let mut order_book = OrderBook::new();
+            let mut last_trade_count = 0u64;
+            let mut last_trade_time = std::time::Instant::now();
+
+            // Read loop
+            while let Some(msg) = read.next().await {
+                match msg {
+                    Ok(Message::Text(text)) => {
+                        match OkxWsMessage::from_json(&text) {
+                            Ok(parsed) => {
+                                self.messages_received.fetch_add(1, Ordering::Relaxed);
+                                match parsed.message_type() {
+                                    MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
+                                        order_book.process_msg(&parsed);
+                                        if self.data_output {
+                                            let now = parsed.formatted_time();
+                                            let book_line =
+                                                order_book.display(&self.instrument, self.show_top_pct);
+                                            println!("[{} LOB2] {}", now, book_line);
+                                        }
+
+                                        // Update Prometheus metrics
+                                        self.update_lob_metrics(&order_book);
+                                        self.update_depth_metrics(&order_book);
                                     }
+                                    MessageType::Trade | MessageType::Event | MessageType::Unknown => {
+                                        if self.data_output {
+                                            let line = display_message(&parsed);
+                                            println!("{}", line);
+                                        }
 
-                                    // Update Prometheus metrics
-                                    self.update_lob_metrics(&order_book);
-                                    self.update_depth_metrics(&order_book);
-                                }
-                                MessageType::Trade | MessageType::Event | MessageType::Unknown => {
-                                    if self.data_output {
-                                        let line = display_message(&parsed);
-                                        println!("{}", line);
-                                    }
-
-                                    // Update trades metrics
-                                    if let Some(_trade) = parsed.data.first().and_then(|d| {
-                                        serde_json::from_value::<TradeData>(d.clone()).ok()
-                                    }) {
-                                        self.lob_metrics.trades_total.inc();
-                                        last_trade_count += 1;
-                                        let elapsed = last_trade_time.elapsed();
-                                        if elapsed >= std::time::Duration::from_secs(1) {
-                                            let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                            self.lob_metrics.trades_per_second
-                                                .store(f64::to_bits(rate), Ordering::Relaxed);
-                                            last_trade_count = 0;
-                                            last_trade_time = std::time::Instant::now();
+                                        // Update trades metrics
+                                        if let Some(_trade) = parsed.data.first().and_then(|d| {
+                                            serde_json::from_value::<TradeData>(d.clone()).ok()
+                                        }) {
+                                            self.lob_metrics.trades_total.inc();
+                                            last_trade_count += 1;
+                                            let elapsed = last_trade_time.elapsed();
+                                            if elapsed >= std::time::Duration::from_secs(1) {
+                                                let rate = last_trade_count as f64 / elapsed.as_secs_f64();
+                                                self.lob_metrics.trades_per_second
+                                                    .store(f64::to_bits(rate), Ordering::Relaxed);
+                                                last_trade_count = 0;
+                                                last_trade_time = std::time::Instant::now();
+                                            }
                                         }
                                     }
                                 }
-                            }
 
-                            // Persist to QuestDB if sender is configured
-                            if let Some(sender) = self.sender.as_mut() {
-                                if let Err(e) = Self::persist_message(sender, &parsed).await {
-                                    eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                // Persist to QuestDB if sender is configured
+                                if let Some(sender) = self.sender.as_mut() {
+                                    if let Err(e) = Self::persist_message(sender, &parsed).await {
+                                        eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                    }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "[PARSE ERROR] {} — raw: {}",
-                                e,
-                                &text[..text.len().min(200)]
-                            );
+                            Err(e) => {
+                                eprintln!(
+                                    "[PARSE ERROR] {} — raw: {}",
+                                    e,
+                                    &text[..text.len().min(200)]
+                                );
+                            }
                         }
                     }
+                    Ok(Message::Ping(data)) => {
+                        eprintln!("[PING] {} bytes", data.len());
+                    }
+                    Ok(Message::Pong(_)) => {}
+                    Ok(Message::Close(frame)) => {
+                        eprintln!("[CLOSE] {:?}", frame);
+                        break;
+                    }
+                    Ok(Message::Binary(_)) => {
+                        eprintln!("[BINARY] received (unexpected)");
+                    }
+                    Ok(Message::Frame(_)) => {}
+                    Err(e) => {
+                        eprintln!("[WS ERROR] {}", e);
+                        break;
+                    }
                 }
-                Message::Ping(data) => {
-                    eprintln!("[PING] {} bytes", data.len());
-                }
-                Message::Pong(_) => {}
-                Message::Close(frame) => {
-                    eprintln!("[CLOSE] {:?}", frame);
-                    break;
-                }
-                Message::Binary(_) => {
-                    eprintln!("[BINARY] received (unexpected)");
-                }
-                Message::Frame(_) => {}
+            }
+
+            attempt += 1;
+            let delay = backoff_delay(attempt - 1);
+            eprintln!(
+                "[DISCONNECTED] attempt {}, reconnecting in {:?}",
+                attempt, delay
+            );
+            if Self::sleep_or_shutdown(delay).await {
+                return Ok(());
             }
         }
+    }
 
-        eprintln!("[DISCONNECTED]");
-        Ok(())
+    /// Sleep for the given duration, or return `true` if SIGINT is received.
+    async fn sleep_or_shutdown(delay: std::time::Duration) -> bool {
+        tokio::select! {
+            _ = tokio::time::sleep(delay) => false,
+            _ = tokio::signal::ctrl_c() => {
+                eprintln!("[SHUTDOWN] received SIGINT");
+                true
+            }
+        }
     }
 
     fn update_lob_metrics(&self, order_book: &OrderBook) {
