@@ -157,23 +157,34 @@ On startup, the client automatically runs embedded SQL migrations to create the 
 
 ```sql
 CREATE TABLE IF NOT EXISTS trades (
-    inst_id SYMBOL,
+    inst_id SYMBOL INDEX TYPE POSTING,
     trade_id SYMBOL,
     px DOUBLE,
     sz DOUBLE,
     side SYMBOL,
     ts TIMESTAMP
-) TIMESTAMP(ts) PARTITION BY DAY WAL;
+) TIMESTAMP(ts) PARTITION BY HOUR TTL 1 HOURS;
+
+CREATE TABLE IF NOT EXISTS lob_levels (
+    inst_id SYMBOL INDEX TYPE POSTING,
+    ts TIMESTAMP,
+    action SYMBOL,                    -- 'snapshot' or 'update'
+    side SYMBOL INDEX TYPE POSTING INCLUDE(price), -- 'bids' or 'asks'
+    price DOUBLE,
+    size DOUBLE,
+    count DOUBLE,
+    orders DOUBLE
+) TIMESTAMP(ts) PARTITION BY HOUR TTL 1 HOURS;
 
 CREATE TABLE IF NOT EXISTS orderbook_snapshots (
-    inst_id SYMBOL,
+    inst_id SYMBOL INDEX TYPE POSTING,
     ts TIMESTAMP,
     bids VARCHAR,
     asks VARCHAR
-) TIMESTAMP(ts) PARTITION BY DAY WAL;
+) TIMESTAMP(ts) PARTITION BY HOUR TTL 1 HOURS;
 ```
 
-Tables use QuestDB-optimized types: `SYMBOL` for low-cardinality strings, `DOUBLE` for prices/sizes, `TIMESTAMP` with daily partitioning and WAL for durability.
+Tables use QuestDB-optimized types: `SYMBOL` for low-cardinality strings, `DOUBLE` for prices/sizes, `TIMESTAMP` with hourly partitioning and `TTL` for automatic retention. The `--retention-window` CLI flag sets a custom TTL (hours) on `lob_levels` and `trades` at startup.
 
 ## OKX WebSocket Market Data Client
 
@@ -216,37 +227,49 @@ By default, only connection lifecycle events (`[CONNECTING]`, `[CONNECTED]`, `[S
 
 ## Grafana LOB Visualization
 
-The Rust client exposes a Prometheus `/metrics` HTTP endpoint for real-time LOB visualization in Grafana. Combined with QuestDB's native Grafana data source, this enables hybrid dashboards with both sub-second updates and historical analysis.
+The Rust client exposes a `/metrics` HTTP endpoint returning a JSON object with real-time LOB data for Grafana visualization. Combined with QuestDB's native Grafana data source, this enables hybrid dashboards with both sub-second updates and historical analysis.
 
 ### Architecture
 
 ```
-┌──────────────┐    Prometheus scrape     ┌──────────┐
-│  Rust Client ├─────────────────────────▶│ Prometheus│
-│  /metrics    │                          │ (optional)│
-└──────────────┘                          └─────┬────┘
-       │                                        │
-       │ QuestDB ILP/HTTP                       │ Grafana
-       ▼                                        ▼
-┌──────────────┐                          ┌──────────┐
-│   QuestDB    │◀─────────────────────────│  Grafana │
-│              │    Grafana data source    │          │
+                  /metrics (JSON)
+┌──────────────┐─────────────────────────▶┌──────────┐
+│  Rust Client │                          │  Grafana │
+│              │◀─────── Infinity ────────│ Infinity │
+│              │      datasource polls     │ datasource│
 └──────────────┘                          └──────────┘
+       │
+       │ QuestDB ILP/HTTP
+       ▼
+┌──────────────┐
+│   QuestDB    │◀──── Grafana QuestDB data source ────▶ Grafana (historical)
+│              │
+└──────────────┘
 ```
+
+The Infinity datasource (`yesoreyeram-infinity-datasource`) polls the `/metrics` endpoint directly. No Prometheus server is required.
 
 ### Metrics Exposed
 
-All metrics are served at `/metrics` in Prometheus text format:
+The `/metrics` endpoint returns a single JSON object at every request:
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `lob_best_bid` | Gauge | Best bid price |
-| `lob_best_ask` | Gauge | Best ask price |
-| `lob_spread` | Gauge | Spread (ask - bid) |
-| `lob_last_update_timestamp` | Gauge | Last LOB update time (Unix ms) |
-| `trades_total` | Counter | Total trades received |
-| `lob_depth_bid{price="<price>"}` | Gauge | Cumulative bid volume at price level |
-| `lob_depth_ask{price="<price>"}` | Gauge | Cumulative ask volume at price level |
+| Field | Type | Description |
+|-------|------|-------------|
+| `best_bid` | float | Best bid price |
+| `best_ask` | float | Best ask price |
+| `last_spread` | float | Spread (ask - bid) |
+| `last_update_timestamp` | integer | Last LOB update time (Unix ms) |
+| `trades_total` | integer | Total trades received |
+| `trades_per_second` | float | Pre-computed trades/second rate |
+| `depth` | array | Ordered LOB depth entries — each has `price` (float), `volume` (float), `side` ("bid"/"ask"); sorted ascending by price |
+
+### Dashboard Layout
+
+The included dashboard (`grafana/dashboard.json`) has 6 panels across 3 rows:
+
+1. **Top** (full width): Timeseries bar chart of LOB depth — price on x-axis, cumulative volume on y-axis, bids (green) and asks (red) stacked
+2. **Middle** (3 stat blocks): Best Bid, Best Ask, Last Update (ISO datetime)
+3. **Bottom** (2 gauges): Spread, Trades Per Second
 
 ### Usage
 
@@ -255,13 +278,16 @@ Enable the metrics server by passing `--metrics-port`:
 ```bash
 # Start the client with metrics on port 9091
 cargo run -- --metrics-port 9091
+
+# Verify the endpoint
+curl http://localhost:9091/metrics
 ```
 
 For Grafana, add one or both data sources:
-- **Prometheus** — point to your Prometheus server (or directly to `http://<client-host>:9091/metrics` for quick testing with the Prometheus data source)
-- **QuestDB** — point to your QuestDB HTTP endpoint (e.g. `http://localhost:9000`)
+- **Infinity** — point to `http://<client-host>:9091/metrics` with parser set to `JSON`; panels reference fields via `root: "$"`
+- **QuestDB** — point to your QuestDB HTTP endpoint (e.g. `http://localhost:9000`) for historical queries
 
-A sample Grafana dashboard JSON is available in `docs/` (see ADR-006 for details).
+See `grafana/README.md` for detailed setup instructions.
 
 ## LOB Data Processing
 
