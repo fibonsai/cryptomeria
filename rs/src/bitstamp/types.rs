@@ -1,0 +1,410 @@
+use serde::{Deserialize, Serialize};
+
+/// Top-level envelope for all Bitstamp WebSocket messages.
+#[derive(Debug, Deserialize)]
+pub struct BitstampWsMessage {
+    #[serde(default)]
+    pub event: Option<String>,
+
+    #[serde(default)]
+    pub channel: Option<String>,
+
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+}
+
+/// Classifies Bitstamp WebSocket message type for dispatch and display.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MessageType {
+    L2Snapshot,
+    L2Update,
+    Trade,
+    Event,
+    Unknown,
+}
+
+/// A single order book entry from Bitstamp.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct OrderEntry {
+    #[serde(default)]
+    pub id: u64,
+
+    #[serde(default)]
+    pub id_str: String,
+
+    #[serde(default)]
+    pub price: String,
+
+    #[serde(default)]
+    pub amount: String,
+
+    /// 0 = bid, 1 = ask
+    #[serde(default, rename = "type")]
+    pub order_type: i64,
+
+    #[serde(default)]
+    pub timestamp: String,
+}
+
+/// A single trade from Bitstamp.
+#[derive(Debug, Deserialize)]
+pub struct TradeData {
+    #[serde(default)]
+    pub id: u64,
+
+    #[serde(default)]
+    pub price: String,
+
+    #[serde(default)]
+    pub amount: String,
+
+    /// 0 = buy, 1 = sell
+    #[serde(default, rename = "type")]
+    pub trade_type: i64,
+
+    #[serde(default)]
+    pub timestamp: String,
+
+    #[serde(default)]
+    pub microtimestamp: String,
+
+    #[serde(default)]
+    pub buy_order_id: i64,
+
+    #[serde(default)]
+    pub sell_order_id: i64,
+}
+
+/// A price level representation for persistence.
+#[derive(Debug, Deserialize, Clone)]
+pub struct LobLevel {
+    pub price: String,
+    pub size: String,
+}
+
+impl BitstampWsMessage {
+    /// Parse a JSON string into a `BitstampWsMessage`.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+
+    /// Classify the message type for dispatch.
+    pub fn message_type(&self) -> MessageType {
+        match self.event.as_deref() {
+            Some("data") => {
+                if let Some(ref channel) = self.channel {
+                    if channel.starts_with("live_orders_") {
+                        // First message after subscribe is effectively a snapshot
+                        // Subsequent messages are updates; we handle this in the client
+                        MessageType::L2Update
+                    } else {
+                        MessageType::Unknown
+                    }
+                } else {
+                    MessageType::Unknown
+                }
+            }
+            Some("trade") => MessageType::Trade,
+            Some(_) => MessageType::Event,
+            None => MessageType::Unknown,
+        }
+    }
+
+    /// Classify the message type for display tagging.
+    pub fn display_type(&self) -> &'static str {
+        match self.message_type() {
+            MessageType::L2Snapshot => "LOB2 SNAPSHOT",
+            MessageType::L2Update => "LOB2 UPDATE",
+            MessageType::Trade => "TRADE",
+            MessageType::Event => "EVENT",
+            MessageType::Unknown => "UNKNOWN",
+        }
+    }
+
+    /// Build a one-line summary for terminal display.
+    pub fn summary(&self) -> String {
+        match self.message_type() {
+            MessageType::L2Snapshot | MessageType::L2Update => {
+                if let Some(ref channel) = self.channel {
+                    if let Some(ref data) = self.data {
+                        if let Some(entry) = serde_json::from_value::<OrderEntry>(data.clone()).ok() {
+                            let side = if entry.order_type == 0 { "bid" } else { "ask" };
+                            format!("{} {} {}@{}", channel, side, entry.amount, entry.price)
+                        } else {
+                            format!("{} (raw)", channel)
+                        }
+                    } else {
+                        format!("{} (empty)", channel)
+                    }
+                } else {
+                    "?".to_string()
+                }
+            }
+            MessageType::Trade => {
+                if let Some(trade) = self.data.as_ref().and_then(|d| {
+                    serde_json::from_value::<TradeData>(d.clone()).ok()
+                }) {
+                    let side = if trade.trade_type == 0 { "buy" } else { "sell" };
+                    format!("{} @ {} sz={} side={}",
+                        self.channel.as_deref().unwrap_or("?"),
+                        trade.price, trade.amount, side)
+                } else {
+                    format!("{} (raw)", self.channel.as_deref().unwrap_or("?"))
+                }
+            }
+            MessageType::Event => {
+                format!("{}", self.event.as_deref().unwrap_or("?"))
+            }
+            MessageType::Unknown => {
+                format!("{}", self.channel.as_deref().unwrap_or("?"))
+            }
+        }
+    }
+
+    /// Extract exchange timestamp (milliseconds) from the message.
+    pub fn timestamp_ms(&self) -> Option<u64> {
+        let data = self.data.as_ref()?;
+        // Try OrderEntry timestamp first
+        if let Some(entry) = serde_json::from_value::<OrderEntry>(data.clone()).ok() {
+            if let Ok(secs) = entry.timestamp.parse::<f64>() {
+                return Some((secs * 1000.0) as u64);
+            }
+            if let Ok(ms) = entry.timestamp.parse::<u64>() {
+                return Some(ms);
+            }
+        }
+        // Try TradeData timestamp
+        if let Some(trade) = serde_json::from_value::<TradeData>(data.clone()).ok() {
+            if let Ok(secs) = trade.timestamp.parse::<f64>() {
+                return Some((secs * 1000.0) as u64);
+            }
+        }
+        None
+    }
+
+    /// Format the timestamp as `HH:MM:SS.mmm`.
+    pub fn formatted_time(&self) -> String {
+        match self.timestamp_ms() {
+            Some(ms) => {
+                let total_secs = ms / 1000;
+                let millis = ms % 1000;
+                let h = (total_secs / 3600) % 24;
+                let m = (total_secs / 60) % 60;
+                let s = total_secs % 60;
+                format!("{:02}:{:02}:{:02}.{:03}", h, m, s, millis)
+            }
+            None => {
+                let d = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default();
+                let secs = d.as_secs();
+                let millis = d.subsec_millis();
+                let h = (secs / 3600) % 24;
+                let m = (secs / 60) % 60;
+                let s = secs % 60;
+                format!("{:02}:{:02}:{:02}.{:03}", h, m, s, millis)
+            }
+        }
+    }
+
+    /// Extract LOB levels from the message (for persistence).
+    pub fn lob_levels(&self) -> Vec<(String, LobLevel)> {
+        let mut result = Vec::new();
+        if let Some(ref data) = self.data {
+            if let Some(entry) = serde_json::from_value::<OrderEntry>(data.clone()).ok() {
+                let side = if entry.order_type == 0 { "bid" } else { "ask" };
+                result.push((side.to_string(), LobLevel {
+                    price: entry.price.clone(),
+                    size: entry.amount.clone(),
+                }));
+            }
+        }
+        result
+    }
+}
+
+/// Format a trade or event message for terminal display — pure function, testable without I/O.
+pub fn display_message(msg: &BitstampWsMessage) -> String {
+    let now = msg.formatted_time();
+    let tag = msg.display_type();
+    let body = msg.summary();
+    format!("[{} {}] {}", now, tag, body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_order_data() {
+        let json = r#"{
+            "event": "data",
+            "channel": "live_orders_btcusd",
+            "data": {
+                "id": 12345,
+                "id_str": "12345",
+                "price": "10000.0",
+                "amount": "1.5",
+                "type": 0,
+                "timestamp": "1705314600"
+            }
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.event.as_deref(), Some("data"));
+        assert_eq!(msg.channel.as_deref(), Some("live_orders_btcusd"));
+        assert_eq!(msg.message_type(), MessageType::L2Update);
+    }
+
+    #[test]
+    fn test_parse_trade_data() {
+        let json = r#"{
+            "event": "trade",
+            "channel": "live_trades_btcusd",
+            "data": {
+                "price": "10000.0",
+                "amount": "0.5",
+                "type": 1,
+                "timestamp": "1705314600.123456",
+                "microtimestamp": "1705314600123456",
+                "id": 67890,
+                "buy_order_id": 123,
+                "sell_order_id": 456
+            }
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.message_type(), MessageType::Trade);
+    }
+
+    #[test]
+    fn test_parse_subscription_succeeded() {
+        let json = r#"{
+            "event": "bts:subscription_succeeded",
+            "channel": "live_orders_btcusd",
+            "data": {}
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.message_type(), MessageType::Event);
+    }
+
+    #[test]
+    fn test_parse_malformed_json() {
+        let result = BitstampWsMessage::from_json("not valid json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_display_type_lob_update() {
+        let json = r#"{
+            "event": "data",
+            "channel": "live_orders_btcusd",
+            "data": {"price": "10000.0", "amount": "1.0", "type": 0, "id": 1, "id_str": "1", "timestamp": "0"}
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.display_type(), "LOB2 UPDATE");
+    }
+
+    #[test]
+    fn test_display_type_trade() {
+        let json = r#"{
+            "event": "trade",
+            "channel": "live_trades_btcusd",
+            "data": {"price": "10000.0", "amount": "0.5", "type": 1, "timestamp": "0", "microtimestamp": "0", "id": 1, "buy_order_id": 0, "sell_order_id": 0}
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.display_type(), "TRADE");
+    }
+
+    #[test]
+    fn test_display_type_event() {
+        let json = r#"{
+            "event": "bts:subscription_succeeded",
+            "channel": "live_orders_btcusd",
+            "data": {}
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.display_type(), "EVENT");
+    }
+
+    #[test]
+    fn test_display_type_unknown() {
+        let json = r#"{
+            "event": "some-other",
+            "channel": "unknown_channel",
+            "data": {}
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.display_type(), "EVENT");
+    }
+
+    #[test]
+    fn test_summary_contains_key_fields() {
+        let json = r#"{
+            "event": "trade",
+            "channel": "live_trades_btcusd",
+            "data": {"price": "50000.0", "amount": "0.5", "type": 0, "timestamp": "1705314600", "microtimestamp": "1705314600123456", "id": 1, "buy_order_id": 0, "sell_order_id": 0}
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        let s = msg.summary();
+        assert!(s.contains("50000.0"));
+        assert!(s.contains("buy"));
+    }
+
+    #[test]
+    fn test_timestamp_ms_order_entry() {
+        let json = r#"{
+            "event": "data",
+            "channel": "live_orders_btcusd",
+            "data": {"price": "10000.0", "amount": "1.0", "type": 0, "id": 1, "id_str": "1", "timestamp": "1705314600"}
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.timestamp_ms(), Some(1705314600000));
+    }
+
+    #[test]
+    fn test_lob_levels_extraction() {
+        let json = r#"{
+            "event": "data",
+            "channel": "live_orders_btcusd",
+            "data": {"id": 1, "id_str": "1", "price": "10000.0", "amount": "1.5", "type": 0, "timestamp": "0"}
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        let levels = msg.lob_levels();
+        assert_eq!(levels.len(), 1);
+        assert_eq!(levels[0].0, "bid");
+        assert_eq!(levels[0].1.price, "10000.0");
+        assert_eq!(levels[0].1.size, "1.5");
+    }
+
+    #[test]
+    fn test_display_message_trade() {
+        let json = r#"{
+            "event": "trade",
+            "channel": "live_trades_btcusd",
+            "data": {"price": "10000.0", "amount": "0.5", "type": 1, "timestamp": "0", "microtimestamp": "0", "id": 1, "buy_order_id": 0, "sell_order_id": 0}
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        let out = display_message(&msg);
+        assert!(out.contains("TRADE"));
+    }
+
+    #[test]
+    fn test_display_message_event() {
+        let json = r#"{
+            "event": "bts:subscription_succeeded",
+            "channel": "live_orders_btcusd",
+            "data": {}
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        let out = display_message(&msg);
+        assert!(out.contains("EVENT"));
+    }
+
+    #[test]
+    fn test_summary_unknown_type() {
+        let json = r#"{"event": "some_random_event", "data": {}}"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        let s = msg.summary();
+        // Should not crash
+        assert!(!s.is_empty());
+    }
+}

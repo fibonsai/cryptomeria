@@ -214,6 +214,17 @@ impl OrderBook {
     }
 }
 
+impl crate::traits::OrderBook for OrderBook {
+    fn new() -> Self { OrderBook::new() }
+    fn num_bids(&self) -> usize { OrderBook::num_bids(self) }
+    fn num_asks(&self) -> usize { OrderBook::num_asks(self) }
+    fn best_bid(&self) -> Option<f64> { OrderBook::best_bid(self) }
+    fn best_ask(&self) -> Option<f64> { OrderBook::best_ask(self) }
+    fn spread(&self) -> Option<f64> { OrderBook::spread(self) }
+    fn levels_within_pct(&self, top_pct: f64) -> (Vec<(f64, f64)>, Vec<(f64, f64)>) { OrderBook::levels_within_pct(self, top_pct) }
+    fn display(&self, instrument: &str, top_pct: f64) -> String { OrderBook::display(self, instrument, top_pct) }
+}
+
 impl Default for OrderBook {
     fn default() -> Self {
         Self::new()

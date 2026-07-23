@@ -1,35 +1,43 @@
-use crate::db;
+use crate::bitstamp::lob::OrderBook;
+use crate::bitstamp::types::{display_message, BitstampWsMessage, MessageType, TradeData};
+use crate::db::{persist_lob, persist_trade};
 use crate::db::apply_ttl;
-use crate::kraken::lob::OrderBook;
-use crate::kraken::types::{KrakenWsMessage, MessageType};
 use crate::traits::{self, ExchangeClientBuilder, LobMetrics, backoff_delay};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
+use prometheus::Registry;
 use questdb::ingress::Sender;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
-const WS_URL: &str = "wss://ws.kraken.com/v2";
+const WS_URL: &str = "wss://ws.bitstamp.net";
 
-pub fn build_subscribe_msg(channel: &str, instrument: &str) -> String {
+/// Convert an instrument ID to Bitstamp channel format (lowercase, no separators).
+/// e.g. "BTC/USD" -> "btcusd", "BTC-USD" -> "btcusd", "btcusd" -> "btcusd"
+fn instrument_to_channel(instrument: &str) -> String {
+    instrument.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+/// Subscribe message builder for Bitstamp.
+pub fn build_subscribe_msg(channel: &str) -> String {
     serde_json::json!({
-        "method": "subscribe",
-        "params": {"channel": channel, "symbol": [instrument]}
+        "event": "bts:subscribe",
+        "data": {
+            "channel": channel
+        }
     })
     .to_string()
 }
 
-pub fn display_message(msg: &KrakenWsMessage) -> String {
-    let now = msg.formatted_time();
-    let tag = msg.display_type();
-    let body = msg.summary();
-    format!("[{} {}] {}", now, tag, body)
-}
-
-pub struct KrakenClient {
+/// WebSocket client for Bitstamp market data.
+pub struct BitstampClient {
     pub instrument: String,
+    pub channel_instrument: String,
     pub exchange: String,
     pub show_top_pct: f64,
     pub messages_received: Arc<AtomicU64>,
@@ -41,19 +49,21 @@ pub struct KrakenClient {
     sender: Option<Sender>,
 }
 
-impl ExchangeClientBuilder for KrakenClient {
-    fn with_sender(self, sender: Sender) -> Self { KrakenClient::with_sender(self, sender) }
-    fn with_retention_window(self, hours: u64) -> Self { KrakenClient::with_retention_window(self, hours) }
-    fn with_metrics_port(self, port: u16) -> Self { KrakenClient::with_metrics_port(self, port) }
-    fn with_data_output(self, enabled: bool) -> Self { KrakenClient::with_data_output(self, enabled) }
+impl ExchangeClientBuilder for BitstampClient {
+    fn with_sender(self, sender: Sender) -> Self { BitstampClient::with_sender(self, sender) }
+    fn with_retention_window(self, hours: u64) -> Self { BitstampClient::with_retention_window(self, hours) }
+    fn with_metrics_port(self, port: u16) -> Self { BitstampClient::with_metrics_port(self, port) }
+    fn with_data_output(self, enabled: bool) -> Self { BitstampClient::with_data_output(self, enabled) }
 }
 
-impl KrakenClient {
+impl BitstampClient {
     pub fn new(instrument: &str, exchange: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
-        let registry = prometheus::Registry::new();
+        let registry = Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
+        let channel_instrument = instrument_to_channel(instrument);
         Self {
             instrument: instrument.to_string(),
+            channel_instrument,
             exchange: exchange.to_string(),
             show_top_pct,
             messages_received: Arc::new(AtomicU64::new(0)),
@@ -132,35 +142,43 @@ impl KrakenClient {
 
             let (mut write, mut read) = ws_stream.split();
 
-            let books_msg = build_subscribe_msg("book", &self.instrument);
-            if let Err(e) = write.send(Message::Text(books_msg.into())).await {
+            // Subscribe to live_orders channel
+            let orders_channel = format!("live_orders_{}", self.channel_instrument);
+            let orders_msg = build_subscribe_msg(&orders_channel);
+            if let Err(e) = write.send(Message::Text(orders_msg.into())).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
                 eprintln!(
-                    "[SUBSCRIBE ERROR] book: {} — reconnecting in {:?}",
-                    e, delay
+                    "[SUBSCRIBE ERROR] {}: {} — reconnecting in {:?}",
+                    orders_channel, e, delay
                 );
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
-            eprintln!("[SUBSCRIBED] book {}", self.instrument);
+            eprintln!("[SUBSCRIBED] {}", orders_channel);
 
-            let trades_msg = build_subscribe_msg("trade", &self.instrument);
+            // Subscribe to live_trades channel
+            let trades_channel = format!("live_trades_{}", self.channel_instrument);
+            let trades_msg = build_subscribe_msg(&trades_channel);
             if let Err(e) = write.send(Message::Text(trades_msg.into())).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
                 eprintln!(
-                    "[SUBSCRIBE ERROR] trade: {} — reconnecting in {:?}",
-                    e, delay
+                    "[SUBSCRIBE ERROR] {}: {} — reconnecting in {:?}",
+                    trades_channel, e, delay
                 );
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
-            eprintln!("[SUBSCRIBED] trade {}", self.instrument);
+            eprintln!("[SUBSCRIBED] {}", trades_channel);
 
             let mut order_book = OrderBook::new();
             let mut last_trade_count = 0u64;
             let mut last_trade_time = std::time::Instant::now();
+
+            // Bitstamp sends a burst of individual order entries on connect.
+            // We accumulate them all. First ~100ms of data is the initial state.
+            // We don't have a distinct "snapshot" action — everything is an update.
 
             loop {
                 tokio::select! {
@@ -176,11 +194,12 @@ impl KrakenClient {
                                 true
                             }
                             Some(Ok(Message::Text(text))) => {
-                                match KrakenWsMessage::from_json(&text) {
+                                match BitstampWsMessage::from_json(&text) {
                                     Ok(parsed) => {
                                         self.messages_received.fetch_add(1, Ordering::Relaxed);
                                         match parsed.message_type() {
-                                            MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
+                                            MessageType::L2Snapshot | MessageType::L2Update => {
+                                                // Process each order entry into the book
                                                 order_book.process_msg(&parsed);
                                                 if self.data_output {
                                                     let now = parsed.formatted_time();
@@ -208,16 +227,11 @@ impl KrakenClient {
                                                 }
                                             }
                                             MessageType::Event => {
+                                                // bts:subscription_succeeded, bts:request_reconnect, etc.
                                                 if self.data_output {
                                                     let line = display_message(&parsed);
                                                     println!("{}", line);
                                                 }
-                                            }
-                                            MessageType::Status => {
-                                                // no-op (skip display)
-                                            }
-                                            MessageType::Heartbeat => {
-                                                // no-op
                                             }
                                             MessageType::Unknown => {
                                                 if self.data_output {
@@ -333,60 +347,38 @@ impl KrakenClient {
     async fn persist_message(
         sender: &mut Sender,
         exchange: &str,
-        msg: &KrakenWsMessage,
+        msg: &BitstampWsMessage,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let inst_id = msg
-            .data
-            .first()
-            .and_then(|d| d.get("symbol").and_then(|s| s.as_str()))
-            .unwrap_or("?");
+        let inst_id = msg.channel.as_deref().unwrap_or("?");
         let ts_ms = msg.timestamp_ms().unwrap_or(0);
 
         match msg.message_type() {
-            MessageType::L2Snapshot => {
+            MessageType::L2Snapshot | MessageType::L2Update => {
                 let levels = msg.lob_levels();
-                let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
-                    .into_iter()
-                    .map(|(side, kl)| {
-                        let l = crate::okx::types::LobLevel {
-                            price: format!("{:.8}", kl.price),
-                            size: format!("{:.8}", kl.qty),
-                            count: String::new(),
-                            orders: String::new(),
-                        };
-                        (side, l)
-                    })
-                    .collect();
-                if !okx_levels.is_empty() {
-                    db::persist_lob(sender, inst_id, exchange, ts_ms, "snapshot", &okx_levels).await?;
-                }
-            }
-            MessageType::L2Update => {
-                let levels = msg.lob_levels();
-                let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
-                    .into_iter()
-                    .map(|(side, kl)| {
-                        let l = crate::okx::types::LobLevel {
-                            price: format!("{:.8}", kl.price),
-                            size: format!("{:.8}", kl.qty),
-                            count: String::new(),
-                            orders: String::new(),
-                        };
-                        (side, l)
-                    })
-                    .collect();
-                if !okx_levels.is_empty() {
-                    db::persist_lob(sender, inst_id, exchange, ts_ms, "update", &okx_levels).await?;
+                if !levels.is_empty() {
+                    let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
+                        .into_iter()
+                        .map(|(side, bl)| {
+                            (side, crate::okx::types::LobLevel {
+                                price: bl.price,
+                                size: bl.size,
+                                count: String::new(),
+                                orders: String::new(),
+                            })
+                        })
+                        .collect();
+                    persist_lob(sender, inst_id, exchange, ts_ms, "update", &okx_levels).await?;
                 }
             }
             MessageType::Trade => {
-                if let Some(symbol) = msg.data.first().and_then(|d| d.get("symbol").and_then(|s| s.as_str())) {
-                    if let Some(trade) = msg.data.first().and_then(|d| {
-                        serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
-                    }) {
-                        db::persist_trade(sender, symbol, exchange, &trade.trade_id, trade.price, trade.qty, &trade.side, ts_ms)
-                            .await?;
-                    }
+                if let Some(trade) = msg.data.as_ref().and_then(|d| {
+                    serde_json::from_value::<TradeData>(d.clone()).ok()
+                }) {
+                    let px = trade.price.parse().unwrap_or(0.0);
+                    let sz = trade.amount.parse().unwrap_or(0.0);
+                    let side = if trade.trade_type == 0 { "buy" } else { "sell" };
+                    persist_trade(sender, inst_id, exchange, &trade.id.to_string(), px, sz, side, ts_ms)
+                        .await?;
                 }
             }
             _ => {}
@@ -400,124 +392,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_subscribe_msg_book() {
-        let s = build_subscribe_msg("book", "XBT/USD");
+    fn test_instrument_to_channel() {
+        assert_eq!(instrument_to_channel("BTC/USD"), "btcusd");
+        assert_eq!(instrument_to_channel("BTC-USD"), "btcusd");
+        assert_eq!(instrument_to_channel("btcusd"), "btcusd");
+        assert_eq!(instrument_to_channel("ETH/USD"), "ethusd");
+    }
+
+    #[test]
+    fn test_build_subscribe_msg_orders() {
+        let s = build_subscribe_msg("live_orders_btcusd");
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        assert_eq!(v["method"], "subscribe");
-        assert_eq!(v["params"]["channel"], "book");
-        assert_eq!(v["params"]["symbol"][0], "XBT/USD");
+        assert_eq!(v["event"], "bts:subscribe");
+        assert_eq!(v["data"]["channel"], "live_orders_btcusd");
     }
 
     #[test]
-    fn test_build_subscribe_msg_trade() {
-        let s = build_subscribe_msg("trade", "ETH/USD");
+    fn test_build_subscribe_msg_trades() {
+        let s = build_subscribe_msg("live_trades_ethusd");
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        assert_eq!(v["params"]["channel"], "trade");
-        assert_eq!(v["params"]["symbol"][0], "ETH/USD");
-    }
-
-    #[test]
-    fn test_display_message_trade() {
-        let json = r#"{
-            "channel": "trade",
-            "type": "snapshot",
-            "data": [{"symbol": "XBT/USD", "side": "buy", "price": 50000.0, "qty": 0.5, "trade_id": 12345, "timestamp": "2024-01-15T10:30:00.000000Z"}]
-        }"#;
-        let msg = KrakenWsMessage::from_json(json).unwrap();
-        let out = display_message(&msg);
-        assert!(out.contains("TRADE"));
-    }
-
-    #[test]
-    fn test_display_message_heartbeat() {
-        let json = r#"{
-            "channel": "heartbeat",
-            "type": "heartbeat",
-            "data": []
-        }"#;
-        let msg = KrakenWsMessage::from_json(json).unwrap();
-        let out = display_message(&msg);
-        assert!(out.contains("HEARTBEAT"));
+        assert_eq!(v["data"]["channel"], "live_trades_ethusd");
     }
 
     #[test]
     fn test_client_new_sets_instrument() {
-        let client = KrakenClient::new("XBT/USD", "kraken", 0.1, false, "http::addr=localhost:9000;");
-        assert_eq!(client.instrument, "XBT/USD");
-        assert_eq!(client.exchange, "kraken");
+        let client = BitstampClient::new("BTC/USD", "bitstamp", 0.1, false, "http::addr=localhost:9000;");
+        assert_eq!(client.instrument, "BTC/USD");
+        assert_eq!(client.channel_instrument, "btcusd");
+        assert_eq!(client.exchange, "bitstamp");
     }
-
-    #[test]
-    fn test_order_book_integration() {
-        let snap = r#"{
-            "channel": "book",
-            "type": "snapshot",
-            "data": [{
-                "symbol": "XBT/USD",
-                "bids": [{"price": 50000.0, "qty": 1.0}],
-                "asks": [{"price": 50100.0, "qty": 1.0}],
-                "checksum": 0,
-                "timestamp": "2024-01-15T10:30:00.000000Z"
-            }]
-        }"#;
-        let upd = r#"{
-            "channel": "book",
-            "type": "update",
-            "data": [{
-                "symbol": "XBT/USD",
-                "bids": [{"price": 50000.0, "qty": 5.0}],
-                "asks": [{"price": 50100.0, "qty": 0}],
-                "checksum": 0,
-                "timestamp": "2024-01-15T10:30:01.000000Z"
-            }]
-        }"#;
-
-        let mut book = OrderBook::new();
-        let snap_msg = KrakenWsMessage::from_json(snap).unwrap();
-        book.process_msg(&snap_msg);
-        assert_eq!(book.num_bids(), 1);
-        assert_eq!(book.num_asks(), 1);
-
-        let upd_msg = KrakenWsMessage::from_json(upd).unwrap();
-        book.process_msg(&upd_msg);
-        assert_eq!(book.num_bids(), 1);
-        assert_eq!(book.num_asks(), 0);
-    }
-
-    #[test]
-    fn test_lob2_display_after_snapshot() {
-        let snap = r#"{
-            "channel": "book",
-            "type": "snapshot",
-            "data": [{
-                "symbol": "XBT/USD",
-                "bids": [{"price": 50000.0, "qty": 1.0}],
-                "asks": [{"price": 50100.0, "qty": 1.0}],
-                "checksum": 0,
-                "timestamp": "2024-01-15T10:30:00.000000Z"
-            }]
-        }"#;
-        let mut book = OrderBook::new();
-        let msg = KrakenWsMessage::from_json(snap).unwrap();
-        book.process_msg(&msg);
-        let out = book.display("XBT/USD", 100.0);
-        assert!(out.contains("bids: ["));
-        assert!(out.contains("] | asks: ["));
-    }
-
-    #[test]
-    fn test_client_with_sender() {}
 
     #[test]
     fn test_client_retention_window() {
-        let client = KrakenClient::new("XBT/USD", "kraken", 0.1, false, "http::addr=localhost:9000;")
+        let client = BitstampClient::new("BTC/USD", "bitstamp", 0.1, false, "http::addr=localhost:9000;")
             .with_retention_window(60);
         assert_eq!(client.retention_window, Some(60));
     }
 
     #[test]
-    fn test_client_default_no_retention() {
-        let client = KrakenClient::new("XBT/USD", "kraken", 0.1, false, "http::addr=localhost:9000;");
-        assert_eq!(client.retention_window, None);
+    fn test_client_data_output_default_is_false() {
+        let client = BitstampClient::new("BTC/USD", "bitstamp", 0.1, false, "http::addr=localhost:9000;");
+        assert!(!client.data_output);
     }
+
+    #[test]
+    fn test_client_data_output_true() {
+        let client = BitstampClient::new("BTC/USD", "bitstamp", 0.1, true, "http::addr=localhost:9000;");
+        assert!(client.data_output);
+    }
+
+    #[test]
+    fn test_client_with_sender() {}
 }
