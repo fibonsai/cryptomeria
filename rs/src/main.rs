@@ -8,11 +8,9 @@ mod instrument_aliases;
 use instrument_aliases::COIN_ALIASES;
 
 /// Map CLI exchange name to the exchange_id used in COIN_ALIASES.
+/// For the supported exchanges, the CLI exchange string matches the exchange_id in the aliases.
 fn map_exchange_to_id(exchange: &str) -> &str {
-    match exchange {
-        "okx" => "okex",
-        _ => exchange,
-    }
+    exchange
 }
 
 /// If `s` contains `@`, split into (symbol, Some(exchange)).
@@ -252,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_map_exchange_to_id_okx() {
-        assert_eq!(map_exchange_to_id("okx"), "okex");
+        assert_eq!(map_exchange_to_id("okx"), "okx");
     }
 
     #[test]
