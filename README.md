@@ -223,7 +223,7 @@ cargo run -- --exchange kraken XBT/USD
 # Bitstamp — btc/usd
 cargo run -- --exchange bitstamp btc/usd
 
-# Generic instrument (auto-resolved via coins_aliases.json)
+# Generic instrument (auto-resolved via embedded aliases)
 cargo run -- --instrument BTC/USDT --exchange kraken
 
 # Override exchange inline via symbol@exchange format
@@ -234,7 +234,7 @@ cargo run -- --show-top-pct 0.5
 cargo run -- --show-top-pct 0.01 XRP-USDT
 ```
 
-The `--instrument` flag accepts a generic instrument name (e.g., `BTC/USDT`) and resolves it to the exchange-specific symbol using `scripts/coins_aliases.json`. The `symbol@exchange_id` format overrides the `--exchange` flag. If no alias is found, the raw name is formatted per exchange conventions (uppercase/dash for OKX, uppercase/slash for Kraken, lowercase/no separator for Bitstamp).
+The `--instrument` flag accepts a generic instrument name (e.g., `BTC/USDT`) and resolves it to the exchange-specific symbol using embedded aliases (compiled into the binary, covering OKX, Kraken, and Bitstamp). The `symbol@exchange_id` format overrides the `--exchange` flag. If no alias is found, the raw name is formatted per exchange conventions (uppercase/dash for OKX, uppercase/slash for Kraken, lowercase/no separator for Bitstamp).
 
 By default, only connection lifecycle events (`[CONNECTING]`, `[CONNECTED]`, `[SUBSCRIBED]`, `[DISCONNECTED]`) are shown on stderr. Pass `--data-output` to print LOB and trade data to stdout.
 
