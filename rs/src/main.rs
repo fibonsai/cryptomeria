@@ -90,15 +90,10 @@ pub struct CliArgs {
     #[arg(long, default_value = "okx")]
     pub exchange: String,
 
-    /// Instrument ID (e.g. BTC-USDT, ETH-USDT).
-    /// Can also be given via --instrument.
-    #[arg(default_value = "BTC-USDT")]
+    /// Instrument ID (e.g. BTC-USDT, ETH/USDT).
+    /// Supports instrument@exchange format (e.g. ETH/USDT@kraken).
+    #[arg(long, default_value = "BTC-USDT")]
     pub instrument: String,
-
-    /// Instrument with optional @exchange override (e.g. BTC/USDT@kraken).
-    /// Overrides the positional instrument arg when present.
-    #[arg(long)]
-    pub instrument_cli: Option<String>,
 
     /// Show price levels within PCT% of the best price on each side.
     #[arg(long, default_value_t = 0.1)]
@@ -138,8 +133,7 @@ async fn main() {
     let show_top_pct = cli.show_top_pct;
     let data_output = cli.data_output;
 
-    let raw_instrument = cli.instrument_cli.as_deref().unwrap_or(&cli.instrument);
-    let (instrument, exchange) = resolve_instrument(raw_instrument, &cli.exchange);
+    let (instrument, exchange) = resolve_instrument(&cli.instrument, &cli.exchange);
 
     let ws_url = match exchange.as_str() {
         "kraken" => "wss://ws.kraken.com/v2",
@@ -339,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_parse_args_instrument_only() {
-        let cli = CliArgs::try_parse_from(&["cryptomeria", "ETH-USDT"]).unwrap();
+        let cli = CliArgs::try_parse_from(&["cryptomeria", "--instrument", "ETH-USDT"]).unwrap();
         assert_eq!(cli.instrument, "ETH-USDT");
         assert!((cli.show_top_pct - 0.1).abs() < f64::EPSILON);
     }
@@ -347,7 +341,7 @@ mod tests {
     #[test]
     fn test_parse_args_show_top_pct() {
         let cli =
-            CliArgs::try_parse_from(&["cryptomeria", "--show-top-pct", "0.5", "ETH-USDT"]).unwrap();
+            CliArgs::try_parse_from(&["cryptomeria", "--show-top-pct", "0.5", "--instrument", "ETH-USDT"]).unwrap();
         assert_eq!(cli.instrument, "ETH-USDT");
         assert!((cli.show_top_pct - 0.5).abs() < f64::EPSILON);
     }
@@ -355,7 +349,7 @@ mod tests {
     #[test]
     fn test_parse_args_show_top_pct_before_instrument() {
         let cli =
-            CliArgs::try_parse_from(&["cryptomeria", "--show-top-pct", "0.05", "XRP-USDT"])
+            CliArgs::try_parse_from(&["cryptomeria", "--show-top-pct", "0.05", "--instrument", "XRP-USDT"])
                 .unwrap();
         assert_eq!(cli.instrument, "XRP-USDT");
         assert!((cli.show_top_pct - 0.05).abs() < f64::EPSILON);
@@ -363,23 +357,23 @@ mod tests {
 
     #[test]
     fn test_parse_args_instrument_uppercased() {
-        let cli = CliArgs::try_parse_from(&["cryptomeria", "eth-usdt"]).unwrap();
+        let cli = CliArgs::try_parse_from(&["cryptomeria", "--instrument", "eth-usdt"]).unwrap();
         // clap does NOT uppercase automatically, so this checks clap passes it through
         assert_eq!(cli.instrument, "eth-usdt");
     }
 
     #[test]
-    fn test_parse_args_instrument_cli_flag() {
-        let cli = CliArgs::try_parse_from(&["cryptomeria", "--instrument-cli", "SOL/USDT"]).unwrap();
-        assert_eq!(cli.instrument_cli.as_deref(), Some("SOL/USDT"));
-        assert_eq!(cli.instrument, "BTC-USDT");
+    fn test_parse_args_instrument_flag() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria", "--instrument", "SOL/USDT"]).unwrap();
+        assert_eq!(cli.instrument, "SOL/USDT");
+        assert_eq!(cli.instrument, "SOL/USDT");
     }
 
     #[test]
-    fn test_parse_args_instrument_cli_with_at() {
+    fn test_parse_args_instrument_flag_with_at() {
         let cli =
-            CliArgs::try_parse_from(&["cryptomeria", "--instrument-cli", "ETH/USDT@kraken"]).unwrap();
-        assert_eq!(cli.instrument_cli.as_deref(), Some("ETH/USDT@kraken"));
+            CliArgs::try_parse_from(&["cryptomeria", "--instrument", "ETH/USDT@kraken"]).unwrap();
+        assert_eq!(cli.instrument, "ETH/USDT@kraken");
     }
 
     #[test]
@@ -428,7 +422,7 @@ mod tests {
     fn test_parse_args_instrument_with_questdb_conf() {
         let cli = CliArgs::try_parse_from(&[
             "cryptomeria",
-            "ETH-USDT",
+            "--instrument", "ETH-USDT",
             "--questdb-conf",
             "http::addr=test:9000;",
         ])
@@ -446,7 +440,7 @@ mod tests {
             "cryptomeria",
             "--questdb-conf",
             "http::addr=test:9000;",
-            "ETH-USDT",
+            "--instrument", "ETH-USDT",
         ])
         .unwrap();
         assert_eq!(cli.instrument, "ETH-USDT");
@@ -495,7 +489,7 @@ mod tests {
     #[test]
     fn test_parse_args_data_output_true() {
         let cli =
-            CliArgs::try_parse_from(&["cryptomeria", "--data-output", "true"]).unwrap();
+            CliArgs::try_parse_from(&["cryptomeria", "--data-output"]).unwrap();
         assert!(cli.data_output);
     }
 
