@@ -131,6 +131,7 @@ rs/
 - **ADR-016** (`docs/ADR-016-...`): Exchange column in DB schema for cross-exchange data disambiguation
 - **ADR-017** (`docs/ADR-017-...`): Bitstamp exchange with shared trait abstraction layer
 - **ADR-018** (`docs/ADR-018-...`): Bitstamp diff_order_book with REST snapshot reconciliation
+- **ADR-019** (`docs/ADR-019-...`): Instrument mapping via external config file (`--instrument`, `scripts/coins_aliases.json`)
 
 ---
 
