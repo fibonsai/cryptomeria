@@ -149,6 +149,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | 016 | Exchange column in DB schema | `docs/ADR-016-...` |
 | 017 | Bitstamp exchange with shared trait abstraction layer | `docs/ADR-017-...` |
 | 018 | Bitstamp diff_order_book with REST snapshot reconciliation | `docs/ADR-018-...` |
+| 019 | Instrument mapping via external config file | `docs/ADR-019-...` |
 
 ---
 
