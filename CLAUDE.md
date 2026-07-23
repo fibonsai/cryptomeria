@@ -78,6 +78,7 @@ rs/
 | **Relative paths only** | Never absolute paths in code/docs/config |
 | **Secrets in `.env.local`** | Never committed (in `.gitignore`) |
 | **CLAUDE.md/AGENTS.md** | Never add brand (claude/openroute, etc) reference |
+| **One SQL statement per migration file** | Each `V{N}__*.sql` contains exactly one statement; split multi-statement changes across sequential versions |
 
 ### Python-Specific (enforced by ruff + extra)
 - **Type hints mandatory** — every function; `str \| None` union syntax (3.13)
