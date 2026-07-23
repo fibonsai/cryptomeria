@@ -29,13 +29,13 @@ pub struct OrderEntry {
     #[serde(default)]
     pub id: u64,
 
-    #[serde(default)]
+#[serde(default)]
     pub id_str: String,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_number_or_string")]
     pub price: String,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_number_or_string")]
     pub amount: String,
 
     /// 0 = bid, 1 = ask
@@ -52,14 +52,14 @@ pub struct TradeData {
     #[serde(default)]
     pub id: u64,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_number_or_string")]
     pub price: String,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_number_or_string")]
     pub amount: String,
 
     /// 0 = buy, 1 = sell
-    #[serde(default, rename = "type")]
+    #[serde(default, rename = "type", deserialize_with = "deserialize_number_or_zero")]
     pub trade_type: i64,
 
     #[serde(default)]
@@ -222,6 +222,34 @@ impl BitstampWsMessage {
         }
         result
     }
+}
+
+/// Deserialize a field that may be either a number or a string, converting numbers to strings.
+fn deserialize_number_or_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+    struct NumOrString;
+    impl<'de> de::Visitor<'de> for NumOrString {
+        type Value = String;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a number or string")
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<String, E> {
+            Ok(v.to_string())
+        }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<String, E> {
+            Ok(v.to_string())
+        }
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<String, E> {
+            Ok(v.to_string())
+        }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<String, E> {
+            Ok(v.to_string())
+        }
+    }
+    deserializer.deserialize_any(NumOrString)
 }
 
 /// Deserialize a field that may be either a number or a string, defaulting to 0.
