@@ -122,6 +122,7 @@ rs/
 - **ADR-013** (`docs/ADR-013-...`): Restructure /metrics endpoint to single aggregated JSON object
 - **ADR-014** (`docs/ADR-014-...`): Graceful shutdown for SIGINT and SIGTERM signals
 - **ADR-015** (`docs/ADR-015-...`): Kraken exchange module for market data ingestion
+- **ADR-016** (`docs/ADR-016-...`): Exchange column in DB schema for cross-exchange data disambiguation
 
 ---
 

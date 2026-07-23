@@ -110,7 +110,7 @@ async fn main() {
 
     match exchange.as_str() {
         "kraken" => {
-            let mut client = KrakenClient::new(&instrument, show_top_pct, data_output, &questdb_conf);
+            let mut client = KrakenClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf);
             if let Some(sender) = sender {
                 client = client.with_sender(sender);
             }
@@ -125,7 +125,7 @@ async fn main() {
             }
         }
         _ => {
-            let mut client = OkxClient::new(&instrument, show_top_pct, data_output, &questdb_conf);
+            let mut client = OkxClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf);
             if let Some(sender) = sender {
                 client = client.with_sender(sender);
             }

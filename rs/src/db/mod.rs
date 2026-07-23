@@ -87,6 +87,7 @@ pub async fn connect_sender(conf_str: &str) -> Result<Sender, Box<dyn std::error
 fn write_lob_level(
     buffer: &mut Buffer,
     inst_id: &str,
+    exchange: &str,
     ts_ms: u64,
     action: &str,
     side: &str,
@@ -97,6 +98,7 @@ fn write_lob_level(
     buffer
         .table("lob_levels")?
         .symbol("inst_id", inst_id)?
+        .symbol("exchange", exchange)?
         .symbol("action", action)?
         .symbol("side", side)?
         .column_f64("price", price)?
@@ -110,13 +112,14 @@ fn write_lob_level(
 pub async fn persist_lob(
     sender: &mut Sender,
     inst_id: &str,
+    exchange: &str,
     ts_ms: u64,
     action: &str,
     levels: &[(String, LobLevel)],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut buffer = sender.new_buffer();
     for (side, level) in levels {
-        write_lob_level(&mut buffer, inst_id, ts_ms, action, side, level)?;
+        write_lob_level(&mut buffer, inst_id, exchange, ts_ms, action, side, level)?;
     }
     sender.flush(&mut buffer)?;
     Ok(())
@@ -150,6 +153,7 @@ pub async fn apply_ttl(
 pub async fn persist_trade(
     sender: &mut Sender,
     inst_id: &str,
+    exchange: &str,
     trade_id: &str,
     px: f64,
     sz: f64,
@@ -161,6 +165,7 @@ pub async fn persist_trade(
     buffer
         .table("trades")?
         .symbol("inst_id", inst_id)?
+        .symbol("exchange", exchange)?
         .symbol("trade_id", trade_id)?
         .symbol("side", side)?
         .column_f64("px", px)?
