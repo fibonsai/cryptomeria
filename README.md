@@ -1,10 +1,10 @@
 # Cryptomeria
 
-A Medium-Frequency Trading (MFT) platform for crypto derivatives, focused on the OKX exchange and operated from Europe.
+A Medium-Frequency Trading (MFT) platform for crypto markets, supporting OKX, Kraken, and Bitstamp exchanges, operated from Europe.
 
 ## Overview
 
-**Cryptomeria** is a dual-language trading platform built by **Fibonsai**. The system is designed for medium-frequency trading strategies on crypto derivatives markets, with primary integration to the OKX exchange.
+**Cryptomeria** is a dual-language trading platform built by **Fibonsai**. The system is designed for medium-frequency trading strategies on crypto markets, with support for OKX, Kraken, and Bitstamp exchanges — selected via the `--exchange` CLI flag.
 
 ### Architecture
 
@@ -28,18 +28,38 @@ A Medium-Frequency Trading (MFT) platform for crypto derivatives, focused on the
 │   ├── rust-toolchain.toml
 │   ├── src/
 │   │   ├── lib.rs       # Library root
-│   │   ├── main.rs      # CLI entry point (OKX WebSocket market data client + QuestDB persistence)
+│   │   ├── main.rs      # CLI entry point (WebSocket market data client + QuestDB persistence, --exchange flag)
 │   │   ├── db/
 │   │   │   ├── mod.rs          # QuestDB connection, migrations, ILP sender, data cleanup
-│   │   │   └── migrations/
-│   │   │       └── V1__create_market_data.sql
-│   │   └── okx/
+│   │   │   ├── migrations/
+│   │   │   │   ├── V1__create_market_data.sql           # trades table
+│   │   │   │   ├── V2__create_lob_levels.sql            # lob_levels table
+│   │   │   │   ├── V3__set_storage_policy.sql           # QuestDB storage config
+│   │   │   │   ├── V4__add_exchange_to_trades.sql       # exchange column
+│   │   │   │   ├── V5__add_exchange_to_lob_levels.sql   # exchange column
+│   │   │   │   └── V6__drop_orderbook_snapshots.sql     # removed unused table
+│   │   │   └── mod.rs
+│   │   ├── traits/
+│   │   │   └── mod.rs   # Shared traits (OrderBook, ExchangeClientBuilder, LobMetrics, backoff, signal)
+│   │   ├── okx/
+│   │   │   ├── mod.rs   # Module declarations
+│   │   │   ├── lob.rs   # OrderBook: full LOB2 state reconstruction
+│   │   │   ├── types.rs # OKX message type definitions + JSON parsing + display helpers
+│   │   │   └── ws.rs    # WebSocket client (connect, subscribe, read loop, display, backoff reconnect)
+│   │   ├── kraken/
+│   │   │   ├── mod.rs   # Module declarations
+│   │   │   ├── lob.rs   # OrderBook: full LOB2 state reconstruction
+│   │   │   ├── types.rs # Kraken message type definitions + JSON parsing + display helpers
+│   │   │   └── ws.rs    # WebSocket client (heartbeat handling, exponential backoff)
+│   │   └── bitstamp/
 │   │       ├── mod.rs   # Module declarations
-│   │       ├── lob.rs   # OrderBook: full LOB2 state reconstruction
-│   │       ├── types.rs # OKX message type definitions + JSON parsing + display helpers
-│   │       └── ws.rs    # WebSocket client (connect, subscribe, read loop, display, data retention cleanup, Prometheus metrics)
+│   │       ├── lob.rs   # OrderBook: apply_snapshot (REST) + apply_diff (WS diff_order_book)
+│   │       ├── types.rs # Bitstamp message type definitions + JSON parsing + display helpers
+│   │       └── ws.rs    # WebSocket client (diff_order_book + REST snapshot reconciliation)
 │   └── tests/
-│       └── okx_integration.rs  # E2E test (requires network, #[ignore] by default)
+│       ├── okx_integration.rs      # E2E test (requires network, #[ignore] by default)
+│       ├── kraken_integration.rs   # E2E test (requires network, #[ignore] by default)
+│       └── bitstamp_integration.rs # E2E test (requires network, #[ignore] by default)
 ├── docs/                # ADRs (Architecture Decision Records) + documentation
 ├── pyproject.toml       # Python project config (requires Python >=3.13)
 └── CLAUDE.md            # Guidance for AI assistants working in this repo
@@ -153,7 +173,9 @@ Cleanup runs automatically via `DELETE FROM <table> WHERE ts < now() - Nm` on `l
 
 ### Database Schema
 
-On startup, the client automatically runs embedded SQL migrations to create the following tables:
+On startup, the client automatically runs embedded SQL migrations to create and update the following tables:
+
+#### `trades`
 
 ```sql
 CREATE TABLE IF NOT EXISTS trades (
@@ -162,47 +184,48 @@ CREATE TABLE IF NOT EXISTS trades (
     px DOUBLE,
     sz DOUBLE,
     side SYMBOL,
+    exchange SYMBOL INDEX TYPE POSTING,
     ts TIMESTAMP
 ) TIMESTAMP(ts) PARTITION BY HOUR TTL 1 HOURS;
+```
 
+#### `lob_levels`
+
+```sql
 CREATE TABLE IF NOT EXISTS lob_levels (
     inst_id SYMBOL INDEX TYPE POSTING,
     ts TIMESTAMP,
-    action SYMBOL,                    -- 'snapshot' or 'update'
+    action SYMBOL,                       -- 'snapshot' or 'update'
     side SYMBOL INDEX TYPE POSTING INCLUDE(price), -- 'bids' or 'asks'
     price DOUBLE,
     size DOUBLE,
     count DOUBLE,
-    orders DOUBLE
-) TIMESTAMP(ts) PARTITION BY HOUR TTL 1 HOURS;
-
-CREATE TABLE IF NOT EXISTS orderbook_snapshots (
-    inst_id SYMBOL INDEX TYPE POSTING,
-    ts TIMESTAMP,
-    bids VARCHAR,
-    asks VARCHAR
+    orders DOUBLE,
+    exchange SYMBOL INDEX TYPE POSTING
 ) TIMESTAMP(ts) PARTITION BY HOUR TTL 1 HOURS;
 ```
 
-Tables use QuestDB-optimized types: `SYMBOL` for low-cardinality strings, `DOUBLE` for prices/sizes, `TIMESTAMP` with hourly partitioning and `TTL` for automatic retention. The `--retention-window` CLI flag sets a custom TTL (hours) on `lob_levels` and `trades` at startup.
+Tables use QuestDB-optimized types: `SYMBOL` for low-cardinality strings, `DOUBLE` for prices/sizes, `TIMESTAMP` with hourly partitioning and `TTL` for automatic retention. The `--retention-window` CLI flag sets a custom TTL (hours) on `lob_levels` and `trades` at startup. The `exchange` column identifies the source exchange (`okx`, `kraken`, or `bitstamp`), allowing multi-exchange data in a single table.
 
-## OKX WebSocket Market Data Client
+## WebSocket Market Data Clients
 
-The Rust client connects to the OKX public WebSocket API (`wss://ws.okx.com:8443/ws/v5/public`) and subscribes to real-time L2 order book (channel `books`) and trade (channel `trades`) data.
+The Rust client connects to exchange WebSocket APIs and subscribes to real-time L2 order book (LOB) and trade channels. Three exchanges are supported: **OKX**, **Kraken**, and **Bitstamp** — selected via the `--exchange` flag.
 
 ### Usage
 
 ```bash
-# Connect to BTC-USDT (default, 0.1% depth window)
+# OKX (default) — BTC-USDT
 cargo run
 
-# Connect to a different instrument
-cargo run -- ETH-USDT
+# Kraken — XBT/USD
+cargo run -- --exchange kraken XBT/USD
+
+# Bitstamp — btc/usd
+cargo run -- --exchange bitstamp btc/usd
 
 # Adjust the displayed depth window (percentage from best price)
-cargo run -- --show-top-pct 0.5    # wider window
-cargo run -- --show-top-pct 0.01   # narrower window
-cargo run -- --show-top-pct 0.5 XRP-USDT
+cargo run -- --show-top-pct 0.5
+cargo run -- --show-top-pct 0.01 XRP-USDT
 ```
 
 By default, only connection lifecycle events (`[CONNECTING]`, `[CONNECTED]`, `[SUBSCRIBED]`, `[DISCONNECTED]`) are shown on stderr. Pass `--data-output` to print LOB and trade data to stdout.
@@ -218,12 +241,115 @@ By default, only connection lifecycle events (`[CONNECTING]`, `[CONNECTED]`, `[S
 - **TRADE** lines show individual trades as they occur.
 - **EVENT** lines show subscription confirmations and other protocol events.
 
-### Architecture
+### Architecture (per exchange)
 
-- `okx/lob.rs` — `OrderBook` struct maintaining the full LOB2 state with `BTreeMap`-backed bid/ask levels, supporting `apply_snapshot()`, `apply_update()`, and `process_msg()` for OKX messages. Display output is filtered by a configurable percentage from the best price.
-- `okx/types.rs` — serde structs for the OKX JSON envelope, message classification (`display_type()`), and one-line summary (`summary()`)
-- `okx/ws.rs` — `OkxClient` with `run()` method that maintains an in-memory `OrderBook`, applies incoming LOB2 messages, and displays the reconstructed state. Trade and event messages are shown directly.
-- `tests/okx_integration.rs` — ignored by default (requires network); run with `cargo test -- --include-ignored`
+| Exchange | LOB Module | Types Module | WS Module | Integration Test |
+|----------|-----------|-------------|-----------|-----------------|
+| OKX | `okx/lob.rs` | `okx/types.rs` | `okx/ws.rs` | `tests/okx_integration.rs` |
+| Kraken | `kraken/lob.rs` | `kraken/types.rs` | `kraken/ws.rs` | `tests/kraken_integration.rs` |
+| Bitstamp | `bitstamp/lob.rs` | `bitstamp/types.rs` | `bitstamp/ws.rs` | `tests/bitstamp_integration.rs` |
+
+Each client shares common traits and utilities (`traits/`): `OrderBook`, `ExchangeClientBuilder`, `LobMetrics`, exponential backoff with jitter (ADR-012), graceful shutdown (ADR-014), and QuestDB persistence (ADR-003, ADR-016).
+
+## Exchange Comparison
+
+### LOB & Trade Data Strategies
+
+Each exchange exposes order book and trade data through different WebSocket channels and delivery models. The table below summarizes the key differences.
+
+| Aspect | OKX | Kraken | Bitstamp |
+|--------|-----|--------|----------|
+| **WS URL** | `wss://ws.okx.com:8443/ws/v5/public` | `wss://ws.kraken.com/v2` | `wss://ws.bitstamp.net` |
+| **LOB Channel** | `books` | `book` | `diff_order_book_[market]` |
+| **Trade Channel** | `trades` | `trade` | `live_trades_[market]` |
+| **LOB Delivery** | Snapshot + incremental updates | Snapshot + incremental updates | Diff-only (no WS snapshot) |
+| **Reconciliation** | None needed | None needed | REST snapshot + diff buffer replay (ADR-018) |
+| **Price Level Format** | String arrays `[px, sz, count, orders]` | Objects `{price, qty}` | String arrays `[px, sz]` |
+| **Level Removal** | `size = "0"` | `qty = 0` | `amount = "0"` |
+| **Timestamp Precision** | Millisecond epoch | RFC3339 → millisecond | Microsecond epoch |
+| **Checksum** | Available (not verified) | Available (not verified) | N/A |
+| **Heartbeat** | WS-level Ping/Pong | Explicit `heartbeat` channel | WS-level Ping/Pong |
+| **Instrument Format** | `BTC-USDT` (upper, dash) | `XBT/USD` (upper, slash) | `btcusd` (lower, no sep) |
+| **REST Snapshot** | Not required | Not required | `GET /api/v2/order_book/[market]/?group=1` |
+| **Max Book Depth** | Full (400 levels) | Full | Full (via diff_order_book) |
+| **Order Level Detail** | Count + orders per level | Quantity only | Quantity only |
+
+### Delivery Models Explained
+
+#### Snapshot + Incremental (OKX, Kraken)
+
+```
+Subscribe  ─▶  Snapshot (full state)  ─▶  Updates (incremental diffs)  ─▶  Updates ...
+```
+
+Upon subscribing, the exchange sends a complete snapshot of the order book. Subsequent messages contain only the price levels that changed. The client maintains a `BTreeMap<OrderedFloat<f64>, f64>` mapping price → size, applying upsert/remove per level.
+
+**Pros**: Simple, no external dependencies, state is immediately consistent after snapshot.
+
+**Cons**: Snapshot can be large (up to 400 levels per side), potentially higher latency on reconnect.
+
+#### Diff-Only with REST Reconciliation (Bitstamp)
+
+```
+Subscribe  ─▶  Buffer diffs  ─▶  Fetch REST snapshot  ─▶  Filter stale diffs  ─▶  Replay  ─▶  Live
+```
+
+Bitstamp's `diff_order_book` channel sends only incremental changes (no snapshot over WS). The client must:
+1. Buffer all incoming diffs upon connect
+2. Fetch a full order book snapshot via REST API
+3. Discard buffered diffs with `microtimestamp <= snapshot_microtimestamp`
+4. Replay remaining diffs in order to catch up to live state
+5. Enter live mode — apply subsequent diffs directly
+
+This process runs on every (re)connection to guarantee state consistency.
+
+**Pros**: Full book depth (not limited to top 100 like Bitstamp's `order_book` channel), standard approach used by professional trading firms.
+
+**Cons**: Requires a second connection (REST), more complex reconciliation logic, potential for race conditions if buffered diffs outpace the REST snapshot.
+
+### Pros & Cons by Exchange
+
+#### OKX
+
+| Pro | Con |
+|-----|-----|
+| Mature, well-documented API | Checksum available but adds overhead to verify |
+| Standard snapshot+update delivery | Instrument format `-` separator differs from industry norm `/` |
+| Order-level detail (count, orders) per price level | 400-level max depth may not suit all strategies |
+| Server-side Pong handled transparently | European OKX domain for non-EU users |
+
+Best suited for: Primary execution venue, strategies requiring per-level order metadata, derivatives trading.
+
+#### Kraken
+
+| Pro | Con |
+|-----|-----|
+| Clean object-based JSON (no string arrays to parse) | Uses `XBT` instead of `BTC` (must map instrument names) |
+| Explicit heartbeat channel (easy to detect stale connections) | Timestamps in RFC3339 require additional parsing |
+| Standard snapshot+update delivery | Smaller liquidity pools on some pairs vs OKX |
+| Checksum available for integrity | No per-level count/orders in book data |
+
+Best suited for: Spot trading, pairs with `/` naming convention, strategies needing reliable heartbeat detection.
+
+#### Bitstamp
+
+| Pro | Con |
+|-----|-----|
+| Full book depth via `diff_order_book` | Complex reconciliation required on every connect/reconnect |
+| High-precision microsecond timestamps | REST snapshot is an extra HTTP call (latency + failure risk) |
+| Wide REST API for fallback data | No checksum verification mechanism |
+| Simple `[price, amount]` level format | Instrument format lowercased with no separator (e.g., `btcusd`) |
+
+Best suited for: Strategies requiring full depth, venue arbitrage, pairs with high ticker recognition (BTC/USD, ETH/USD).
+
+### Which Exchange to Choose
+
+- **Need order-level metadata (count/orders)?** → OKX (only exchange providing this)
+- **Want simplest integration?** → OKX or Kraken (no reconciliation needed)
+- **Need full book depth from WS without REST?** → OKX or Kraken (native WS snapshots)
+- **Low latency / microsecond precision?** → Bitstamp (microsecond timestamps)
+- **Value checksum verification?** → OKX or Kraken (both provide checksums)
+- **Running in Europe?** → OKX (European exchange, lower latency for EU-based servers)
 
 ## Grafana LOB Visualization
 
@@ -293,7 +419,7 @@ See `grafana/README.md` for detailed setup instructions.
 
 ### LOB parquet stream reader (`python/cryptomeria/lob.py`)
 
-Streams OKX L2 orderbook parquet files row-group by row-group (memory-safe for files larger than RAM) and reconstructs the full order book state at each timestamp.
+Streams L2 orderbook parquet files row-group by row-group (memory-safe for files larger than RAM) and reconstructs the full order book state at each timestamp. Originally designed for OKX data, the LOB2 format is exchange-agnostic and can ingest data from any exchange converted to the `(ts, side, price, amount, action)` schema.
 
 **Key rules:**
 - `action='snapshot'` — clears all levels and inserts fresh price/amount pairs unconditionally
@@ -364,6 +490,8 @@ make check     # lint + test
 
 ### Rust (`rs/`)
 - [x] OKX WebSocket client (public channels — books + trades)
+- [x] Kraken WebSocket client (public channels — book + trade)
+- [x] Bitstamp WebSocket client (public channels — diff_order_book + live_trades)
 - [x] QuestDB persistence with ILP/HTTP and SQL migrations
 - [x] Order book reconstruction (LOB) with snapshot + delta handling
 - [x] Trade stream ingestion & normalization
