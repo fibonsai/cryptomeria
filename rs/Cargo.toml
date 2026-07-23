@@ -35,3 +35,8 @@ name = "kraken_integration"
 path = "tests/kraken_integration.rs"
 harness = true
 
+[[test]]
+name = "bitstamp_integration"
+path = "tests/bitstamp_integration.rs"
+harness = true
+

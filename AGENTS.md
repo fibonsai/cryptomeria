@@ -57,20 +57,25 @@ python/
 ├── tests/test_lob.py         # Fixtures via pa.Table.from_pylist() → temp dirs
 ├── main.py                   # Research entry point (empty)
 rs/
-├── src/main.rs               # CLI entry (clap args, --exchange flag, okx/kraken dispatch)
+├── src/main.rs               # CLI entry (clap args, --exchange flag, okx/kraken/bitstamp dispatch)
+├── src/traits/               # Shared traits + utilities (OrderBook, LobMetrics, backoff, signal)
 ├── src/okx/types.rs          # OKX WS message types + JSON parsing + display
-├── src/okx/ws.rs             # OKX WS client + pure helpers + LobMetrics (shared)
+├── src/okx/ws.rs             # OKX WS client + pure helpers
 ├── src/okx/lob.rs            # OKX OrderBook: BTreeMap<OrderedFloat> for LOB2 state
 ├── src/kraken/types.rs       # Kraken WS message types + JSON parsing + display
 ├── src/kraken/ws.rs          # Kraken WS client (heartbeat handling, exponential backoff)
 ├── src/kraken/lob.rs         # Kraken OrderBook: BTreeMap<OrderedFloat> for LOB2 state
+├── src/bitstamp/types.rs     # Bitstamp WS message types + JSON parsing + display
+├── src/bitstamp/ws.rs        # Bitstamp WS client (individual order tracking, exponential backoff)
+├── src/bitstamp/lob.rs       # Bitstamp OrderBook: per-order tracking + BTreeMap aggregation
 ├── tests/okx_integration.rs  # #[ignore] E2E test (needs network)
-└── tests/kraken_integration.rs # #[ignore] E2E test (needs network)
+├── tests/kraken_integration.rs # #[ignore] E2E test (needs network)
+└── tests/bitstamp_integration.rs # #[ignore] E2E test (needs network)
 ```
 
 **Python package** is `cryptomeria` (src layout in `python/`). Tests discovered from `python/`, not inside package.
 
-**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod okx`, `pub mod kraken`.
+**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod traits`, `pub mod bitstamp`, `pub mod okx`, `pub mod kraken`.
 
 ---
 
@@ -142,6 +147,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | 014 | Graceful shutdown for SIGINT and SIGTERM | `docs/ADR-014-...` |
 | 015 | Kraken exchange module | `docs/ADR-015-...` |
 | 016 | Exchange column in DB schema | `docs/ADR-016-...` |
+| 017 | Bitstamp exchange with shared trait abstraction layer | `docs/ADR-017-...` |
 
 ---
 
@@ -182,6 +188,8 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | Run Rust WS client (OKX, custom) | `cargo run -- ETH-USDT --show-top-pct 0.5` |
 | Run Rust WS client (Kraken) | `cargo run -- --exchange kraken XBT/USD` |
 | Run Rust WS client (Kraken, custom) | `cargo run -- --exchange kraken ETH/USD --show-top-pct 0.5` |
+| Run Rust WS client (Bitstamp) | `cargo run -- --exchange bitstamp btc/usd` |
+| Run Rust WS client (Bitstamp, custom) | `cargo run -- --exchange bitstamp eth/usd --show-top-pct 0.5` |
 | Single Python test | `uv run pytest python/tests/test_lob.py::test_name -v` |
 | Single Rust test | `cargo test test_name` |
 | Format all | `make format` |
@@ -192,9 +200,9 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 
 ## Rust-Specific Notes
 
-- **Entry point**: `rs/src/main.rs` parses CLI via `clap` with `--exchange` (okx/kraken), `--show-top-pct`, `--questdb-conf`, `--retention-window`, `--metrics-port`, `--data-output` flags
-- **WS clients**: Both OKX (`okx/ws.rs`) and Kraken (`kraken/ws.rs`) share the same architecture: exponential backoff with jitter reconnection (ADR-012), graceful shutdown on SIGINT/SIGTERM (ADR-014), heartbeat handling (Kraken)
-- **LOB state**: Both use `BTreeMap<OrderedFloat<f64>, f64>` for O(log n) insert/remove + sorted iteration (ADR-002)
+- **Entry point**: `rs/src/main.rs` parses CLI via `clap` with `--exchange` (okx/kraken/bitstamp), `--show-top-pct`, `--questdb-conf`, `--retention-window`, `--metrics-port`, `--data-output` flags
+- **WS clients**: All three exchange clients share the same architecture via shared traits/utilities (ADR-017): exponential backoff with jitter reconnection (ADR-012), graceful shutdown on SIGINT/SIGTERM (ADR-014), heartbeat handling (Kraken)
+- **LOB state**: OKX and Kraken use `BTreeMap<OrderedFloat<f64>, f64>` (ADR-002); Bitstamp tracks individual orders via `HashMap<u64, OrderInfo>` with BTreeMap aggregation for display
 - **Persistence**: QuestDB via ILP sender (refinery migrations in `rs/src/db/migrations/`), TTL set at startup (ADR-010)
 - **Metrics**: Prometheus registry served as JSON on `/metrics` for Grafana Infinity (ADR-011, ADR-013)
 - **Tests**: Unit tests in `mod tests` in each module; integration tests in `rs/tests/` marked `#[ignore]`

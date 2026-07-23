@@ -51,20 +51,25 @@ python/
 ├── tests/test_lob.py         # Fixtures via pa.Table.from_pylist() → temp dirs
 ├── main.py                   # Research entry point (empty)
 rs/
-├── src/main.rs               # CLI entry (clap args, --exchange flag, okx/kraken dispatch)
+├── src/main.rs               # CLI entry (clap args, --exchange flag, okx/kraken/bitstamp dispatch)
+├── src/traits/               # Shared traits + utilities (OrderBook, LobMetrics, backoff, signal)
 ├── src/okx/types.rs          # OKX WS message types + JSON parsing + display
-├── src/okx/ws.rs             # OKX WS client + pure helpers + LobMetrics (shared)
+├── src/okx/ws.rs             # OKX WS client + pure helpers
 ├── src/okx/lob.rs            # OKX OrderBook: BTreeMap<OrderedFloat> for LOB2 state
 ├── src/kraken/types.rs       # Kraken WS message types + JSON parsing + display
 ├── src/kraken/ws.rs          # Kraken WS client (heartbeat handling, exponential backoff)
 ├── src/kraken/lob.rs         # Kraken OrderBook: BTreeMap<OrderedFloat> for LOB2 state
+├── src/bitstamp/types.rs     # Bitstamp WS message types + JSON parsing + display
+├── src/bitstamp/ws.rs        # Bitstamp WS client (individual order tracking, exponential backoff)
+├── src/bitstamp/lob.rs       # Bitstamp OrderBook: per-order tracking + BTreeMap aggregation
 ├── tests/okx_integration.rs  # #[ignore] E2E test (needs network)
-└── tests/kraken_integration.rs # #[ignore] E2E test (needs network)
+├── tests/kraken_integration.rs # #[ignore] E2E test (needs network)
+└── tests/bitstamp_integration.rs # #[ignore] E2E test (needs network)
 ```
 
 **Python package** is `cryptomeria` (src layout in `python/`). Tests discovered from `python/`, not inside package.
 
-**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod okx`, `pub mod kraken`.
+**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod traits`, `pub mod bitstamp`, `pub mod okx`, `pub mod kraken`.
 
 ---
 
@@ -124,6 +129,7 @@ rs/
 - **ADR-014** (`docs/ADR-014-...`): Graceful shutdown for SIGINT and SIGTERM signals
 - **ADR-015** (`docs/ADR-015-...`): Kraken exchange module for market data ingestion
 - **ADR-016** (`docs/ADR-016-...`): Exchange column in DB schema for cross-exchange data disambiguation
+- **ADR-017** (`docs/ADR-017-...`): Bitstamp exchange with shared trait abstraction layer
 
 ---
 
@@ -186,6 +192,8 @@ rs/
 | Run Rust WS client (OKX, custom) | `cargo run -- ETH-USDT --show-top-pct 0.5` |
 | Run Rust WS client (Kraken) | `cargo run -- --exchange kraken XBT/USD` |
 | Run Rust WS client (Kraken, custom) | `cargo run -- --exchange kraken ETH/USD --show-top-pct 0.5` |
+| Run Rust WS client (Bitstamp) | `cargo run -- --exchange bitstamp btc/usd` |
+| Run Rust WS client (Bitstamp, custom) | `cargo run -- --exchange bitstamp eth/usd --show-top-pct 0.5` |
 | Single Python test | `uv run pytest python/tests/test_lob.py::test_name -v` |
 | Single Rust test | `cargo test test_name` |
 | Format all | `make format` |

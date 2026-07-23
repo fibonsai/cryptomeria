@@ -1,5 +1,6 @@
 use clap::Parser;
 use cryptomeria::db::{connect_sender, run_migrations};
+use cryptomeria::bitstamp::ws::BitstampClient;
 use cryptomeria::kraken::ws::KrakenClient;
 use cryptomeria::okx::ws::OkxClient;
 
@@ -10,7 +11,7 @@ use cryptomeria::okx::ws::OkxClient;
 #[derive(Parser, Debug)]
 #[command(name = "cryptomeria", verbatim_doc_comment)]
 pub struct CliArgs {
-    /// Exchange to connect to (okx or kraken).
+    /// Exchange to connect to (okx, kraken, or bitstamp).
     #[arg(long, default_value = "okx")]
     pub exchange: String,
 
@@ -59,17 +60,24 @@ async fn main() {
 
     let ws_url = match exchange.as_str() {
         "kraken" => "wss://ws.kraken.com/v2",
+        "bitstamp" => "wss://ws.bitstamp.net",
         _ => "wss://ws.okx.com:8443/ws/v5/public",
     };
 
     let instrument = match exchange.as_str() {
         "kraken" => {
-            // Map common instruments to Kraken format (BTC/USD, not XBT/USD)
             let upper = cli.instrument.to_uppercase();
-            // OKX format like BTC-USDT -> BTC/USDT (Kraken uses BTC, not XBT)
             let mapped = upper.replace("-", "/");
             eprintln!(
                 "[ARGS] exchange=kraken instrument={} (was {}) questdb_conf=.. data_output={}",
+                mapped, cli.instrument, data_output
+            );
+            mapped
+        }
+        "bitstamp" => {
+            let mapped = cli.instrument.to_lowercase();
+            eprintln!(
+                "[ARGS] exchange=bitstamp instrument={} (was {}) questdb_conf=.. data_output={}",
                 mapped, cli.instrument, data_output
             );
             mapped
@@ -111,6 +119,21 @@ async fn main() {
     match exchange.as_str() {
         "kraken" => {
             let mut client = KrakenClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf);
+            if let Some(sender) = sender {
+                client = client.with_sender(sender);
+            }
+            if let Some(window) = cli.retention_window {
+                client = client.with_retention_window(window);
+            }
+            if let Some(port) = cli.metrics_port {
+                client = client.with_metrics_port(port);
+            }
+            if let Err(e) = client.run().await {
+                eprintln!("[ERROR] {}", e);
+            }
+        }
+        "bitstamp" => {
+            let mut client = BitstampClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf);
             if let Some(sender) = sender {
                 client = client.with_sender(sender);
             }
@@ -325,5 +348,11 @@ mod tests {
     fn test_parse_args_exchange_kraken() {
         let cli = CliArgs::try_parse_from(&["cryptomeria", "--exchange", "kraken"]).unwrap();
         assert_eq!(cli.exchange, "kraken");
+    }
+
+    #[test]
+    fn test_parse_args_exchange_bitstamp() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria", "--exchange", "bitstamp"]).unwrap();
+        assert_eq!(cli.exchange, "bitstamp");
     }
 }
