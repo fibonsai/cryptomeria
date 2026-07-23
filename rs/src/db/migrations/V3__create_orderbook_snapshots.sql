@@ -1,6 +1,0 @@
-CREATE TABLE IF NOT EXISTS orderbook_snapshots (
-    inst_id SYMBOL INDEX TYPE POSTING,
-    ts TIMESTAMP,
-    bids VARCHAR,
-    asks VARCHAR
-) TIMESTAMP(ts) PARTITION BY HOUR TTL 1 HOURS;

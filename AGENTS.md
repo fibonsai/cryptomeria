@@ -140,6 +140,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | 013 | Restructure /metrics to single JSON object | `docs/ADR-013-...` |
 | 014 | Graceful shutdown for SIGINT and SIGTERM | `docs/ADR-014-...` |
 | 015 | Kraken exchange module | `docs/ADR-015-...` |
+| 016 | Exchange column in DB schema | `docs/ADR-016-...` |
 
 ---
 

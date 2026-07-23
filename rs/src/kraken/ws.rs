@@ -43,6 +43,7 @@ pub fn display_message(msg: &KrakenWsMessage) -> String {
 
 pub struct KrakenClient {
     pub instrument: String,
+    pub exchange: String,
     pub show_top_pct: f64,
     pub messages_received: Arc<AtomicU64>,
     pub retention_window: Option<u64>,
@@ -54,11 +55,12 @@ pub struct KrakenClient {
 }
 
 impl KrakenClient {
-    pub fn new(instrument: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
+    pub fn new(instrument: &str, exchange: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
         let registry = prometheus::Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         Self {
             instrument: instrument.to_string(),
+            exchange: exchange.to_string(),
             show_top_pct,
             messages_received: Arc::new(AtomicU64::new(0)),
             retention_window: None,
@@ -232,7 +234,7 @@ impl KrakenClient {
                                         }
 
                                         if let Some(sender) = self.sender.as_mut() {
-                                            if let Err(e) = Self::persist_message(sender, &parsed).await {
+                                            if let Err(e) = Self::persist_message(sender, &self.exchange, &parsed).await {
                                                 eprintln!("[DB ERROR] Failed to persist: {}", e);
                                             }
                                         }
@@ -366,6 +368,7 @@ impl KrakenClient {
 
     async fn persist_message(
         sender: &mut Sender,
+        exchange: &str,
         msg: &KrakenWsMessage,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let inst_id = msg
@@ -391,7 +394,7 @@ impl KrakenClient {
                     })
                     .collect();
                 if !okx_levels.is_empty() {
-                    db::persist_lob(sender, inst_id, ts_ms, "snapshot", &okx_levels).await?;
+                    db::persist_lob(sender, inst_id, exchange, ts_ms, "snapshot", &okx_levels).await?;
                 }
             }
             MessageType::L2Update => {
@@ -409,7 +412,7 @@ impl KrakenClient {
                     })
                     .collect();
                 if !okx_levels.is_empty() {
-                    db::persist_lob(sender, inst_id, ts_ms, "update", &okx_levels).await?;
+                    db::persist_lob(sender, inst_id, exchange, ts_ms, "update", &okx_levels).await?;
                 }
             }
             MessageType::Trade => {
@@ -417,7 +420,7 @@ impl KrakenClient {
                     if let Some(trade) = msg.data.first().and_then(|d| {
                         serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
                     }) {
-                        db::persist_trade(sender, symbol, &trade.trade_id, trade.price, trade.qty, &trade.side, ts_ms)
+                        db::persist_trade(sender, symbol, exchange, &trade.trade_id, trade.price, trade.qty, &trade.side, ts_ms)
                             .await?;
                     }
                 }
@@ -475,8 +478,9 @@ mod tests {
 
     #[test]
     fn test_client_new_sets_instrument() {
-        let client = KrakenClient::new("XBT/USD", 0.1, false, "http::addr=localhost:9000;");
+        let client = KrakenClient::new("XBT/USD", "kraken", 0.1, false, "http::addr=localhost:9000;");
         assert_eq!(client.instrument, "XBT/USD");
+        assert_eq!(client.exchange, "kraken");
     }
 
     #[test]
@@ -542,14 +546,14 @@ mod tests {
 
     #[test]
     fn test_client_retention_window() {
-        let client = KrakenClient::new("XBT/USD", 0.1, false, "http::addr=localhost:9000;")
+        let client = KrakenClient::new("XBT/USD", "kraken", 0.1, false, "http::addr=localhost:9000;")
             .with_retention_window(60);
         assert_eq!(client.retention_window, Some(60));
     }
 
     #[test]
     fn test_client_default_no_retention() {
-        let client = KrakenClient::new("XBT/USD", 0.1, false, "http::addr=localhost:9000;");
+        let client = KrakenClient::new("XBT/USD", "kraken", 0.1, false, "http::addr=localhost:9000;");
         assert_eq!(client.retention_window, None);
     }
 }

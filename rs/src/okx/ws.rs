@@ -48,6 +48,7 @@ pub fn display_message(msg: &OkxWsMessage) -> String {
 /// WebSocket client for OKX market data.
 pub struct OkxClient {
     pub instrument: String,
+    pub exchange: String,
     pub show_top_pct: f64,
     pub messages_received: Arc<AtomicU64>,
     pub retention_window: Option<u64>,
@@ -114,11 +115,12 @@ impl LobMetrics {
 }
 
 impl OkxClient {
-    pub fn new(instrument: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
+    pub fn new(instrument: &str, exchange: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
         let registry = Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         Self {
             instrument: instrument.to_string(),
+            exchange: exchange.to_string(),
             show_top_pct,
             messages_received: Arc::new(AtomicU64::new(0)),
             retention_window: None,
@@ -305,7 +307,7 @@ impl OkxClient {
 
                                         // Persist to QuestDB if sender is configured
                                         if let Some(sender) = self.sender.as_mut() {
-                                            if let Err(e) = Self::persist_message(sender, &parsed).await {
+                                            if let Err(e) = Self::persist_message(sender, &self.exchange, &parsed).await {
                                                 eprintln!("[DB ERROR] Failed to persist: {}", e);
                                             }
                                         }
@@ -444,6 +446,7 @@ impl OkxClient {
     /// Persist a parsed message to QuestDB.
     async fn persist_message(
         sender: &mut Sender,
+        exchange: &str,
         msg: &OkxWsMessage,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let inst_id = msg.arg.as_ref().map(|a| a.inst_id.as_str()).unwrap_or("?");
@@ -453,13 +456,13 @@ impl OkxClient {
             MessageType::L2Snapshot => {
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
-                    persist_lob(sender, inst_id, ts_ms, "snapshot", &levels).await?;
+                    persist_lob(sender, inst_id, exchange, ts_ms, "snapshot", &levels).await?;
                 }
             }
             MessageType::L2Update => {
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
-                    persist_lob(sender, inst_id, ts_ms, "update", &levels).await?;
+                    persist_lob(sender, inst_id, exchange, ts_ms, "update", &levels).await?;
                 }
             }
             MessageType::Trade => {
@@ -468,7 +471,7 @@ impl OkxClient {
                 }) {
                     let px = trade.px.parse().unwrap_or(0.0);
                     let sz = trade.sz.parse().unwrap_or(0.0);
-                    persist_trade(sender, inst_id, &trade.trade_id, px, sz, &trade.side, ts_ms)
+                    persist_trade(sender, inst_id, exchange, &trade.trade_id, px, sz, &trade.side, ts_ms)
                         .await?;
                 }
             }
@@ -630,8 +633,9 @@ mod tests {
 
     #[test]
     fn test_client_new_sets_instrument() {
-        let client = OkxClient::new("ETH-USDT", 0.1, false, "http::addr=localhost:9000;");
+        let client = OkxClient::new("ETH-USDT", "okx", 0.1, false, "http::addr=localhost:9000;");
         assert_eq!(client.instrument, "ETH-USDT");
+        assert_eq!(client.exchange, "okx");
         assert!((client.show_top_pct - 0.1).abs() < f64::EPSILON);
     }
 
@@ -685,31 +689,31 @@ mod tests {
 
     #[test]
     fn test_client_retention_window() {
-        let client = OkxClient::new("BTC-USDT", 0.1, false, "http::addr=localhost:9000;").with_retention_window(60);
+        let client = OkxClient::new("BTC-USDT", "okx", 0.1, false, "http::addr=localhost:9000;").with_retention_window(60);
         assert_eq!(client.retention_window, Some(60));
     }
 
     #[test]
     fn test_client_default_no_retention() {
-        let client = OkxClient::new("BTC-USDT", 0.1, false, "http::addr=localhost:9000;");
+        let client = OkxClient::new("BTC-USDT", "okx", 0.1, false, "http::addr=localhost:9000;");
         assert_eq!(client.retention_window, None);
     }
 
     #[test]
     fn test_client_data_output_default_is_false() {
-        let client = OkxClient::new("BTC-USDT", 0.1, false, "http::addr=localhost:9000;");
+        let client = OkxClient::new("BTC-USDT", "okx", 0.1, false, "http::addr=localhost:9000;");
         assert!(!client.data_output);
     }
 
     #[test]
     fn test_client_data_output_true() {
-        let client = OkxClient::new("BTC-USDT", 0.1, true, "http::addr=localhost:9000;");
+        let client = OkxClient::new("BTC-USDT", "okx", 0.1, true, "http::addr=localhost:9000;");
         assert!(client.data_output);
     }
 
     #[test]
     fn test_client_with_data_output_builder() {
-        let client = OkxClient::new("BTC-USDT", 0.1, false, "http::addr=localhost:9000;")
+        let client = OkxClient::new("BTC-USDT", "okx", 0.1, false, "http::addr=localhost:9000;")
             .with_data_output(true);
         assert!(client.data_output);
     }
