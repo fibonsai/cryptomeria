@@ -118,11 +118,17 @@ impl OrderBook {
     pub fn apply_order(&mut self, entry: &OrderEntry) {
         let price = match entry.price.parse::<f64>() {
             Ok(p) => OrderedFloat(p),
-            Err(_) => return,
+            Err(_) => {
+                eprintln!("[PARSE] apply_order bad price: {:?}", entry.price);
+                return;
+            }
         };
         let amount = match entry.amount.parse::<f64>() {
             Ok(a) => a,
-            Err(_) => return,
+            Err(_) => {
+                eprintln!("[PARSE] apply_order bad amount: {:?}", entry.amount);
+                return;
+            }
         };
         let side = if entry.order_type == 0 { Side::Bid } else { Side::Ask };
 
@@ -162,8 +168,9 @@ impl OrderBook {
     /// Process a Bitstamp WebSocket message.
     pub fn process_msg(&mut self, msg: &BitstampWsMessage) {
         if let Some(ref data) = msg.data {
-            if let Ok(entry) = serde_json::from_value::<OrderEntry>(data.clone()) {
-                self.apply_order(&entry);
+            match serde_json::from_value::<OrderEntry>(data.clone()) {
+                Ok(entry) => self.apply_order(&entry),
+                Err(e) => eprintln!("[PARSE] OrderEntry: {} — data: {}", e, data),
             }
         }
     }

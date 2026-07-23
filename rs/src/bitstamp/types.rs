@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Top-level envelope for all Bitstamp WebSocket messages.
 #[derive(Debug, Deserialize)]
@@ -39,7 +39,7 @@ pub struct OrderEntry {
     pub amount: String,
 
     /// 0 = bid, 1 = ask
-    #[serde(default, rename = "type")]
+    #[serde(default, rename = "type", deserialize_with = "deserialize_number_or_zero")]
     pub order_type: i64,
 
     #[serde(default)]
@@ -222,6 +222,34 @@ impl BitstampWsMessage {
         }
         result
     }
+}
+
+/// Deserialize a field that may be either a number or a string, defaulting to 0.
+fn deserialize_number_or_zero<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+    struct NumOrZero;
+    impl<'de> de::Visitor<'de> for NumOrZero {
+        type Value = i64;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a number or string")
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<i64, E> {
+            Ok(v)
+        }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<i64, E> {
+            Ok(v as i64)
+        }
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<i64, E> {
+            Ok(v as i64)
+        }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<i64, E> {
+            v.parse::<i64>().or(Ok(0))
+        }
+    }
+    deserializer.deserialize_any(NumOrZero)
 }
 
 /// Format a trade or event message for terminal display — pure function, testable without I/O.
