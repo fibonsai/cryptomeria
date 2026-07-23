@@ -3,18 +3,11 @@ use cryptomeria::db::{connect_sender, run_migrations};
 use cryptomeria::bitstamp::ws::BitstampClient;
 use cryptomeria::kraken::ws::KrakenClient;
 use cryptomeria::okx::ws::OkxClient;
-use serde::Deserialize;
-use std::path::Path;
 
-/// A single entry from scripts/coins_aliases.json.
-#[derive(Debug, Deserialize)]
-struct CoinAlias {
-    base: String,
-    target: String,
-    exchange_id: String,
-}
+mod instrument_aliases;
+use instrument_aliases::COIN_ALIASES;
 
-/// Map CLI exchange name to the exchange_id used in coins_aliases.json.
+/// Map CLI exchange name to the exchange_id used in COIN_ALIASES.
 fn map_exchange_to_id(exchange: &str) -> &str {
     match exchange {
         "okx" => "okex",
@@ -34,27 +27,6 @@ fn parse_exchange_override(s: &str) -> (&str, Option<&str>) {
     }
 }
 
-/// Load coin aliases from scripts/coins_aliases.json.
-/// Returns an empty vec on error (logs a warning).
-fn load_coin_aliases() -> Vec<CoinAlias> {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let path = Path::new(manifest_dir).join("../scripts/coins_aliases.json");
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!(
-                "[ARGS] Could not load coin aliases from {}: {}",
-                path.display(), e
-            );
-            return Vec::new();
-        }
-    };
-    serde_json::from_str(&content).unwrap_or_else(|e| {
-        eprintln!("[ARGS] Could not parse coin aliases: {}", e);
-        Vec::new()
-    })
-}
-
 /// Format a symbol per exchange conventions.
 fn format_instrument(symbol: &str, exchange: &str) -> String {
     match exchange {
@@ -67,25 +39,25 @@ fn format_instrument(symbol: &str, exchange: &str) -> String {
 /// Resolve a user-supplied instrument string to an exchange-specific symbol.
 ///
 /// Supports two formats:
-/// - `BTC/USDT` or `BTC-USDT` (generic) — looked up in coin aliases
+/// - `BTC/USDT` or `BTC-USDT` (generic) — looked up in COIN_ALIASES
 /// - `BTC/USDT@kraken` — overrides `--exchange` with the part after `@`
 ///
 /// Returns (resolved_symbol, effective_exchange).
-fn resolve_instrument(instrument: &str, exchange: &str, aliases: &[CoinAlias]) -> (String, String) {
+fn resolve_instrument(instrument: &str, exchange: &str) -> (String, String) {
     let (symbol, exchange_override) = parse_exchange_override(instrument);
     let effective_exchange = exchange_override.unwrap_or(exchange).to_lowercase();
     let sep = if symbol.contains('/') { '/' } else { '-' };
     let parts: Vec<&str> = symbol.split(sep).collect();
 
-    if parts.len() == 2 && !aliases.is_empty() {
+    if parts.len() == 2 {
         let base = parts[0].to_uppercase();
         let target = parts[1].to_uppercase();
         let json_id = map_exchange_to_id(&effective_exchange);
 
-        for alias in aliases {
-            if alias.exchange_id == json_id
-                && alias.base.to_uppercase() == base
-                && alias.target.to_uppercase() == target
+        for (alias_base, alias_target, alias_exchange) in COIN_ALIASES {
+            if *alias_exchange == json_id
+                && alias_base.to_uppercase() == base
+                && alias_target.to_uppercase() == target
             {
                 let formatted = format_instrument(&format!("{}-{}", base, target), &effective_exchange);
                 let note = if exchange_override.is_some() {
@@ -169,8 +141,7 @@ async fn main() {
     let data_output = cli.data_output;
 
     let raw_instrument = cli.instrument_cli.as_deref().unwrap_or(&cli.instrument);
-    let aliases = load_coin_aliases();
-    let (instrument, exchange) = resolve_instrument(raw_instrument, &cli.exchange, &aliases);
+    let (instrument, exchange) = resolve_instrument(raw_instrument, &cli.exchange);
 
     let ws_url = match exchange.as_str() {
         "kraken" => "wss://ws.kraken.com/v2",
@@ -312,58 +283,49 @@ mod tests {
 
     #[test]
     fn test_resolve_instrument_no_aliases_fallback_okx() {
-        let (sym, ex) = resolve_instrument("ETH-USDT", "okx", &[]);
+        let (sym, ex) = resolve_instrument("ETH-USDT", "okx");
         assert_eq!(sym, "ETH-USDT");
         assert_eq!(ex, "okx");
     }
 
     #[test]
     fn test_resolve_instrument_no_aliases_fallback_kraken() {
-        let (sym, ex) = resolve_instrument("ETH-USDT", "kraken", &[]);
+        let (sym, ex) = resolve_instrument("ETH-USDT", "kraken");
         assert_eq!(sym, "ETH/USDT");
         assert_eq!(ex, "kraken");
     }
 
     #[test]
     fn test_resolve_instrument_no_aliases_fallback_bitstamp() {
-        let (sym, ex) = resolve_instrument("ETH-USDT", "bitstamp", &[]);
+        let (sym, ex) = resolve_instrument("ETH-USDT", "bitstamp");
         assert_eq!(sym, "eth-usdt");
         assert_eq!(ex, "bitstamp");
     }
 
     #[test]
     fn test_resolve_instrument_at_overrides_exchange() {
-        let (sym, ex) = resolve_instrument("ETH-USDT@kraken", "okx", &[]);
+        let (sym, ex) = resolve_instrument("ETH-USDT@kraken", "okx");
         assert_eq!(sym, "ETH/USDT");
         assert_eq!(ex, "kraken");
     }
 
     #[test]
     fn test_resolve_instrument_with_known_alias_okx() {
-        let aliases = vec![
-            CoinAlias { base: "BTC".into(), target: "USDT".into(), exchange_id: "okex".into() },
-        ];
-        let (sym, ex) = resolve_instrument("BTC/USDT", "okx", &aliases);
+        let (sym, ex) = resolve_instrument("BTC/USDT", "okx");
         assert_eq!(sym, "BTC-USDT");
         assert_eq!(ex, "okx");
     }
 
     #[test]
     fn test_resolve_instrument_with_alias_at_overrides() {
-        let aliases = vec![
-            CoinAlias { base: "XBT".into(), target: "USD".into(), exchange_id: "kraken".into() },
-        ];
-        let (sym, ex) = resolve_instrument("XBT/USD@kraken", "okx", &aliases);
+        let (sym, ex) = resolve_instrument("XBT/USD@kraken", "okx");
         assert_eq!(sym, "XBT/USD");
         assert_eq!(ex, "kraken");
     }
 
     #[test]
     fn test_resolve_instrument_unmatched_fallback() {
-        let aliases = vec![
-            CoinAlias { base: "BTC".into(), target: "USDT".into(), exchange_id: "okex".into() },
-        ];
-        let (sym, ex) = resolve_instrument("SOL-USDT", "okx", &aliases);
+        let (sym, ex) = resolve_instrument("SOL-USDT", "okx");
         assert_eq!(sym, "SOL-USDT");
         assert_eq!(ex, "okx");
     }
