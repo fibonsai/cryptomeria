@@ -91,21 +91,21 @@ impl BitstampWsMessage {
     /// Classify the message type for dispatch.
     pub fn message_type(&self) -> MessageType {
         match self.event.as_deref() {
-            Some("data") => {
+            Some("order_created" | "order_deleted" | "order_changed") => MessageType::L2Update,
+            Some("trade" | "live_trades") => MessageType::Trade,
+            Some("bts:subscription_succeeded" | "bts:unsubscription_succeeded") => MessageType::Event,
+            Some(_) => {
+                // Any other event on a live_orders_ channel is an L2 update
                 if let Some(ref channel) = self.channel {
                     if channel.starts_with("live_orders_") {
-                        // First message after subscribe is effectively a snapshot
-                        // Subsequent messages are updates; we handle this in the client
                         MessageType::L2Update
                     } else {
-                        MessageType::Unknown
+                        MessageType::Event
                     }
                 } else {
-                    MessageType::Unknown
+                    MessageType::Event
                 }
             }
-            Some("trade") => MessageType::Trade,
-            Some(_) => MessageType::Event,
             None => MessageType::Unknown,
         }
     }
@@ -125,16 +125,17 @@ impl BitstampWsMessage {
     pub fn summary(&self) -> String {
         match self.message_type() {
             MessageType::L2Snapshot | MessageType::L2Update => {
+                let event_label = self.event.as_deref().unwrap_or("data");
                 if let Some(ref channel) = self.channel {
                     if let Some(ref data) = self.data {
                         if let Some(entry) = serde_json::from_value::<OrderEntry>(data.clone()).ok() {
                             let side = if entry.order_type == 0 { "bid" } else { "ask" };
-                            format!("{} {} {}@{}", channel, side, entry.amount, entry.price)
+                            format!("{} {} {} {}@{}", event_label, channel, side, entry.amount, entry.price)
                         } else {
-                            format!("{} (raw)", channel)
+                            format!("{} {} (raw)", event_label, channel)
                         }
                     } else {
-                        format!("{} (empty)", channel)
+                        format!("{} {} (empty)", event_label, channel)
                     }
                 } else {
                     "?".to_string()
@@ -234,6 +235,63 @@ pub fn display_message(msg: &BitstampWsMessage) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_order_created() {
+        let json = r#"{
+            "event": "order_created",
+            "channel": "live_orders_btcusd",
+            "data": {
+                "id": 12345,
+                "id_str": "12345",
+                "price": "10000.0",
+                "amount": "1.5",
+                "type": 0,
+                "timestamp": "1705314600"
+            }
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.message_type(), MessageType::L2Update);
+        let s = msg.summary();
+        assert!(s.contains("order_created"));
+        assert!(s.contains("bid"));
+    }
+
+    #[test]
+    fn test_parse_order_deleted() {
+        let json = r#"{
+            "event": "order_deleted",
+            "channel": "live_orders_btcusd",
+            "data": {
+                "id": 12345,
+                "id_str": "12345",
+                "price": "10000.0",
+                "amount": "0",
+                "type": 0,
+                "timestamp": "1705314600"
+            }
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.message_type(), MessageType::L2Update);
+    }
+
+    #[test]
+    fn test_parse_order_changed() {
+        let json = r#"{
+            "event": "order_changed",
+            "channel": "live_orders_btcusd",
+            "data": {
+                "id": 12345,
+                "id_str": "12345",
+                "price": "10000.0",
+                "amount": "2.0",
+                "type": 0,
+                "timestamp": "1705314600"
+            }
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.message_type(), MessageType::L2Update);
+    }
 
     #[test]
     fn test_parse_order_data() {
