@@ -1,4 +1,4 @@
-use crate::bitstamp::types::{BitstampWsMessage, OrderBookData, OrderEntry};
+use crate::bitstamp::types::{BitstampWsMessage, MessageType, OrderBookData, OrderEntry};
 use ordered_float::OrderedFloat;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap};
@@ -168,46 +168,85 @@ impl OrderBook {
     /// Process a Bitstamp WebSocket message.
     pub fn process_msg(&mut self, msg: &BitstampWsMessage) {
         if let Some(ref data) = msg.data {
-            // Try order_book format (bids/asks arrays) — only if at least one side is present
-            if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone()) {
-                if !ob.bids.is_empty() || !ob.asks.is_empty() {
-                    self.apply_snapshot(&ob);
-                    return;
+            match msg.message_type() {
+                MessageType::L2Snapshot => {
+                    if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone()) {
+                        self.apply_snapshot(&ob);
+                    }
                 }
-            }
-            // Try live_orders format (single order entry)
-            match serde_json::from_value::<OrderEntry>(data.clone()) {
-                Ok(entry) => self.apply_order(&entry),
-                Err(e) => eprintln!("[PARSE] OrderEntry: {} — data: {}", e, data),
+                MessageType::L2Update => {
+                    if let Some(ref channel) = msg.channel {
+                        if channel.starts_with("live_orders_") {
+                            if let Ok(entry) = serde_json::from_value::<OrderEntry>(data.clone()) {
+                                self.apply_order(&entry);
+                            } else {
+                                eprintln!("[PARSE] OrderEntry from {}: {}", channel, data);
+                            }
+                        } else {
+                            if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone()) {
+                                self.apply_diff(&ob);
+                            } else {
+                                eprintln!("[PARSE] OrderBookData from {}: {}", channel, data);
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
 
-    /// Apply a full snapshot from the order_book channel.
+    /// Apply a full snapshot from the REST API.
+    /// Clears all existing levels and replaces them with the snapshot data.
     fn apply_snapshot(&mut self, ob: &OrderBookData) {
-        // Clear existing book
         self.orders.clear();
         self.bids.clear();
         self.asks.clear();
 
-        // Process bids
         for level in &ob.bids {
             if level.len() >= 2 {
                 if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
                     if amount > 0.0 {
-                        let price = OrderedFloat(price);
+                        self.bids.insert(Reverse(OrderedFloat(price)), amount);
+                    }
+                }
+            }
+        }
+
+        for level in &ob.asks {
+            if level.len() >= 2 {
+                if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
+                    if amount > 0.0 {
+                        self.asks.insert(OrderedFloat(price), amount);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Apply an incremental diff from the diff_order_book channel.
+    /// For each [price, amount] pair: if amount == 0 remove the level, otherwise upsert.
+    fn apply_diff(&mut self, ob: &OrderBookData) {
+        for level in &ob.bids {
+            if level.len() >= 2 {
+                if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
+                    let price = OrderedFloat(price);
+                    if amount == 0.0 {
+                        self.bids.remove(&Reverse(price));
+                    } else {
                         self.bids.insert(Reverse(price), amount);
                     }
                 }
             }
         }
 
-        // Process asks
         for level in &ob.asks {
             if level.len() >= 2 {
                 if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
-                    if amount > 0.0 {
-                        let price = OrderedFloat(price);
+                    let price = OrderedFloat(price);
+                    if amount == 0.0 {
+                        self.asks.remove(&price);
+                    } else {
                         self.asks.insert(price, amount);
                     }
                 }
@@ -416,6 +455,109 @@ mod tests {
         book.apply_order(&entry("99.0", "1.0", 0, 1));
         assert_eq!(book.num_bids(), 1);
         assert!((book.best_bid().unwrap() - 99.0).abs() < f64::EPSILON);
+    }
+
+    fn ob_data(bids: &[[&str; 2]], asks: &[[&str; 2]]) -> OrderBookData {
+        OrderBookData {
+            bids: bids.iter().map(|[p, s]| [p.to_string(), s.to_string()]).collect(),
+            asks: asks.iter().map(|[p, s]| [p.to_string(), s.to_string()]).collect(),
+            timestamp: "0".to_string(),
+            microtimestamp: "0".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_apply_diff_adds_levels() {
+        let mut book = OrderBook::new();
+        let diff = ob_data(&[["100.0", "1.0"], ["99.0", "2.0"]], &[["101.0", "1.5"]]);
+        book.apply_diff(&diff);
+        assert_eq!(book.num_bids(), 2);
+        assert_eq!(book.num_asks(), 1);
+        assert!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON);
+        assert!((book.best_ask().unwrap() - 101.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_apply_diff_removes_level() {
+        let mut book = OrderBook::new();
+        book.apply_diff(&ob_data(&[["100.0", "1.0"]], &[["101.0", "1.5"]]));
+        assert_eq!(book.num_bids(), 1);
+        assert_eq!(book.num_asks(), 1);
+        // Remove bid level
+        book.apply_diff(&ob_data(&[["100.0", "0.0"]], &[]));
+        assert_eq!(book.num_bids(), 0);
+        assert_eq!(book.num_asks(), 1);
+    }
+
+    #[test]
+    fn test_apply_diff_replaces_amount() {
+        let mut book = OrderBook::new();
+        book.apply_diff(&ob_data(&[["100.0", "1.0"]], &[["101.0", "1.5"]]));
+        // Update with new amount
+        book.apply_diff(&ob_data(&[["100.0", "3.0"]], &[]));
+        assert_eq!(book.num_bids(), 1);
+        assert_eq!(*book.bids.get(&Reverse(OrderedFloat(100.0))).unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_snapshot_clears_and_replaces() {
+        let mut book = OrderBook::new();
+        book.apply_diff(&ob_data(&[["100.0", "1.0"]], &[["101.0", "1.5"]]));
+        assert_eq!(book.num_bids(), 1);
+        assert_eq!(book.num_asks(), 1);
+        // Apply snapshot — should clear all and replace
+        let snap = ob_data(&[["99.0", "2.0"]], &[["102.0", "3.0"]]);
+        book.apply_snapshot(&snap);
+        assert_eq!(book.num_bids(), 1);
+        assert_eq!(book.num_asks(), 1);
+        assert!((book.best_bid().unwrap() - 99.0).abs() < f64::EPSILON);
+        assert!((book.best_ask().unwrap() - 102.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_process_msg_snapshot_dispatch() {
+        let mut book = OrderBook::new();
+        let msg = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "bids": [["100.0", "1.0"]],
+                "asks": [["101.0", "2.0"]]
+            })),
+        };
+        book.process_msg(&msg);
+        assert_eq!(book.num_bids(), 1);
+        assert_eq!(book.num_asks(), 1);
+        assert!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_process_msg_diff_dispatch() {
+        let mut book = OrderBook::new();
+        // Start with snapshot
+        let snap = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "bids": [["100.0", "1.0"]],
+                "asks": [["101.0", "2.0"]]
+            })),
+        };
+        book.process_msg(&snap);
+        // Apply a diff (event: "data", channel: diff_order_book)
+        let diff = BitstampWsMessage {
+            event: Some("data".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "microtimestamp": "1705314600123456",
+                "bids": [["100.0", "0.0"]],
+                "asks": [["101.0", "3.0"]]
+            })),
+        };
+        book.process_msg(&diff);
+        assert_eq!(book.num_bids(), 0);
+        assert_eq!(book.num_asks(), 1);
+        assert!((book.best_ask().unwrap() - 101.0).abs() < f64::EPSILON);
     }
 
     #[test]

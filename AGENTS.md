@@ -66,8 +66,8 @@ rs/
 ├── src/kraken/ws.rs          # Kraken WS client (heartbeat handling, exponential backoff)
 ├── src/kraken/lob.rs         # Kraken OrderBook: BTreeMap<OrderedFloat> for LOB2 state
 ├── src/bitstamp/types.rs     # Bitstamp WS message types + JSON parsing + display
-├── src/bitstamp/ws.rs        # Bitstamp WS client (individual order tracking, exponential backoff)
-├── src/bitstamp/lob.rs       # Bitstamp OrderBook: per-order tracking + BTreeMap aggregation
+├── src/bitstamp/ws.rs        # Bitstamp WS client (diff_order_book + REST snapshot reconciliation)
+├── src/bitstamp/lob.rs       # Bitstamp OrderBook: apply_snapshot (REST) + apply_diff (WS diff_order_book)
 ├── tests/okx_integration.rs  # #[ignore] E2E test (needs network)
 ├── tests/kraken_integration.rs # #[ignore] E2E test (needs network)
 └── tests/bitstamp_integration.rs # #[ignore] E2E test (needs network)
@@ -148,6 +148,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | 015 | Kraken exchange module | `docs/ADR-015-...` |
 | 016 | Exchange column in DB schema | `docs/ADR-016-...` |
 | 017 | Bitstamp exchange with shared trait abstraction layer | `docs/ADR-017-...` |
+| 018 | Bitstamp diff_order_book with REST snapshot reconciliation | `docs/ADR-018-...` |
 
 ---
 
@@ -201,8 +202,8 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 ## Rust-Specific Notes
 
 - **Entry point**: `rs/src/main.rs` parses CLI via `clap` with `--exchange` (okx/kraken/bitstamp), `--show-top-pct`, `--questdb-conf`, `--retention-window`, `--metrics-port`, `--data-output` flags
-- **WS clients**: All three exchange clients share the same architecture via shared traits/utilities (ADR-017): exponential backoff with jitter reconnection (ADR-012), graceful shutdown on SIGINT/SIGTERM (ADR-014), heartbeat handling (Kraken)
-- **LOB state**: OKX and Kraken use `BTreeMap<OrderedFloat<f64>, f64>` (ADR-002); Bitstamp tracks individual orders via `HashMap<u64, OrderInfo>` with BTreeMap aggregation for display
+- **WS clients**: All three exchange clients share the same architecture via shared traits/utilities (ADR-017): exponential backoff with jitter reconnection (ADR-012), graceful shutdown on SIGINT/SIGTERM (ADR-014), heartbeat handling (Kraken), diff_order_book + REST snapshot reconciliation (Bitstamp, ADR-018)
+- **LOB state**: OKX and Kraken use `BTreeMap<OrderedFloat<f64>, f64>` (ADR-002); Bitstamp uses `BTreeMap` aggregation with `apply_snapshot()` (REST) + `apply_diff()` (WS diff_order_book, ADR-018)
 - **Persistence**: QuestDB via ILP sender (refinery migrations in `rs/src/db/migrations/`), TTL set at startup (ADR-010)
 - **Metrics**: Prometheus registry served as JSON on `/metrics` for Grafana Infinity (ADR-011, ADR-013)
 - **Tests**: Unit tests in `mod tests` in each module; integration tests in `rs/tests/` marked `#[ignore]`
