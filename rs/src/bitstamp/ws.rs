@@ -362,8 +362,8 @@ impl BitstampClient {
                             (side, crate::okx::types::LobLevel {
                                 price: bl.price,
                                 size: bl.size,
-                                count: String::new(),
-                                orders: String::new(),
+                                count: "0".to_string(),
+                                orders: "0".to_string(),
                             })
                         })
                         .collect();

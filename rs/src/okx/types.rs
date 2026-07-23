@@ -174,13 +174,14 @@ pub struct LobLevel {
 }
 
 impl LobLevel {
-    /// Parse all fields as f64, returning None if any fail.
+    /// Parse all fields as f64, returning None if price or size fail.
+    /// count and orders default to 0.0 if empty or unparseable.
     pub fn as_f64(&self) -> Option<(f64, f64, f64, f64)> {
         Some((
             self.price.parse().ok()?,
             self.size.parse().ok()?,
-            self.count.parse().ok()?,
-            self.orders.parse().ok()?,
+            self.count.parse().unwrap_or(0.0),
+            self.orders.parse().unwrap_or(0.0),
         ))
     }
 }
@@ -524,5 +525,33 @@ mod tests {
         let msg = OkxWsMessage::from_json(json).unwrap();
         let levels = msg.lob_levels();
         assert!(levels.is_empty());
+    }
+
+    #[test]
+    fn test_lob_level_as_f64_empty_count_orders() {
+        let level = LobLevel {
+            price: "100.5".to_string(),
+            size: "2.5".to_string(),
+            count: String::new(),
+            orders: String::new(),
+        };
+        let result = level.as_f64();
+        assert!(result.is_some());
+        let (price, size, count, orders) = result.unwrap();
+        assert!((price - 100.5).abs() < f64::EPSILON);
+        assert!((size - 2.5).abs() < f64::EPSILON);
+        assert!((count - 0.0).abs() < f64::EPSILON);
+        assert!((orders - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_lob_level_as_f64_bad_price_returns_none() {
+        let level = LobLevel {
+            price: "bad".to_string(),
+            size: "2.5".to_string(),
+            count: "1".to_string(),
+            orders: "1".to_string(),
+        };
+        assert!(level.as_f64().is_none());
     }
 }

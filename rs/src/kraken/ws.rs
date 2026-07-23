@@ -351,8 +351,8 @@ impl KrakenClient {
                         let l = crate::okx::types::LobLevel {
                             price: format!("{:.8}", kl.price),
                             size: format!("{:.8}", kl.qty),
-                            count: String::new(),
-                            orders: String::new(),
+                            count: "0".to_string(),
+                            orders: "0".to_string(),
                         };
                         (side, l)
                     })
@@ -369,8 +369,8 @@ impl KrakenClient {
                         let l = crate::okx::types::LobLevel {
                             price: format!("{:.8}", kl.price),
                             size: format!("{:.8}", kl.qty),
-                            count: String::new(),
-                            orders: String::new(),
+                            count: "0".to_string(),
+                            orders: "0".to_string(),
                         };
                         (side, l)
                     })
