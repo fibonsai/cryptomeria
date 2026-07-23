@@ -47,11 +47,81 @@ make test   # pytest python/ + cargo test (rs)
 make format # ruff format + cargo fmt
 ```
 
-For full details on tests, architecture, conventions, and LOB semantics, see `CLAUDE.md`.
+---
+
+## Project Structure
+
+```
+python/
+├── cryptomeria/lob.py        # LOB parquet stream reader + LOB2 CLI (17 tests)
+├── tests/test_lob.py         # Fixtures via pa.Table.from_pylist() → temp dirs
+├── main.py                   # Research entry point (empty)
+rs/
+├── src/main.rs               # CLI entry (clap args, --exchange flag, okx/kraken dispatch)
+├── src/okx/types.rs          # OKX WS message types + JSON parsing + display
+├── src/okx/ws.rs             # OKX WS client + pure helpers + LobMetrics (shared)
+├── src/okx/lob.rs            # OKX OrderBook: BTreeMap<OrderedFloat> for LOB2 state
+├── src/kraken/types.rs       # Kraken WS message types + JSON parsing + display
+├── src/kraken/ws.rs          # Kraken WS client (heartbeat handling, exponential backoff)
+├── src/kraken/lob.rs         # Kraken OrderBook: BTreeMap<OrderedFloat> for LOB2 state
+├── tests/okx_integration.rs  # #[ignore] E2E test (needs network)
+└── tests/kraken_integration.rs # #[ignore] E2E test (needs network)
+```
+
+**Python package** is `cryptomeria` (src layout in `python/`). Tests discovered from `python/`, not inside package.
+
+**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod okx`, `pub mod kraken`.
 
 ---
 
-## ADRs
+## Critical Conventions (Non-Negotiable)
+
+| Rule | Details |
+|------|---------|
+| **No comments in code** | Intent via names; decisions in commits/docs |
+| **Catch specific errors** | No bare `except Exception` / `catch (_)` |
+| **Progress logging** | Ops >10s must emit progress every 5s (count, remaining, ETA) |
+| **Relative paths only** | Never absolute paths in code/docs/config |
+| **Secrets in `.env.local`** | Never committed (in `.gitignore`) |
+| **CLAUDE.md/AGENTS.md** | Never add brand (claude/openroute, etc) reference |
+
+### Python-Specific (enforced by ruff + extra)
+- **Type hints mandatory** — every function; `str \| None` union syntax (3.13)
+- **`@dataclass` for data containers** — no bare `dict` for reused shapes
+- **`is`/`is not` for `None`, `True`, `False`**
+- **`pathlib.Path` for I/O** — `Path.read_bytes()` / `Path.write_bytes()`
+- **No mutable defaults** — use `None` and assign inside
+
+---
+
+## Testing (Mandatory for Every Change)
+
+| Requirement | Detail |
+|-------------|--------|
+| **Unit + E2E per change** | No code lands without both |
+| **Unit tests** | Pure functions, parsing, transforms, errors — no I/O |
+| **E2E tests** | WS connections, API calls, file I/O — ≥1 happy path per integration; mock network where real endpoint unavailable in CI |
+| **Extract pure functions** | `build_subscribe_msg()`, `display_message()`, `parse_args()`, `_apply_level()`, `_read_lob_iter()` must be testable without I/O |
+| **Test tables in plans** | Name each test + what it verifies; "add tests" is insufficient |
+| **`cargo test` / `pytest` must pass** | Before any commit touching logic |
+
+**Python test pattern** (see `python/tests/test_lob.py`): write raw parquet fixtures with `pa.Table.from_pylist()` to temp dirs, read back, assert bid/ask dicts. Covers: snapshot-replaces-all, update-removes-level, cross-row-group continuity, null-price skipping.
+
+**Rust test pattern**: pure helpers (`build_subscribe_msg`, `display_message`, `OrderBook` methods) tested inline in `mod tests`; integration test in `tests/` ignored by default.
+
+### Running Single Tests
+```bash
+# Python
+uv run pytest python/tests/test_lob.py::test_name -v
+
+# Rust (filter by name substring)
+cargo test test_name
+cargo test -- --include-ignored  # run ignored integration test (needs network)
+```
+
+---
+
+## Key Architectural Decisions (ADRs)
 
 | # | Title | File |
 |---|-------|------|
@@ -70,3 +140,88 @@ For full details on tests, architecture, conventions, and LOB semantics, see `CL
 | 013 | Restructure /metrics to single JSON object | `docs/ADR-013-...` |
 | 014 | Graceful shutdown for SIGINT and SIGTERM | `docs/ADR-014-...` |
 | 015 | Kraken exchange module | `docs/ADR-015-...` |
+
+---
+
+## LOB Semantics (Python + Rust)
+
+| Action / Condition | Effect |
+|--------------------|--------|
+| `action='snapshot'` | Clear all levels, insert fresh price/amount pairs |
+| `action='update'` + `amount == 0` | Remove that price level |
+| `action='update'` + `amount > 0` | Upsert level |
+| `price is None` | Skip row |
+
+**LOB2 Output Schema** (Python `rebuild_to_lob2`, Rust `OrderBook::display`):
+- `ts` (UInt64 ms), `bids` (JSON `[{"px": p, "sz": s}, ...]` desc), `asks` (JSON asc)
+
+---
+
+## Dependencies (Pinned in Lockfiles)
+
+**Python (dev extras)**: `ruff≥0.6`, `pytest≥8`, `typer≥0.12`, `pyarrow≥15`
+**Rust**: `tokio` (full), `tokio-tungstenite` (native-tls), `futures-util`, `serde`+`serde_json`, `ordered-float`, `clap` (derive), `rand`, `serde_test` (dev)
+
+---
+
+## Security
+
+- `.env.local` only for secrets (in `.gitignore`)
+- No API keys, tokens, or credentials in repo
+
+---
+
+## Quick Reference: Common Tasks
+
+| Task | Command |
+|------|---------|
+| Run Python LOB CLI | `PYTHONPATH=python uv run python -m cryptomeria.lob in.parquet out.parquet` |
+| Run Rust WS client (OKX, BTC-USDT) | `cargo run` |
+| Run Rust WS client (OKX, custom) | `cargo run -- ETH-USDT --show-top-pct 0.5` |
+| Run Rust WS client (Kraken) | `cargo run -- --exchange kraken XBT/USD` |
+| Run Rust WS client (Kraken, custom) | `cargo run -- --exchange kraken ETH/USD --show-top-pct 0.5` |
+| Single Python test | `uv run pytest python/tests/test_lob.py::test_name -v` |
+| Single Rust test | `cargo test test_name` |
+| Format all | `make format` |
+| Lint all | `make lint` |
+| Full check | `make check` |
+
+---
+
+## Rust-Specific Notes
+
+- **Entry point**: `rs/src/main.rs` parses CLI via `clap` with `--exchange` (okx/kraken), `--show-top-pct`, `--questdb-conf`, `--retention-window`, `--metrics-port`, `--data-output` flags
+- **WS clients**: Both OKX (`okx/ws.rs`) and Kraken (`kraken/ws.rs`) share the same architecture: exponential backoff with jitter reconnection (ADR-012), graceful shutdown on SIGINT/SIGTERM (ADR-014), heartbeat handling (Kraken)
+- **LOB state**: Both use `BTreeMap<OrderedFloat<f64>, f64>` for O(log n) insert/remove + sorted iteration (ADR-002)
+- **Persistence**: QuestDB via ILP sender (refinery migrations in `rs/src/db/migrations/`), TTL set at startup (ADR-010)
+- **Metrics**: Prometheus registry served as JSON on `/metrics` for Grafana Infinity (ADR-011, ADR-013)
+- **Tests**: Unit tests in `mod tests` in each module; integration tests in `rs/tests/` marked `#[ignore]`
+
+## Python-Specific Notes
+
+- **Entry point**: `python/cryptomeria/lob.py` with Typer CLI (`rebuild_to_lob2` command)
+- **LOB processing**: Streaming parquet reader via `pyarrow.parquet.ParquetFile.iter_batches()`, processes row-by-row to maintain order book state
+- **Progress logging**: `rebuild_to_lob2` logs progress every 5s with count, %, ETA (conforms to >10s rule)
+- **Tests**: 17 tests covering `_apply_level` edge cases, `read_lob` integration (snapshots, updates, cross-row-group, null prices), and `rebuild_to_lob2` output verification
+
+---
+
+## Workflow (Slash Commands)
+
+| Command | Action |
+|---------|--------|
+| `/add-task "<desc>"` | Create a GitHub issue |
+| `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
+| `/execute-plan` | Execute PLAN.md stepwise → update docs → post changelog → delete PLAN.md → create ADR → create PR → close issue → return to main |
+| `/commit` | Stage task-related files only, commit with project-style message (no push) |
+
+**Never commit unless asked** — keep changes in working tree.
+
+---
+
+## Tooling & Environment
+
+- **Python**: 3.13 via `uv` (lockfile: `uv.lock`), `pyproject.toml` uses `pdm-backend`
+- **Rust**: stable toolchain, edition 2024 (`rust-toolchain.toml` in `rs/`)
+- **RTK (Rust Token Killer)**: Active proxy for FS reads & git ops (transparent)
+- **No CI/CD configs**: No Cursor, Copilot, or GitHub Actions in this repo
