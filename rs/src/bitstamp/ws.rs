@@ -1,5 +1,5 @@
 use crate::bitstamp::lob::OrderBook;
-use crate::bitstamp::types::{display_message, BitstampWsMessage, MessageType, TradeData};
+use crate::bitstamp::types::{display_message, BitstampWsMessage, MessageType, OrderBookData, TradeData};
 use crate::db::{persist_lob, persist_trade};
 use crate::db::apply_ttl;
 use crate::traits::{self, ExchangeClientBuilder, LobMetrics, backoff_delay};
@@ -11,6 +11,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
+
+const REST_BASE: &str = "https://www.bitstamp.net/api/v2";
 
 const WS_URL: &str = "wss://ws.bitstamp.net";
 
@@ -142,8 +144,8 @@ impl BitstampClient {
 
             let (mut write, mut read) = ws_stream.split();
 
-            // Subscribe to order_book channel (full order book with bids AND asks)
-            let orders_channel = format!("order_book_{}", self.channel_instrument);
+            // Subscribe to diff_order_book channel (full depth, not just top 100)
+            let orders_channel = format!("diff_order_book_{}", self.channel_instrument);
             let orders_msg = build_subscribe_msg(&orders_channel);
             if let Err(e) = write.send(Message::Text(orders_msg.into())).await {
                 attempt += 1;
@@ -176,9 +178,12 @@ impl BitstampClient {
             let mut last_trade_count = 0u64;
             let mut last_trade_time = std::time::Instant::now();
 
-            // Bitstamp sends a burst of individual order entries on connect.
-            // We accumulate them all. First ~100ms of data is the initial state.
-            // We don't have a distinct "snapshot" action — everything is an update.
+            // Phase 1: Buffer diffs until REST snapshot is fetched and reconciled
+            let mut buffer: Vec<BitstampWsMessage> = Vec::new();
+            let mut subscription_confirmed = false;
+            let mut snapshot_attempted = false;
+            let mut snapshot_applied = false;
+            let mut snapshot_microtimestamp: u64 = 0;
 
             loop {
                 tokio::select! {
@@ -197,53 +202,166 @@ impl BitstampClient {
                                 match BitstampWsMessage::from_json(&text) {
                                     Ok(parsed) => {
                                         self.messages_received.fetch_add(1, Ordering::Relaxed);
-                                        match parsed.message_type() {
-                                            MessageType::L2Snapshot | MessageType::L2Update => {
-                                                // Process each order entry into the book
-                                                order_book.process_msg(&parsed);
-                                                if self.data_output {
-                                                    let now = parsed.formatted_time();
-                                                    let book_line =
-                                                        order_book.display(&self.instrument, self.show_top_pct);
-                                                    println!("[{} LOB2] {}", now, book_line);
-                                                }
-                                                self.update_lob_metrics(&order_book);
-                                                self.update_depth_metrics(&order_book);
-                                            }
-                                            MessageType::Trade => {
-                                                if self.data_output {
-                                                    let line = display_message(&parsed);
-                                                    println!("{}", line);
-                                                }
-                                                self.lob_metrics.trades_total.inc();
-                                                last_trade_count += 1;
-                                                let elapsed = last_trade_time.elapsed();
-                                                if elapsed >= std::time::Duration::from_secs(1) {
-                                                    let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                                    self.lob_metrics.trades_per_second
-                                                        .store(f64::to_bits(rate), Ordering::Relaxed);
-                                                    last_trade_count = 0;
-                                                    last_trade_time = std::time::Instant::now();
-                                                }
-                                            }
-                                            MessageType::Event => {
-                                                // bts:subscription_succeeded, bts:request_reconnect, etc.
-                                                if self.data_output {
-                                                    let line = display_message(&parsed);
-                                                    println!("{}", line);
-                                                }
-                                            }
-                                            MessageType::Unknown => {
-                                                if self.data_output {
-                                                    let line = display_message(&parsed);
-                                                    println!("{}", line);
-                                                }
-                                            }
-                                        }
 
-                                        if let Some(sender) = self.sender.as_mut() {
-                                            if let Err(e) = Self::persist_message(sender, &self.exchange, &parsed).await {
-                                                eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                        if !snapshot_applied {
+                                            match parsed.message_type() {
+                                                MessageType::L2Update => {
+                                                    // Buffer all diffs until snapshot is applied
+                                                    buffer.push(parsed);
+                                                }
+                                                MessageType::Trade => {
+                                                    if self.data_output {
+                                                        let line = display_message(&parsed);
+                                                        println!("{}", line);
+                                                    }
+                                                    self.lob_metrics.trades_total.inc();
+                                                    last_trade_count += 1;
+                                                    let elapsed = last_trade_time.elapsed();
+                                                    if elapsed >= std::time::Duration::from_secs(1) {
+                                                        let rate = last_trade_count as f64 / elapsed.as_secs_f64();
+                                                        self.lob_metrics.trades_per_second
+                                                            .store(f64::to_bits(rate), Ordering::Relaxed);
+                                                        last_trade_count = 0;
+                                                        last_trade_time = std::time::Instant::now();
+                                                    }
+                                                    if let Some(sender) = self.sender.as_mut() {
+                                                        if let Err(e) = Self::persist_message(sender, &self.exchange, &parsed).await {
+                                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                        }
+                                                    }
+                                                }
+                                                MessageType::Event => {
+                                                    if parsed.event.as_deref() == Some("bts:subscription_succeeded") {
+                                                        subscription_confirmed = true;
+                                                    }
+                                                    if self.data_output {
+                                                        let line = display_message(&parsed);
+                                                        println!("{}", line);
+                                                    }
+                                                }
+                                                MessageType::Unknown => {
+                                                    if self.data_output {
+                                                        let line = display_message(&parsed);
+                                                        println!("{}", line);
+                                                    }
+                                                }
+                                                MessageType::L2Snapshot => {}
+                                            }
+
+                                            // Fetch snapshot once subscription is confirmed (one attempt per connection)
+                                            if subscription_confirmed && !snapshot_applied && !snapshot_attempted {
+                                                snapshot_attempted = true;
+                                                eprintln!("[SNAPSHOT] Fetching REST snapshot for {}...", self.channel_instrument);
+                                                let url = format!("{}/order_book/{}/?group=1", REST_BASE, self.channel_instrument);
+                                                match reqwest::get(&url).await {
+                                                    Ok(resp) => {
+                                                        match resp.json::<OrderBookData>().await {
+                                                            Ok(snapshot) => {
+                                                                snapshot_microtimestamp = snapshot.microtimestamp.parse::<u64>().unwrap_or(0);
+                                                                let snapshot_msg = BitstampWsMessage {
+                                                                    event: Some("snapshot".to_string()),
+                                                                    channel: Some(orders_channel.clone()),
+                                                                    data: Some(serde_json::to_value(&snapshot).unwrap_or_default()),
+                                                                };
+                                                                order_book.process_msg(&snapshot_msg);
+                                                                eprintln!("[SNAPSHOT] Applied — microtimestamp={} bids={} asks={}",
+                                                                    snapshot_microtimestamp,
+                                                                    order_book.num_bids(),
+                                                                    order_book.num_asks());
+
+                                                                // Reconcile: discard buffered diffs with microtimestamp <= snapshot
+                                                                let mut keep = Vec::new();
+                                                                for buf_msg in buffer.drain(..) {
+                                                                    match buf_msg.microtimestamp_us() {
+                                                                        Some(us) if us > snapshot_microtimestamp => {
+                                                                            keep.push(buf_msg);
+                                                                        }
+                                                                        Some(_) => {} // discard (older than or equal to snapshot)
+                                                                        None => {
+                                                                            // No microtimestamp — apply anyway (cannot determine age)
+                                                                            keep.push(buf_msg);
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                // Apply remaining buffered diffs in order
+                                                                for buf_msg in &keep {
+                                                                    order_book.process_msg(buf_msg);
+                                                                }
+                                                                eprintln!("[SNAPSHOT] Replayed {} buffered diffs", keep.len());
+
+                                                                if self.data_output {
+                                                                    let now = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
+                                                                    let book_line = order_book.display(&self.instrument, self.show_top_pct);
+                                                                    println!("[{} LOB2] {}", now, book_line);
+                                                                }
+                                                                self.update_lob_metrics(&order_book);
+                                                                self.update_depth_metrics(&order_book);
+
+                                                                snapshot_applied = true;
+                                                            }
+                                                            Err(e) => {
+                                                                eprintln!("[SNAPSHOT ERROR] Failed to parse snapshot JSON: {}", e);
+                                                            }
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!("[SNAPSHOT ERROR] HTTP request failed: {}", e);
+                                                    }
+                                                }
+                                                if !snapshot_applied {
+                                                    eprintln!("[SNAPSHOT] Failed — continuing without initial snapshot (will reconcile on reconnect)");
+                                                    snapshot_applied = true; // prevent infinite retry
+                                                }
+                                            }
+                                        } else {
+                                            // Phase 2: Live processing (snapshot already applied)
+                                            match parsed.message_type() {
+                                                MessageType::L2Snapshot | MessageType::L2Update => {
+                                                    order_book.process_msg(&parsed);
+                                                    if self.data_output {
+                                                        let now = parsed.formatted_time();
+                                                        let book_line =
+                                                            order_book.display(&self.instrument, self.show_top_pct);
+                                                        println!("[{} LOB2] {}", now, book_line);
+                                                    }
+                                                    self.update_lob_metrics(&order_book);
+                                                    self.update_depth_metrics(&order_book);
+                                                }
+                                                MessageType::Trade => {
+                                                    if self.data_output {
+                                                        let line = display_message(&parsed);
+                                                        println!("{}", line);
+                                                    }
+                                                    self.lob_metrics.trades_total.inc();
+                                                    last_trade_count += 1;
+                                                    let elapsed = last_trade_time.elapsed();
+                                                    if elapsed >= std::time::Duration::from_secs(1) {
+                                                        let rate = last_trade_count as f64 / elapsed.as_secs_f64();
+                                                        self.lob_metrics.trades_per_second
+                                                            .store(f64::to_bits(rate), Ordering::Relaxed);
+                                                        last_trade_count = 0;
+                                                        last_trade_time = std::time::Instant::now();
+                                                    }
+                                                }
+                                                MessageType::Event => {
+                                                    if self.data_output {
+                                                        let line = display_message(&parsed);
+                                                        println!("{}", line);
+                                                    }
+                                                }
+                                                MessageType::Unknown => {
+                                                    if self.data_output {
+                                                        let line = display_message(&parsed);
+                                                        println!("{}", line);
+                                                    }
+                                                }
+                                            }
+
+                                            if let Some(sender) = self.sender.as_mut() {
+                                                if let Err(e) = Self::persist_message(sender, &self.exchange, &parsed).await {
+                                                    eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                }
                                             }
                                         }
                                     }

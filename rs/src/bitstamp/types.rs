@@ -83,7 +83,7 @@ pub struct LobLevel {
 }
 
 /// Order book data from the order_book/diff_order_book channels (bids/asks arrays).
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OrderBookData {
     #[serde(default)]
     pub bids: Vec<[String; 2]>,
@@ -105,6 +105,7 @@ impl BitstampWsMessage {
     pub fn message_type(&self) -> MessageType {
         match self.event.as_deref() {
             Some("order_created" | "order_deleted" | "order_changed") => MessageType::L2Update,
+            Some("snapshot") => MessageType::L2Snapshot,
             Some("data") => {
                 // order_book channel sends "data" events with bids/asks arrays
                 if let Some(ref channel) = self.channel {
@@ -181,6 +182,25 @@ impl BitstampWsMessage {
                 format!("{}", self.channel.as_deref().unwrap_or("?"))
             }
         }
+    }
+
+    /// Extract the microtimestamp (microseconds) from the message, if available.
+    /// Used for diff_order_book reconciliation.
+    pub fn microtimestamp_us(&self) -> Option<u64> {
+        let data = self.data.as_ref()?;
+        // Try OrderBookData microtimestamp (diff_order_book / order_book format)
+        if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone()) {
+            if let Ok(us) = ob.microtimestamp.parse::<u64>() {
+                return Some(us);
+            }
+        }
+        // Try TradeData microtimestamp
+        if let Ok(trade) = serde_json::from_value::<TradeData>(data.clone()) {
+            if let Ok(us) = trade.microtimestamp.parse::<u64>() {
+                return Some(us);
+            }
+        }
+        None
     }
 
     /// Extract exchange timestamp (milliseconds) from the message.
@@ -510,6 +530,57 @@ mod tests {
         }"#;
         let msg = BitstampWsMessage::from_json(json).unwrap();
         assert_eq!(msg.timestamp_ms(), Some(1705314600000));
+    }
+
+    #[test]
+    fn test_microtimestamp_diff_order_book() {
+        let json = r#"{
+            "event": "data",
+            "channel": "diff_order_book_btcusd",
+            "data": {
+                "timestamp": "1705314600",
+                "microtimestamp": "1705314600123456",
+                "bids": [["10000.0", "1.0"]],
+                "asks": [["10100.0", "2.0"]]
+            }
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.microtimestamp_us(), Some(1705314600123456));
+    }
+
+    #[test]
+    fn test_microtimestamp_falls_back_to_none() {
+        let json = r#"{
+            "event": "data",
+            "channel": "live_orders_btcusd",
+            "data": {"price": "10000.0", "amount": "1.0", "type": 0, "id": 1, "id_str": "1", "timestamp": "0"}
+        }"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        // live_orders data has no microtimestamp
+        assert_eq!(msg.microtimestamp_us(), None);
+    }
+
+    #[test]
+    fn test_microtimestamp_no_data_returns_none() {
+        let json = r#"{"event": "data", "channel": "diff_order_book_btcusd", "data": {}}"#;
+        let msg = BitstampWsMessage::from_json(json).unwrap();
+        assert_eq!(msg.microtimestamp_us(), None);
+    }
+
+    #[test]
+    fn test_l2_snapshot_message_type() {
+        let msg = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "timestamp": "1705314600",
+                "microtimestamp": "1705314600123456",
+                "bids": [["10000.0", "1.0"]],
+                "asks": [["10100.0", "2.0"]]
+            })),
+        };
+        assert_eq!(msg.message_type(), MessageType::L2Snapshot);
+        assert_eq!(msg.display_type(), "LOB2 SNAPSHOT");
     }
 
     #[test]
