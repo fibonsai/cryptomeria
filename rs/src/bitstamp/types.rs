@@ -82,6 +82,19 @@ pub struct LobLevel {
     pub size: String,
 }
 
+/// Order book data from the order_book/diff_order_book channels (bids/asks arrays).
+#[derive(Debug, Deserialize, Clone)]
+pub struct OrderBookData {
+    #[serde(default)]
+    pub bids: Vec<[String; 2]>,
+    #[serde(default)]
+    pub asks: Vec<[String; 2]>,
+    #[serde(default)]
+    pub timestamp: String,
+    #[serde(default)]
+    pub microtimestamp: String,
+}
+
 impl BitstampWsMessage {
     /// Parse a JSON string into a `BitstampWsMessage`.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
@@ -92,10 +105,18 @@ impl BitstampWsMessage {
     pub fn message_type(&self) -> MessageType {
         match self.event.as_deref() {
             Some("order_created" | "order_deleted" | "order_changed") => MessageType::L2Update,
+            Some("data") => {
+                // order_book channel sends "data" events with bids/asks arrays
+                if let Some(ref channel) = self.channel {
+                    if channel.starts_with("order_book_") || channel.starts_with("diff_order_book_") || channel.starts_with("live_orders_") {
+                        return MessageType::L2Update;
+                    }
+                }
+                MessageType::Unknown
+            }
             Some("trade" | "live_trades") => MessageType::Trade,
             Some("bts:subscription_succeeded" | "bts:unsubscription_succeeded") => MessageType::Event,
             Some(_) => {
-                // Any other event on a live_orders_ channel is an L2 update
                 if let Some(ref channel) = self.channel {
                     if channel.starts_with("live_orders_") {
                         MessageType::L2Update
@@ -212,6 +233,23 @@ impl BitstampWsMessage {
     pub fn lob_levels(&self) -> Vec<(String, LobLevel)> {
         let mut result = Vec::new();
         if let Some(ref data) = self.data {
+            // Try order_book format (bids/asks arrays) — only if at least one side present
+            if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone()) {
+                if !ob.bids.is_empty() || !ob.asks.is_empty() {
+                    for level in ob.bids {
+                        if level.len() >= 2 {
+                            result.push(("bid".to_string(), LobLevel { price: level[0].clone(), size: level[1].clone() }));
+                        }
+                    }
+                    for level in ob.asks {
+                        if level.len() >= 2 {
+                            result.push(("ask".to_string(), LobLevel { price: level[0].clone(), size: level[1].clone() }));
+                        }
+                    }
+                    return result;
+                }
+            }
+            // Try live_orders format (single order entry)
             if let Some(entry) = serde_json::from_value::<OrderEntry>(data.clone()).ok() {
                 let side = if entry.order_type == 0 { "bid" } else { "ask" };
                 result.push((side.to_string(), LobLevel {

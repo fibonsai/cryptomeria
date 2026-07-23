@@ -1,4 +1,4 @@
-use crate::bitstamp::types::{BitstampWsMessage, OrderEntry};
+use crate::bitstamp::types::{BitstampWsMessage, OrderBookData, OrderEntry};
 use ordered_float::OrderedFloat;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap};
@@ -168,9 +168,49 @@ impl OrderBook {
     /// Process a Bitstamp WebSocket message.
     pub fn process_msg(&mut self, msg: &BitstampWsMessage) {
         if let Some(ref data) = msg.data {
+            // Try order_book format (bids/asks arrays) — only if at least one side is present
+            if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone()) {
+                if !ob.bids.is_empty() || !ob.asks.is_empty() {
+                    self.apply_snapshot(&ob);
+                    return;
+                }
+            }
+            // Try live_orders format (single order entry)
             match serde_json::from_value::<OrderEntry>(data.clone()) {
                 Ok(entry) => self.apply_order(&entry),
                 Err(e) => eprintln!("[PARSE] OrderEntry: {} — data: {}", e, data),
+            }
+        }
+    }
+
+    /// Apply a full snapshot from the order_book channel.
+    fn apply_snapshot(&mut self, ob: &OrderBookData) {
+        // Clear existing book
+        self.orders.clear();
+        self.bids.clear();
+        self.asks.clear();
+
+        // Process bids
+        for level in &ob.bids {
+            if level.len() >= 2 {
+                if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
+                    if amount > 0.0 {
+                        let price = OrderedFloat(price);
+                        self.bids.insert(Reverse(price), amount);
+                    }
+                }
+            }
+        }
+
+        // Process asks
+        for level in &ob.asks {
+            if level.len() >= 2 {
+                if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
+                    if amount > 0.0 {
+                        let price = OrderedFloat(price);
+                        self.asks.insert(price, amount);
+                    }
+                }
             }
         }
     }

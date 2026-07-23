@@ -142,8 +142,8 @@ impl BitstampClient {
 
             let (mut write, mut read) = ws_stream.split();
 
-            // Subscribe to live_orders channel
-            let orders_channel = format!("live_orders_{}", self.channel_instrument);
+            // Subscribe to order_book channel (full order book with bids AND asks)
+            let orders_channel = format!("order_book_{}", self.channel_instrument);
             let orders_msg = build_subscribe_msg(&orders_channel);
             if let Err(e) = write.send(Message::Text(orders_msg.into())).await {
                 attempt += 1;
