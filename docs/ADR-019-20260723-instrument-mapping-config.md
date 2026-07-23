@@ -21,7 +21,7 @@ Add `--instrument` as an optional CLI parameter that overrides the positional `i
 1. `symbol@exchange_id` format: extracts the exchange from the `@` suffix (e.g., `BTC/USDT@kraken`), ignoring the `--exchange` flag entirely.
 2. Plain symbol format: uses the `--exchange` flag value for alias lookup.
 
-The relevant aliases (40 entries for okex, kraken, bitstamp) are embedded in the binary as a static array `COIN_ALIASES` in `src/instrument_aliases.rs`, generated from `scripts/coins_aliases.json`. No runtime file loading is performed.
+The relevant aliases (40 entries for okx, kraken, bitstamp) are embedded in the binary as a static array `COIN_ALIASES` in `src/instrument_aliases.rs`, generated from `scripts/coins_aliases.json`. No runtime file loading is performed.
 
 When a `(base, target, exchange_id)` match is found in the embedded array, the instrument is formatted per exchange conventions (uppercase/dash for OKX, uppercase/slash for Kraken, lowercase/none for Bitstamp). If no match is found, the raw instrument is formatted through the same exchange-specific rules as fallback.
 

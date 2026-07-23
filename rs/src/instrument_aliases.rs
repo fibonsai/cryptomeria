@@ -3,19 +3,19 @@
 /// Each entry: (base, target, exchange_id)
 
 pub const COIN_ALIASES: &[(&str, &str, &str)] = &[
-    // OKX (exchange_id = "okex")
-    ("BTC", "USDT", "okex"),
-    ("BTC", "USDC", "okex"),
-    ("ETH", "USDT", "okex"),
-    ("ETH", "USD", "okex"),
-    ("SOL", "USDT", "okex"),
-    ("SOL", "USD", "okex"),
-    ("LTC", "USDT", "okex"),
-    ("XLM", "USDT", "okex"),
-    ("ADA", "USDT", "okex"),
-    ("ADA", "USD", "okex"),
-    ("DOGE", "USDT", "okex"),
-    ("DOGE", "USDC", "okex"),
+    // OKX (exchange_id = "okx")
+    ("BTC", "USDT", "okx"),
+    ("BTC", "USDC", "okx"),
+    ("ETH", "USDT", "okx"),
+    ("ETH", "USD", "okx"),
+    ("SOL", "USDT", "okx"),
+    ("SOL", "USD", "okx"),
+    ("LTC", "USDT", "okx"),
+    ("XLM", "USDT", "okx"),
+    ("ADA", "USDT", "okx"),
+    ("ADA", "USD", "okx"),
+    ("DOGE", "USDT", "okx"),
+    ("DOGE", "USDC", "okx"),
 
     // Kraken (exchange_id = "kraken")
     ("XBT", "USD", "kraken"),
