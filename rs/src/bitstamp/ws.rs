@@ -183,7 +183,6 @@ impl BitstampClient {
             let mut subscription_confirmed = false;
             let mut snapshot_attempted = false;
             let mut snapshot_applied = false;
-            let mut snapshot_microtimestamp: u64 = 0;
 
             loop {
                 tokio::select! {
@@ -248,72 +247,75 @@ impl BitstampClient {
                                                 MessageType::L2Snapshot => {}
                                             }
 
-                                            // Fetch snapshot once subscription is confirmed (one attempt per connection)
-                                            if subscription_confirmed && !snapshot_applied && !snapshot_attempted {
-                                                snapshot_attempted = true;
-                                                eprintln!("[SNAPSHOT] Fetching REST snapshot for {}...", self.channel_instrument);
-                                                let url = format!("{}/order_book/{}/?group=1", REST_BASE, self.channel_instrument);
-                                                match reqwest::get(&url).await {
-                                                    Ok(resp) => {
-                                                        match resp.json::<OrderBookData>().await {
-                                                            Ok(snapshot) => {
-                                                                snapshot_microtimestamp = snapshot.microtimestamp.parse::<u64>().unwrap_or(0);
-                                                                let snapshot_msg = BitstampWsMessage {
-                                                                    event: Some("snapshot".to_string()),
-                                                                    channel: Some(orders_channel.clone()),
-                                                                    data: Some(serde_json::to_value(&snapshot).unwrap_or_default()),
-                                                                };
-                                                                order_book.process_msg(&snapshot_msg);
-                                                                eprintln!("[SNAPSHOT] Applied — microtimestamp={} bids={} asks={}",
-                                                                    snapshot_microtimestamp,
-                                                                    order_book.num_bids(),
-                                                                    order_book.num_asks());
+// Fetch snapshot once subscription is confirmed (one attempt per connection)
+                                                if subscription_confirmed && !snapshot_applied && !snapshot_attempted {
+                                                    snapshot_attempted = true;
+                                                    eprintln!("[SNAPSHOT] Fetching REST snapshot for {}...", self.channel_instrument);
+                                                    let url = format!("{}/order_book/{}/?group=1", REST_BASE, self.channel_instrument);
+                                                    match reqwest::get(&url).await {
+                                                        Ok(resp) => {
+                                                            match resp.json::<OrderBookData>().await {
+                                                                Ok(snapshot) => {
+                                                                    let snapshot_microtimestamp = match snapshot.microtimestamp.parse::<u64>() {
+                                                                        Ok(ts) => ts,
+                                                                        Err(_) => 0,
+                                                                    };
+                                                                    let snapshot_msg = BitstampWsMessage {
+                                                                        event: Some("snapshot".to_string()),
+                                                                        channel: Some(orders_channel.clone()),
+                                                                        data: Some(serde_json::to_value(&snapshot).unwrap_or_default()),
+                                                                    };
+                                                                    order_book.process_msg(&snapshot_msg);
+                                                                    eprintln!("[SNAPSHOT] Applied — microtimestamp={} bids={} asks={}",
+                                                                            snapshot_microtimestamp,
+                                                                            order_book.num_bids(),
+                                                                            order_book.num_asks());
 
-                                                                // Reconcile: discard buffered diffs with microtimestamp <= snapshot
-                                                                let mut keep = Vec::new();
-                                                                for buf_msg in buffer.drain(..) {
-                                                                    match buf_msg.microtimestamp_us() {
-                                                                        Some(us) if us > snapshot_microtimestamp => {
-                                                                            keep.push(buf_msg);
-                                                                        }
-                                                                        Some(_) => {} // discard (older than or equal to snapshot)
-                                                                        None => {
-                                                                            // No microtimestamp — apply anyway (cannot determine age)
-                                                                            keep.push(buf_msg);
+                                                                    // Reconcile: discard buffered diffs with microtimestamp <= snapshot
+                                                                    let mut keep = Vec::new();
+                                                                    for buf_msg in buffer.drain(..) {
+                                                                        match buf_msg.microtimestamp_us() {
+                                                                            Some(us) if us > snapshot_microtimestamp => {
+                                                                                keep.push(buf_msg);
+                                                                            }
+                                                                            Some(_) => {} // discard (older than or equal to snapshot)
+                                                                            None => {
+                                                                                // No microtimestamp — apply anyway (cannot determine age)
+                                                                                keep.push(buf_msg);
+                                                                            }
                                                                         }
                                                                     }
-                                                                }
 
-                                                                // Apply remaining buffered diffs in order
-                                                                for buf_msg in &keep {
-                                                                    order_book.process_msg(buf_msg);
-                                                                }
-                                                                eprintln!("[SNAPSHOT] Replayed {} buffered diffs", keep.len());
+                                                                    // Apply remaining buffered diffs in order
+                                                                    for buf_msg in &keep {
+                                                                        order_book.process_msg(buf_msg);
+                                                                    }
+                                                                    eprintln!("[SNAPSHOT] Replayed {} buffered diffs", keep.len());
 
-                                                                if self.data_output {
-                                                                    let now = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
-                                                                    let book_line = order_book.display(&self.instrument, self.show_top_pct);
-                                                                    println!("[{} LOB2] {}", now, book_line);
-                                                                }
-                                                                self.update_lob_metrics(&order_book);
-                                                                self.update_depth_metrics(&order_book);
+                                                                    if self.data_output {
+                                                                        let now = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
+                                                                        let book_line = order_book.display(&self.instrument, self.show_top_pct);
+                                                                        println!("[{} LOB2] {}", now, book_line);
+                                                                    }
+                                                                    self.update_lob_metrics(&order_book);
+                                                                    self.update_depth_metrics(&order_book);
 
-                                                                snapshot_applied = true;
-                                                            }
-                                                            Err(e) => {
-                                                                eprintln!("[SNAPSHOT ERROR] Failed to parse snapshot JSON: {}", e);
+                                                                    snapshot_applied = true;
+                                                                }
+                                                                Err(e) => {
+                                                                    eprintln!("[SNAPSHOT ERROR] Failed to parse snapshot JSON: {}", e);
+                                                                }
                                                             }
                                                         }
+                                                        Err(e) => {
+                                                            eprintln!("[SNAPSHOT ERROR] HTTP request failed: {}", e);
+                                                        }
                                                     }
-                                                    Err(e) => {
-                                                        eprintln!("[SNAPSHOT ERROR] HTTP request failed: {}", e);
+                                                    if !snapshot_applied {
+                                                        eprintln!("[SNAPSHOT] Failed — continuing without initial snapshot (will reconcile on reconnect)");
+                                                        snapshot_applied = true; // prevent infinite retry
                                                     }
                                                 }
-                                                if !snapshot_applied {
-                                                    eprintln!("[SNAPSHOT] Failed — continuing without initial snapshot (will reconcile on reconnect)");
-                                                    snapshot_applied = true; // prevent infinite retry
-                                                }
-                                            }
                                         } else {
                                             // Phase 2: Live processing (snapshot already applied)
                                             match parsed.message_type() {
