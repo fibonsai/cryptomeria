@@ -132,6 +132,7 @@ rs/
 - **ADR-017** (`docs/ADR-017-...`): Bitstamp exchange with shared trait abstraction layer
 - **ADR-018** (`docs/ADR-018-...`): Bitstamp diff_order_book with REST snapshot reconciliation
 - **ADR-019** (`docs/ADR-019-...`): Instrument mapping via external config file (`--instrument`, `scripts/coins_aliases.json`)
+- **ADR-020** (`docs/ADR-020-...`): `--list-instruments` CLI flag for instrument mapping discovery
 
 ---
 
@@ -196,6 +197,7 @@ rs/
 | Run Rust WS client (Kraken, custom) | `cargo run -- --exchange kraken ETH/USD --show-top-pct 0.5` |
 | Run Rust WS client (Bitstamp) | `cargo run -- --exchange bitstamp btc/usd` |
 | Run Rust WS client (Bitstamp, custom) | `cargo run -- --exchange bitstamp eth/usd --show-top-pct 0.5` |
+| List supported instrument mappings | `cargo run -- --list-instruments` |
 | Single Python test | `uv run pytest python/tests/test_lob.py::test_name -v` |
 | Single Rust test | `cargo test test_name` |
 | Format all | `make format` |

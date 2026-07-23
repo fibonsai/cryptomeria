@@ -150,6 +150,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | 017 | Bitstamp exchange with shared trait abstraction layer | `docs/ADR-017-...` |
 | 018 | Bitstamp diff_order_book with REST snapshot reconciliation | `docs/ADR-018-...` |
 | 019 | Instrument mapping via external config file | `docs/ADR-019-...` |
+| 020 | `--list-instruments` CLI flag for mapping discovery | `docs/ADR-020-...` |
 
 ---
 
@@ -192,6 +193,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | Run Rust WS client (Kraken, custom) | `cargo run -- --exchange kraken ETH/USD --show-top-pct 0.5` |
 | Run Rust WS client (Bitstamp) | `cargo run -- --exchange bitstamp btc/usd` |
 | Run Rust WS client (Bitstamp, custom) | `cargo run -- --exchange bitstamp eth/usd --show-top-pct 0.5` |
+| List supported instrument mappings | `cargo run -- --list-instruments` |
 | Single Python test | `uv run pytest python/tests/test_lob.py::test_name -v` |
 | Single Rust test | `cargo test test_name` |
 | Format all | `make format` |
@@ -202,7 +204,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 
 ## Rust-Specific Notes
 
-- **Entry point**: `rs/src/main.rs` parses CLI via `clap` with `--exchange` (okx/kraken/bitstamp), `--show-top-pct`, `--questdb-conf`, `--retention-window`, `--metrics-port`, `--data-output` flags
+- **Entry point**: `rs/src/main.rs` parses CLI via `clap` with `--exchange` (okx/kraken/bitstamp), `--show-top-pct`, `--questdb-conf`, `--retention-window`, `--metrics-port`, `--data-output`, `--list-instruments` flags
 - **WS clients**: All three exchange clients share the same architecture via shared traits/utilities (ADR-017): exponential backoff with jitter reconnection (ADR-012), graceful shutdown on SIGINT/SIGTERM (ADR-014), heartbeat handling (Kraken), diff_order_book + REST snapshot reconciliation (Bitstamp, ADR-018)
 - **LOB state**: OKX and Kraken use `BTreeMap<OrderedFloat<f64>, f64>` (ADR-002); Bitstamp uses `BTreeMap` aggregation with `apply_snapshot()` (REST) + `apply_diff()` (WS diff_order_book, ADR-018)
 - **Persistence**: QuestDB via ILP sender (refinery migrations in `rs/src/db/migrations/`), TTL set at startup (ADR-010)
