@@ -232,6 +232,9 @@ cargo run -- --instrument ETH/USDT@kraken
 # Adjust the displayed depth window (percentage from best price)
 cargo run -- --show-top-pct 0.5
 cargo run -- --show-top-pct 0.01 XRP-USDT
+
+# List all supported instrument mappings across exchanges
+cargo run -- --list-instruments
 ```
 
 The `--instrument` flag accepts a generic instrument name (e.g., `BTC/USDT`) and resolves it to the exchange-specific symbol using embedded aliases (compiled into the binary, covering OKX, Kraken, and Bitstamp). The `symbol@exchange_id` format overrides the `--exchange` flag. If no alias is found, the raw name is formatted per exchange conventions (uppercase/dash for OKX, uppercase/slash for Kraken, lowercase/no separator for Bitstamp).

@@ -3,6 +3,7 @@ use cryptomeria::db::{connect_sender, run_migrations};
 use cryptomeria::bitstamp::ws::BitstampClient;
 use cryptomeria::kraken::ws::KrakenClient;
 use cryptomeria::okx::ws::OkxClient;
+use prettytable::{Row, Table, cell};
 
 mod instrument_aliases;
 use instrument_aliases::COIN_ALIASES;
@@ -118,6 +119,78 @@ pub struct CliArgs {
     /// events like connect/subscribe/disconnect are shown).
     #[arg(long, default_value_t = false)]
     pub data_output: bool,
+
+    /// List all supported instrument mappings and exit.
+    #[arg(long)]
+    pub list_instruments: bool,
+}
+
+/// Build and print the instrument mapping table grouped by base/target pair.
+/// Normalizes base name aliases (XBT→BTC, XDG→DOGE) to group equivalent pairs
+/// across exchanges into the same row.
+fn print_instrument_table() {
+    use std::collections::BTreeMap;
+
+    fn normalize_base(base: &str) -> &str {
+        match base {
+            "XBT" => "BTC",
+            "XDG" => "DOGE",
+            _ => base,
+        }
+    }
+
+    let mut pairs: BTreeMap<(String, String), Vec<(&str, &str, &str)>> = BTreeMap::new();
+    for (base, target, exchange) in COIN_ALIASES {
+        let key = (normalize_base(base).to_string(), target.to_string());
+        pairs.entry(key).or_default().push((exchange, base, target));
+    }
+
+    let mut table = Table::new();
+    table.add_row(Row::new(vec![
+        cell!("instrument"),
+        cell!("okx"),
+        cell!("kraken"),
+        cell!("bitstamp"),
+        cell!("notes"),
+    ]));
+
+    for ((base_norm, target), entries) in &pairs {
+        let canonical = format!("{}/{}", base_norm, target);
+
+        let mut okx_val = "not supported".to_string();
+        let mut kraken_val = "not supported".to_string();
+        let mut bitstamp_val = "not supported".to_string();
+        let mut notes: Vec<String> = Vec::new();
+
+        for (exchange, orig_base, orig_target) in entries {
+            let formatted = format_instrument(&format!("{}-{}", orig_base, orig_target), exchange);
+            match *exchange {
+                "okx" => okx_val = formatted,
+                "kraken" => kraken_val = formatted,
+                "bitstamp" => bitstamp_val = formatted,
+                _ => {}
+            }
+            if *orig_base != *base_norm {
+                match *exchange {
+                    "kraken" => notes.push(format!("kraken uses {} for {}", orig_base, base_norm)),
+                    "bitstamp" => notes.push(format!("bitstamp uses {} for {}", orig_base, base_norm)),
+                    _ => {}
+                }
+            }
+        }
+
+        notes.dedup();
+
+        table.add_row(Row::new(vec![
+            cell!(&canonical),
+            cell!(&okx_val),
+            cell!(&kraken_val),
+            cell!(&bitstamp_val),
+            cell!(&notes.join("; ")),
+        ]));
+    }
+
+    table.printstd();
 }
 
 /// Parse CLI arguments using clap.  Exits with help/error on `--help` or
@@ -130,6 +203,12 @@ pub fn parse_args() -> CliArgs {
 #[tokio::main]
 async fn main() {
     let cli = parse_args();
+
+    if cli.list_instruments {
+        print_instrument_table();
+        return;
+    }
+
     let show_top_pct = cli.show_top_pct;
     let data_output = cli.data_output;
 
@@ -498,6 +577,21 @@ mod tests {
         let cli =
             CliArgs::try_parse_from(&["cryptomeria", "--data-output"]);
         assert!(cli.is_ok() && cli.unwrap().data_output);
+    }
+
+    // --- list-instruments tests ---
+
+    #[test]
+    fn test_parse_args_list_instruments_flag() {
+        let cli =
+            CliArgs::try_parse_from(&["cryptomeria", "--list-instruments"]).unwrap();
+        assert!(cli.list_instruments);
+    }
+
+    #[test]
+    fn test_parse_args_list_instruments_false_by_default() {
+        let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
+        assert!(!cli.list_instruments);
     }
 
     // --- Exchange flag tests ---
