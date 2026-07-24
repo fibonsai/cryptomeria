@@ -244,16 +244,23 @@ impl LobMetrics {
                             }
                         }
 
-                        // Sort depth entries by price
+                        // Sort depth entries by price: bids descending (highest first), asks ascending (lowest first)
                         for ex_entry in by_exchange.values_mut() {
                             for inst_entry in ex_entry.values_mut() {
                                 if let Some(depth) = inst_entry.get_mut("depth") {
                                     if let Some(arr) = depth.as_array_mut() {
                                         arr.sort_by(|a, b| {
-                                            a["price"]
-                                                .as_f64()
-                                                .partial_cmp(&b["price"].as_f64())
-                                                .unwrap_or(std::cmp::Ordering::Equal)
+                                            let a_side = a["side"].as_str().unwrap_or("");
+                                            let b_side = b["side"].as_str().unwrap_or("");
+                                            let a_price = a["price"].as_f64().unwrap_or(0.0);
+                                            let b_price = b["price"].as_f64().unwrap_or(0.0);
+                                            match (a_side, b_side) {
+                                                ("bid", "bid") => b_price.partial_cmp(&a_price).unwrap_or(std::cmp::Ordering::Equal),
+                                                ("ask", "ask") => a_price.partial_cmp(&b_price).unwrap_or(std::cmp::Ordering::Equal),
+                                                ("bid", "ask") => std::cmp::Ordering::Less,
+                                                ("ask", "bid") => std::cmp::Ordering::Greater,
+                                                _ => std::cmp::Ordering::Equal,
+                                            }
                                         });
                                     }
                                 }
