@@ -4,6 +4,13 @@
 
 pub const COIN_ALIASES: &[(&str, &str, &str)] = &[
     // OKX (exchange_id = "okx")
+    ("BTC", "EUR", "okx"),
+    ("ETH", "EUR", "okx"),
+    ("SOL", "EUR", "okx"),
+    ("LTC", "EUR", "okx"),
+    ("XLM", "EUR", "okx"),
+    ("ADA", "EUR", "okx"),
+    ("DOGE", "EUR", "okx"),
     ("BTC", "USDT", "okx"),
     ("BTC", "USDC", "okx"),
     ("ETH", "USDT", "okx"),
