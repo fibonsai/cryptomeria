@@ -49,7 +49,6 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 python/
 ├── cryptomeria/lob.py        # LOB parquet stream reader + LOB2 CLI (17 tests)
 ├── tests/test_lob.py         # Fixtures via pa.Table.from_pylist() → temp dirs
-├── main.py                   # Research entry point (empty)
 rs/
 ├── src/main.rs               # CLI entry (clap args, --exchange/--region flags, okx/kraken/bitstamp dispatch)
 ├── src/traits/               # Shared traits + utilities (OrderBook, LobMetrics, backoff, signal)
@@ -70,7 +69,7 @@ rs/
 
 **Python package** is `cryptomeria` (src layout in `python/`). Tests discovered from `python/`, not inside package.
 
-**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod traits`, `pub mod bitstamp`, `pub mod kraken`, `pub mod okx`, `pub mod db`, `pub mod urls`.
+**Rust crate** is `cryptomeria` (edition 2024 in `Cargo.toml`). Lib root: `lib.rs` → `pub mod traits`, `pub mod bitstamp`, `pub mod kraken`, `pub mod okx`, `pub mod db`, `pub mod urls`.
 
 ---
 

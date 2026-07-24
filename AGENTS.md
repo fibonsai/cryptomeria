@@ -56,7 +56,6 @@ make format # ruff format + cargo fmt
 python/
 ├── cryptomeria/lob.py        # LOB parquet stream reader + LOB2 CLI (17 tests)
 ├── tests/test_lob.py         # Fixtures via pa.Table.from_pylist() → temp dirs
-├── main.py                   # Research entry point (empty)
 rs/
 ├── src/main.rs               # CLI entry (clap args, --exchange/--region flags, okx/kraken/bitstamp dispatch)
 ├── src/traits/               # Shared traits + utilities (OrderBook, LobMetrics, backoff, signal)
@@ -247,6 +246,6 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 ## Tooling & Environment
 
 - **Python**: 3.13 via `uv` (lockfile: `uv.lock`), `pyproject.toml` uses `pdm-backend`
-- **Rust**: stable toolchain, edition 2024 (`rust-toolchain.toml` in `rs/`)
+- **Rust**: stable toolchain, edition 2024 (`Cargo.toml` in `rs/`)
 - **RTK (Rust Token Killer)**: Active proxy for FS reads & git ops (transparent)
 - **No CI/CD configs**: No Cursor, Copilot, or GitHub Actions in this repo
