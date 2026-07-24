@@ -156,7 +156,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | 020 | `--list-instruments` CLI flag for mapping discovery | `docs/ADR-020-...` |
 | 021 | Instrument fallback rules and lowercase inst_id persistence | `docs/ADR-021-...` |
 | 022 | Region-based exchange URL configuration | `docs/ADR-022-...` |
-| 023 | Consolidate refinery migrations | `docs/ADR-023-...` |
+| 024 | Multi-instrument with per-symbol@exchange async tasks | `docs/ADR-024-...` |
 
 ---
 
@@ -195,12 +195,17 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | Run Python LOB CLI | `PYTHONPATH=python uv run python -m cryptomeria.lob in.parquet out.parquet` |
 | Run Rust WS client (OKX, BTC-USDT) | `cargo run` |
 | Run Rust WS client (OKX, custom) | `cargo run -- ETH-USDT --show-top-pct 0.5` |
+| Run Rust WS client (multi-instrument) | `cargo run -- --instruments "BTC-USDT@okx,ETH-USD@kraken"` |
+| Run Rust WS client (same symbol, multi-exchange) | `cargo run -- --instruments "BTC-USDT@okx,@kraken,@bitstamp"` |
+| Run Rust WS client (multi-symbol, single exchange) | `cargo run -- --instruments "BTC-USDT,ETH-USDT" --exchange okx` |
 | Run Rust WS client (Kraken) | `cargo run -- --exchange kraken XBT/USD` |
 | Run Rust WS client (Kraken, custom) | `cargo run -- --exchange kraken ETH/USD --show-top-pct 0.5` |
 | Run Rust WS client (Bitstamp) | `cargo run -- --exchange bitstamp btc/usd` |
 | Run Rust WS client (Bitstamp, custom) | `cargo run -- --exchange bitstamp eth/usd --show-top-pct 0.5` |
 | List supported instrument mappings | `cargo run -- --list-instruments` |
 | Run with global endpoint | `cargo run -- --region global` |
+| Fetch /metrics (per-exchange JSON) | `curl localhost:9000/metrics | jq .` |
+| Fetch /status (per-pair health) | `curl localhost:9000/status | jq .` |
 | Single Python test | `uv run pytest python/tests/test_lob.py::test_name -v` |
 | Single Rust test | `cargo test test_name` |
 | Format all | `make format` |
@@ -211,7 +216,9 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 
 ## Rust-Specific Notes
 
-- **Entry point**: `rs/src/main.rs` parses CLI via `clap` with `--exchange` (okx/kraken/bitstamp), `--region` (europe/global), `--show-top-pct`, `--questdb-conf`, `--retention-window`, `--metrics-port`, `--data-output`, `--list-instruments` flags
+- **Entry point**: `rs/src/main.rs` parses CLI via `clap` with `--exchange` (okx/kraken/bitstamp), `--instruments` (multi-instrument format), `--region` (europe/global), `--show-top-pct`, `--questdb-conf`, `--retention-window`, `--metrics-port`, `--data-output`, `--list-instruments` flags
+- **Multi-instrument**: `--instruments` accepts formats `symbol@exchange1,symbol@exchange2`, `symbol@exchange1,@exchange2`, `symbol1,symbol2`, or hybrids. Each pair runs as its own `tokio::spawn` task with independent WS connection and LOB state.
+- **/status endpoint**: Returns JSON `{ "symbol@exchange": { "active": bool, "ts": u64, "last_price": f64|null, "bid_size": f64, "ask_size": f64, "detail": String } }`. Health check for all active connections.
 - **WS clients**: All three exchange clients share the same architecture via shared traits/utilities (ADR-017): exponential backoff with jitter reconnection (ADR-012), graceful shutdown on SIGINT/SIGTERM (ADR-014), heartbeat handling (Kraken), diff_order_book + REST snapshot reconciliation (Bitstamp, ADR-018)
 - **Instrument resolution**: `resolve_instrument()` in `main.rs` implements a currency fallback chain (USDC→USDT→USD) (ADR-021). `cli_inst_id` (lowercase, no separator) is threaded through `ExchangeClientBuilder` for consistent DB persistence.
 - **LOB state**: OKX and Kraken use `BTreeMap<OrderedFloat<f64>, f64>` (ADR-002); Bitstamp uses `BTreeMap` aggregation with `apply_snapshot()` (REST) + `apply_diff()` (WS diff_order_book, ADR-018)

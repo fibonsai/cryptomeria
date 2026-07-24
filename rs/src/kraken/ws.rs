@@ -2,12 +2,13 @@ use crate::db;
 use crate::db::apply_ttl;
 use crate::kraken::lob::OrderBook;
 use crate::kraken::types::{KrakenWsMessage, MessageType};
-use crate::traits::{self, ExchangeClientBuilder, LobMetrics, backoff_delay};
+use crate::traits::{self, ClientStatus, ExchangeClientBuilder, LobMetrics, StatusHandle, backoff_delay};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use questdb::ingress::Sender;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -37,6 +38,8 @@ pub struct KrakenClient {
     pub metrics_port: Option<u16>,
     pub data_output: bool,
     pub lob_metrics: Arc<LobMetrics>,
+    pub lob_metrics_override: Option<Arc<LobMetrics>>,
+    pub status_handle: Option<StatusHandle>,
     pub questdb_conf: String,
     sender: Option<Sender>,
 }
@@ -47,6 +50,8 @@ impl ExchangeClientBuilder for KrakenClient {
     fn with_metrics_port(self, port: u16) -> Self { KrakenClient::with_metrics_port(self, port) }
     fn with_data_output(self, enabled: bool) -> Self { KrakenClient::with_data_output(self, enabled) }
     fn with_cli_instrument(self, inst_id: String) -> Self { KrakenClient::with_cli_instrument(self, inst_id) }
+    fn with_lob_metrics(self, metrics: Arc<LobMetrics>) -> Self { KrakenClient::with_lob_metrics(self, metrics) }
+    fn with_status_handle(self, handle: StatusHandle) -> Self { KrakenClient::with_status_handle(self, handle) }
 }
 
 impl KrakenClient {
@@ -64,6 +69,8 @@ impl KrakenClient {
             metrics_port: None,
             data_output,
             lob_metrics,
+            lob_metrics_override: None,
+            status_handle: None,
             questdb_conf: questdb_conf.to_string(),
             sender: None,
         }
@@ -94,15 +101,33 @@ impl KrakenClient {
         self
     }
 
+    pub fn with_lob_metrics(mut self, metrics: Arc<LobMetrics>) -> Self {
+        self.lob_metrics_override = Some(metrics);
+        self
+    }
+
+    pub fn with_status_handle(mut self, handle: StatusHandle) -> Self {
+        self.status_handle = Some(handle);
+        self
+    }
+
+    fn metrics(&self) -> &LobMetrics {
+        self.lob_metrics_override.as_ref().unwrap_or(&self.lob_metrics)
+    }
+
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(port) = self.metrics_port {
-            let lob_metrics = self.lob_metrics.clone();
-            std::thread::spawn(move || {
-                let system = actix_web::rt::System::new();
-                if let Err(e) = system.block_on(LobMetrics::start_metrics_server(port, lob_metrics)) {
-                    eprintln!("[METRICS] Server error: {}", e);
-                }
-            });
+        // Start metrics server if port is specified (only when not using shared LobMetrics)
+        if self.lob_metrics_override.is_none() {
+            if let Some(port) = self.metrics_port {
+                let lob_metrics = self.lob_metrics.clone();
+                let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
+                std::thread::spawn(move || {
+                    let system = actix_web::rt::System::new();
+                    if let Err(e) = system.block_on(LobMetrics::start_http_server(port, lob_metrics, status_handle)) {
+                        eprintln!("[METRICS] Server error: {}", e);
+                    }
+                });
+            }
         }
 
         if let Some(hours) = self.retention_window {
@@ -125,6 +150,7 @@ impl KrakenClient {
                 Ok((stream, _)) => {
                     attempt = 0;
                     eprintln!("[CONNECTED] {}", ws_url);
+                    self.update_status_active(true, format!("connected to {}", ws_url));
                     stream
                 }
                 Err(e) => {
@@ -134,6 +160,7 @@ impl KrakenClient {
                         "[CONNECT ERROR] {} — attempt {}, reconnecting in {:?}",
                         e, attempt, delay
                     );
+                    self.update_status_active(false, format!("disconnected, attempt {}", attempt));
                     shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                     continue;
                 }
@@ -153,6 +180,7 @@ impl KrakenClient {
                 continue;
             }
             eprintln!("[SUBSCRIBED] book {}", self.instrument);
+            self.update_status_active(true, format!("subscribed to book {}", self.instrument));
 
             let trades_msg = build_subscribe_msg("trade", &self.instrument);
             if let Err(e) = write.send(Message::Text(trades_msg.into())).await {
@@ -205,12 +233,12 @@ impl KrakenClient {
                                                     let line = display_message(&parsed);
                                                     println!("{}", line);
                                                 }
-                                                self.lob_metrics.trades_total.inc();
+                                                self.metrics().trades_total.with_label_values(&[&self.exchange, &self.instrument]).inc();
                                                 last_trade_count += 1;
                                                 let elapsed = last_trade_time.elapsed();
                                                 if elapsed >= std::time::Duration::from_secs(1) {
                                                     let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                                    self.lob_metrics.trades_per_second
+                                                    self.metrics().trades_per_second
                                                         .store(f64::to_bits(rate), Ordering::Relaxed);
                                                     last_trade_count = 0;
                                                     last_trade_time = std::time::Instant::now();
@@ -236,11 +264,11 @@ impl KrakenClient {
                                             }
                                         }
 
-if let Some(sender) = self.sender.as_mut() {
-    if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
-        eprintln!("[DB ERROR] Failed to persist: {}", e);
-    }
-}
+                                        if let Some(sender) = self.sender.as_mut() {
+                                            if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
+                                                eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                            }
+                                        }
                                     }
                                     Err(e) => {
                                         eprintln!(
@@ -288,6 +316,7 @@ if let Some(sender) = self.sender.as_mut() {
                 "[DISCONNECTED] attempt {}, reconnecting in {:?}",
                 attempt, delay
             );
+            self.update_status_active(false, format!("disconnected, attempt {}", attempt));
 
             shutdown = traits::signal_sleep(delay, &mut sigterm).await;
 
@@ -301,41 +330,78 @@ if let Some(sender) = self.sender.as_mut() {
     }
 
     fn update_lob_metrics(&self, order_book: &OrderBook) {
+        let lm = self.metrics();
+        let labels = &[self.exchange.as_str(), self.instrument.as_str()] as &[&str];
         if let Some(best_bid) = order_book.best_bid() {
-            self.lob_metrics.best_bid.set(best_bid);
+            lm.best_bid.with_label_values(labels).set(best_bid);
         }
         if let Some(best_ask) = order_book.best_ask() {
-            self.lob_metrics.best_ask.set(best_ask);
+            lm.best_ask.with_label_values(labels).set(best_ask);
         }
         if let Some(spread) = order_book.spread() {
-            self.lob_metrics.spread.set(spread);
+            lm.spread.with_label_values(labels).set(spread);
         }
-        self.lob_metrics.last_update.set(
+        lm.last_update.with_label_values(labels).set(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as f64,
         );
+
+        if let Some(ref sh) = self.status_handle {
+            if let Ok(mut map) = sh.write() {
+                let key = format!("{}@{}", self.instrument, self.exchange);
+                if let Some(status) = map.get_mut(&key) {
+                    status.bid_size = order_book.total_bid_size();
+                    status.ask_size = order_book.total_ask_size();
+                    status.ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                }
+            }
+        }
     }
 
     fn update_depth_metrics(&self, order_book: &OrderBook) {
-        self.lob_metrics.lob_depth_bid.reset();
-        self.lob_metrics.lob_depth_ask.reset();
+        let lm = self.metrics();
+        let base_labels = &[self.exchange.as_str(), self.instrument.as_str()] as &[&str];
+
+        lm.lob_depth_bid.reset();
+        lm.lob_depth_ask.reset();
 
         let (bids, asks) = order_book.levels_within_pct(self.show_top_pct);
         for (price, size) in &bids {
             let price_str = format!("{:.2}", price);
-            self.lob_metrics
-                .lob_depth_bid
-                .with_label_values(&[&price_str])
+            lm.lob_depth_bid
+                .with_label_values(&[base_labels[0], base_labels[1], &price_str])
                 .set(*size);
         }
         for (price, size) in &asks {
             let price_str = format!("{:.2}", price);
-            self.lob_metrics
-                .lob_depth_ask
-                .with_label_values(&[&price_str])
+            lm.lob_depth_ask
+                .with_label_values(&[base_labels[0], base_labels[1], &price_str])
                 .set(*size);
+        }
+    }
+
+    fn update_status_active(&self, active: bool, detail: String) {
+        if let Some(ref sh) = self.status_handle {
+            if let Ok(mut map) = sh.write() {
+                let key = format!("{}@{}", self.instrument, self.exchange);
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                map.insert(key, ClientStatus {
+                    active,
+                    ts: now,
+                    last_price: None,
+                    bid_size: 0.0,
+                    ask_size: 0.0,
+                    detail,
+                });
+            }
         }
     }
 
@@ -385,7 +451,7 @@ if let Some(sender) = self.sender.as_mut() {
                 }
             }
             MessageType::Trade => {
-                if let Some(symbol) = msg.data.first().and_then(|d| d.get("symbol").and_then(|s| s.as_str())) {
+                if let Some(_symbol) = msg.data.first().and_then(|d| d.get("symbol").and_then(|s| s.as_str())) {
                     if let Some(trade) = msg.data.first().and_then(|d| {
                         serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
                     }) {

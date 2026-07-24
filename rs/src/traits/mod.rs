@@ -1,8 +1,10 @@
-use prometheus::{Gauge, GaugeVec, IntGauge, Opts, Registry};
+use prometheus::{GaugeVec, IntGaugeVec, Opts, Registry};
 use questdb::ingress::Sender;
 use rand::Rng;
+use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 const INITIAL_BACKOFF_MS: u64 = 1000;
 const MAX_BACKOFF_MS: u64 = 60_000;
@@ -18,6 +20,8 @@ pub trait OrderBook {
     fn best_ask(&self) -> Option<f64>;
     fn spread(&self) -> Option<f64>;
     fn levels_within_pct(&self, top_pct: f64) -> (Vec<(f64, f64)>, Vec<(f64, f64)>);
+    fn total_bid_size(&self) -> f64;
+    fn total_ask_size(&self) -> f64;
     fn display(&self, instrument: &str, top_pct: f64) -> String;
 }
 
@@ -28,7 +32,22 @@ pub trait ExchangeClientBuilder: Sized {
     fn with_metrics_port(self, port: u16) -> Self;
     fn with_data_output(self, enabled: bool) -> Self;
     fn with_cli_instrument(self, inst_id: String) -> Self;
+    fn with_lob_metrics(self, metrics: Arc<LobMetrics>) -> Self;
+    fn with_status_handle(self, handle: StatusHandle) -> Self;
 }
+
+/// Per-task connection status exposed by /status endpoint.
+#[derive(Debug, Clone, Serialize)]
+pub struct ClientStatus {
+    pub active: bool,
+    pub ts: u64,
+    pub last_price: Option<f64>,
+    pub bid_size: f64,
+    pub ask_size: f64,
+    pub detail: String,
+}
+
+pub type StatusHandle = Arc<RwLock<HashMap<String, ClientStatus>>>;
 
 /// Exponential backoff with random jitter.
 pub fn backoff_delay(attempt: u32) -> std::time::Duration {
@@ -71,14 +90,14 @@ pub async fn signal_sleep(
     }
 }
 
-/// Shared Prometheus metrics for LOB data.
+/// Shared Prometheus metrics for LOB data with exchange+instrument labels.
 #[derive(Clone)]
 pub struct LobMetrics {
-    pub best_bid: Gauge,
-    pub best_ask: Gauge,
-    pub spread: Gauge,
-    pub last_update: Gauge,
-    pub trades_total: IntGauge,
+    pub best_bid: GaugeVec,
+    pub best_ask: GaugeVec,
+    pub spread: GaugeVec,
+    pub last_update: GaugeVec,
+    pub trades_total: IntGaugeVec,
     pub trades_per_second: Arc<AtomicU64>,
     pub lob_depth_bid: GaugeVec,
     pub lob_depth_ask: GaugeVec,
@@ -87,18 +106,33 @@ pub struct LobMetrics {
 
 impl LobMetrics {
     pub fn new(registry: &Registry) -> Result<Self, prometheus::Error> {
-        let best_bid = Gauge::with_opts(Opts::new("lob_best_bid", "Best bid price"))?;
-        let best_ask = Gauge::with_opts(Opts::new("lob_best_ask", "Best ask price"))?;
-        let spread = Gauge::with_opts(Opts::new("lob_spread", "Spread between best ask and best bid"))?;
-        let last_update = Gauge::with_opts(Opts::new("lob_last_update_timestamp", "Last update timestamp in milliseconds"))?;
-        let trades_total = IntGauge::with_opts(Opts::new("trades_total", "Total number of trades"))?;
+        let best_bid = GaugeVec::new(
+            Opts::new("lob_best_bid", "Best bid price"),
+            &["exchange", "instrument"],
+        )?;
+        let best_ask = GaugeVec::new(
+            Opts::new("lob_best_ask", "Best ask price"),
+            &["exchange", "instrument"],
+        )?;
+        let spread = GaugeVec::new(
+            Opts::new("lob_spread", "Spread between best ask and best bid"),
+            &["exchange", "instrument"],
+        )?;
+        let last_update = GaugeVec::new(
+            Opts::new("lob_last_update_timestamp", "Last update timestamp in milliseconds"),
+            &["exchange", "instrument"],
+        )?;
+        let trades_total = IntGaugeVec::new(
+            Opts::new("trades_total", "Total number of trades"),
+            &["exchange", "instrument"],
+        )?;
         let lob_depth_bid = GaugeVec::new(
             Opts::new("lob_depth_bid", "Cumulative bid volume at price level"),
-            &["price"],
+            &["exchange", "instrument", "price"],
         )?;
         let lob_depth_ask = GaugeVec::new(
             Opts::new("lob_depth_ask", "Cumulative ask volume at price level"),
-            &["price"],
+            &["exchange", "instrument", "price"],
         )?;
 
         registry.register(Box::new(best_bid.clone()))?;
@@ -126,88 +160,121 @@ impl LobMetrics {
         self.registry.gather()
     }
 
-    /// Start the metrics HTTP server.
+    /// Start the metrics HTTP server (legacy method for single-exchange clients).
     pub async fn start_metrics_server(
         port: u16,
         lob_metrics: Arc<LobMetrics>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let status_handle: StatusHandle = Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        Self::start_http_server(port, lob_metrics, status_handle).await
+    }
+
+    /// Start the HTTP server serving both /metrics and /status endpoints.
+    pub async fn start_http_server(
+        port: u16,
+        lob_metrics: Arc<LobMetrics>,
+        status_handle: StatusHandle,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use actix_web::{web, App, HttpResponse, HttpServer};
         use std::net::TcpListener;
 
         let bind_addr = format!("0.0.0.0:{}", port);
         let listener = TcpListener::bind(&bind_addr)?;
-        eprintln!("[METRICS] Listening on {}", bind_addr);
+        eprintln!("[HTTP] Listening on {}", bind_addr);
 
         HttpServer::new(move || {
             let lm = lob_metrics.clone();
-            App::new().route("/metrics", web::get().to(move || {
-                let lm = lm.clone();
-                async move {
-                    let families = lm.gather();
+            let sh = status_handle.clone();
 
-                    let mut best_bid = 0.0f64;
-                    let mut best_ask = 0.0f64;
-                    let mut last_spread = 0.0f64;
-                    let mut last_update_timestamp = 0u64;
-                    let mut trades_total = 0i64;
-                    let mut depth: Vec<serde_json::Value> = Vec::new();
+            App::new()
+                .route("/metrics", web::get().to(move || {
+                    let lm = lm.clone();
+                    async move {
+                        let families = lm.gather();
+                        let mut by_exchange: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
 
-                    for mf in &families {
-                        let name = mf.get_name();
-                        for m in mf.get_metric() {
-                            let gauge = m.get_gauge();
-                            let value = gauge.get_value();
+                        for mf in &families {
+                            let name = mf.get_name();
+                            for m in mf.get_metric() {
+                                let gauge = m.get_gauge();
+                                let value = gauge.get_value();
 
-                            match name {
-                                "lob_best_bid" => best_bid = value,
-                                "lob_best_ask" => best_ask = value,
-                                "lob_spread" => last_spread = value,
-                                "lob_last_update_timestamp" => {
-                                    last_update_timestamp = value as u64;
+                                let labels: HashMap<&str, &str> = m.get_label().iter()
+                                    .map(|l| (l.get_name(), l.get_value()))
+                                    .collect();
+                                let exchange = labels.get("exchange").copied().unwrap_or("");
+                                let instrument = labels.get("instrument").copied().unwrap_or("");
+
+                                if exchange.is_empty() || instrument.is_empty() {
+                                    continue;
                                 }
-                                "trades_total" => trades_total = value as i64,
-                                "lob_depth_bid" | "lob_depth_ask" => {
-                                    let side = if name == "lob_depth_bid" { "bid" } else { "ask" };
-                                    let price: f64 = m.get_label().iter()
-                                        .find(|l| l.get_name() == "price")
-                                        .and_then(|l| l.get_value().parse().ok())
-                                        .unwrap_or(0.0);
-                                    depth.push(serde_json::json!({
-                                        "price": price,
-                                        "volume": value,
-                                        "side": side
-                                    }));
+
+                                let entry = by_exchange
+                                    .entry(exchange.to_string())
+                                    .or_default()
+                                    .entry(instrument.to_string())
+                                    .or_insert_with(|| serde_json::json!({}));
+
+                                match name {
+                                    "lob_best_bid" => { entry["best_bid"] = serde_json::json!(value); }
+                                    "lob_best_ask" => { entry["best_ask"] = serde_json::json!(value); }
+                                    "lob_spread" => { entry["spread"] = serde_json::json!(value); }
+                                    "lob_last_update_timestamp" => { entry["last_update_ts"] = serde_json::json!(value as u64); }
+                                    "trades_total" => { entry["trades_total"] = serde_json::json!(value as i64); }
+                                    "lob_depth_bid" | "lob_depth_ask" => {
+                                        let side = if name == "lob_depth_bid" { "bid" } else { "ask" };
+                                        let price: f64 = labels.get("price")
+                                            .and_then(|p| p.parse().ok())
+                                            .unwrap_or(0.0);
+                                        if entry.get("depth").is_none() {
+                                            entry["depth"] = serde_json::json!([]);
+                                        }
+                                        if let Some(depth_arr) = entry.get_mut("depth").and_then(|v| v.as_array_mut()) {
+                                            depth_arr.push(serde_json::json!({
+                                                "price": price,
+                                                "volume": value,
+                                                "side": side,
+                                            }));
+                                        }
+                                    }
+                                    _ => {}
                                 }
-                                _ => {}
                             }
                         }
+
+                        // Sort depth entries by price
+                        for ex_entry in by_exchange.values_mut() {
+                            for inst_entry in ex_entry.values_mut() {
+                                if let Some(depth) = inst_entry.get_mut("depth") {
+                                    if let Some(arr) = depth.as_array_mut() {
+                                        arr.sort_by(|a, b| {
+                                            a["price"]
+                                                .as_f64()
+                                                .partial_cmp(&b["price"].as_f64())
+                                                .unwrap_or(std::cmp::Ordering::Equal)
+                                        });
+                                    }
+                                }
+                            }
+                        }
+
+                        HttpResponse::Ok()
+                            .content_type("application/json")
+                            .body(serde_json::to_string(&by_exchange).unwrap())
                     }
-
-                    depth.sort_by(|a, b| {
-                        a["price"]
-                            .as_f64()
-                            .partial_cmp(&b["price"].as_f64())
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
-
-                    let tps_bits = lm.trades_per_second.load(std::sync::atomic::Ordering::Relaxed);
-                    let tps = f64::from_bits(tps_bits);
-
-                    let response = serde_json::json!({
-                        "best_bid": best_bid,
-                        "best_ask": best_ask,
-                        "last_spread": last_spread,
-                        "last_update_timestamp": last_update_timestamp,
-                        "trades_total": trades_total,
-                        "trades_per_second": tps,
-                        "depth": depth,
-                    });
-
-                    HttpResponse::Ok()
-                        .content_type("application/json")
-                        .body(serde_json::to_string(&response).unwrap())
-                }
-            }))
+                }))
+                .route("/status", {
+                    let sh = sh.clone();
+                    web::get().to(move || {
+                        let sh = sh.clone();
+                        async move {
+                            let status = sh.read().unwrap().clone();
+                            HttpResponse::Ok()
+                                .content_type("application/json")
+                                .body(serde_json::to_string(&status).unwrap())
+                        }
+                    })
+                })
         })
         .listen(listener)?
         .run()
@@ -248,6 +315,8 @@ mod tests {
     fn test_lob_metrics_gather() {
         let registry = Registry::new();
         let m = LobMetrics::new(&registry).unwrap();
+        m.best_bid.with_label_values(&["test", "inst"]).set(100.0);
+        m.best_ask.with_label_values(&["test", "inst"]).set(101.0);
         let families = m.gather();
         assert!(!families.is_empty());
     }
