@@ -85,6 +85,7 @@ rs/
 | **Secrets in `.env.local`** | Never committed (in `.gitignore`) |
 | **CLAUDE.md/AGENTS.md** | Never add brand (claude/openroute, etc) reference |
 | **One SQL statement per migration file** | Each `V{N}__*.sql` contains exactly one statement; split multi-statement changes across sequential versions |
+| **Never auto-execute plan** | Plans are executed only via explicit `/execute-plan` — never start execution unasked |
 
 ### Python-Specific (enforced by ruff + extra)
 - **Type hints mandatory** — every function; `str \| None` union syntax (3.13)
@@ -136,6 +137,7 @@ rs/
 - **ADR-020** (`docs/ADR-020-...`): `--list-instruments` CLI flag for instrument mapping discovery
 - **ADR-021** (`docs/ADR-021-...`): Instrument fallback rules and lowercase inst_id persistence
 - **ADR-022** (`docs/ADR-022-...`): Region-based exchange URL configuration via `EXCHANGE_URL` dict and `--region` flag
+- **ADR-023** (`docs/ADR-023-...`): Consolidate refinery migrations — merge V1+V4, V2+V5+V6, drop V3
 
 ---
 
@@ -149,6 +151,8 @@ rs/
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 **Never commit unless asked** — keep changes in working tree.
+
+**Never auto-execute plan** — only run `/execute-plan` when explicitly asked.
 
 ---
 

@@ -32,12 +32,8 @@ A Medium-Frequency Trading (MFT) platform for crypto markets, supporting OKX, Kr
 │   │   ├── db/
 │   │   │   ├── mod.rs          # QuestDB connection, migrations, ILP sender, data cleanup
 │   │   │   ├── migrations/
-│   │   │   │   ├── V1__create_market_data.sql           # trades table
-│   │   │   │   ├── V2__create_lob_levels.sql            # lob_levels table
-│   │   │   │   ├── V3__set_storage_policy.sql           # QuestDB storage config
-│   │   │   │   ├── V4__add_exchange_to_trades.sql       # exchange column
-│   │   │   │   ├── V5__add_exchange_to_lob_levels.sql   # exchange column
-│   │   │   │   └── V6__drop_orderbook_snapshots.sql     # removed unused table
+│   │   │   │   ├── V1__create_market_data.sql           # trades table with exchange column
+│   │   │   │   └── V2__create_lob_levels.sql            # lob_levels table with exchange column, drops orderbook_snapshots
 │   │   │   └── mod.rs
 │   │   ├── traits/
 │   │   │   └── mod.rs   # Shared traits (OrderBook, ExchangeClientBuilder, LobMetrics, backoff, signal)

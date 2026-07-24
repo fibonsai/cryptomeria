@@ -21,6 +21,7 @@ These are ports of the original `.claude/commands/` equivalents. The `.claude/` 
 - All four commands use `gh` (GitHub CLI) — must be authenticated
 - Commands accept `$ARGUMENTS` and shell injection (`!`cmd``) in templates
 - Never commit unless asked — `/commit` stages explicitly, avoids `git add -A`
+- Never auto-execute plan — only run `/execute-plan` when explicitly asked
 
 ---
 
@@ -91,6 +92,7 @@ rs/
 | **Secrets in `.env.local`** | Never committed (in `.gitignore`) |
 | **CLAUDE.md/AGENTS.md** | Never add brand (claude/openroute, etc) reference |
 | **One SQL statement per migration file** | Each `V{N}__*.sql` contains exactly one statement; split multi-statement changes across sequential versions |
+| **Never auto-execute plan** | Plans are executed only via explicit `/execute-plan` — never start execution unasked |
 
 ### Python-Specific (enforced by ruff + extra)
 - **Type hints mandatory** — every function; `str \| None` union syntax (3.13)
@@ -154,6 +156,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | 020 | `--list-instruments` CLI flag for mapping discovery | `docs/ADR-020-...` |
 | 021 | Instrument fallback rules and lowercase inst_id persistence | `docs/ADR-021-...` |
 | 022 | Region-based exchange URL configuration | `docs/ADR-022-...` |
+| 023 | Consolidate refinery migrations | `docs/ADR-023-...` |
 
 ---
 
@@ -235,6 +238,8 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 **Never commit unless asked** — keep changes in working tree.
+
+**Never auto-execute plan** — only run `/execute-plan` when explicitly asked.
 
 ---
 
