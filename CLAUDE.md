@@ -86,6 +86,7 @@ rs/
 | **CLAUDE.md/AGENTS.md** | Never add brand (claude/openroute, etc) reference |
 | **One SQL statement per migration file** | Each `V{N}__*.sql` contains exactly one statement; split multi-statement changes across sequential versions |
 | **Never auto-execute plan** | Plans are executed only via explicit `/execute-plan` — never start execution unasked |
+| **No destructive git commands** | Never use `git reset`, `git push --force`, `git rebase`, `git commit --amend`, `git rm --cached`, or any command that rewrites history without explicit user approval |
 
 ### Python-Specific (enforced by ruff + extra)
 - **Type hints mandatory** — every function; `str \| None` union syntax (3.13)
