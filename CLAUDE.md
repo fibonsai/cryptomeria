@@ -217,3 +217,10 @@ rs/
 | Format all | `make format` |
 | Lint all | `make lint` |
 | Full check | `make check` |
+## ADRs
+
+- ADR-025: Use cli_instrument (database inst_id format) for metrics instrument label
+
+## ADRs
+
+- ADR-026: Use cli_instrument (database inst_id format) for metrics instrument label

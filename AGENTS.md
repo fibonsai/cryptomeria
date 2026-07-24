@@ -256,3 +256,10 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 - **Rust**: stable toolchain, edition 2024 (`Cargo.toml` in `rs/`)
 - **RTK (Rust Token Killer)**: Active proxy for FS reads & git ops (transparent)
 - **No CI/CD configs**: No Cursor, Copilot, or GitHub Actions in this repo
+## ADRs
+
+- ADR-025: Use cli_instrument (database inst_id format) for metrics instrument label
+
+## ADRs
+
+- ADR-026: Use cli_instrument (database inst_id format) for metrics instrument label
