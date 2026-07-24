@@ -14,6 +14,7 @@ const JITTER_MS: u64 = 1000;
 /// Shared OrderBook trait — methods common across all exchange order books.
 pub trait OrderBook {
     fn new() -> Self;
+    fn with_snapshot_depth(depth: usize) -> Self;
     fn num_bids(&self) -> usize;
     fn num_asks(&self) -> usize;
     fn best_bid(&self) -> Option<f64>;
@@ -34,6 +35,7 @@ pub trait ExchangeClientBuilder: Sized {
     fn with_cli_instrument(self, inst_id: String) -> Self;
     fn with_lob_metrics(self, metrics: Arc<LobMetrics>) -> Self;
     fn with_status_handle(self, handle: StatusHandle) -> Self;
+    fn with_snapshot_depth(self, _depth: usize) -> Self { self }
 }
 
 /// Per-task connection status exposed by /status endpoint.

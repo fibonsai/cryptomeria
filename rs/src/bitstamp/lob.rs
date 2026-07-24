@@ -26,14 +26,20 @@ pub struct OrderBook {
     pub orders: HashMap<u64, OrderInfo>,
     pub bids: BTreeMap<Reverse<OrderedFloat<f64>>, f64>,
     pub asks: BTreeMap<OrderedFloat<f64>, f64>,
+    snapshot_depth: usize,
 }
 
 impl OrderBook {
     pub fn new() -> Self {
+        Self::with_snapshot_depth(400)
+    }
+
+    pub fn with_snapshot_depth(snapshot_depth: usize) -> Self {
         Self {
             orders: HashMap::new(),
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
+            snapshot_depth,
         }
     }
 
@@ -198,12 +204,13 @@ impl OrderBook {
 
     /// Apply a full snapshot from the REST API.
     /// Clears all existing levels and replaces them with the snapshot data.
+    /// Only keeps the first `snapshot_depth` levels per side (bids/asks).
     fn apply_snapshot(&mut self, ob: &OrderBookData) {
         self.orders.clear();
         self.bids.clear();
         self.asks.clear();
 
-        for level in &ob.bids {
+        for level in ob.bids.iter().take(self.snapshot_depth) {
             if level.len() >= 2 {
                 if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
                     if amount > 0.0 {
@@ -213,7 +220,7 @@ impl OrderBook {
             }
         }
 
-        for level in &ob.asks {
+        for level in ob.asks.iter().take(self.snapshot_depth) {
             if level.len() >= 2 {
                 if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
                     if amount > 0.0 {
@@ -327,6 +334,7 @@ impl Default for OrderBook {
 
 impl crate::traits::OrderBook for OrderBook {
     fn new() -> Self { OrderBook::new() }
+    fn with_snapshot_depth(depth: usize) -> Self { OrderBook::with_snapshot_depth(depth) }
     fn num_bids(&self) -> usize { OrderBook::num_bids(self) }
     fn num_asks(&self) -> usize { OrderBook::num_asks(self) }
     fn best_bid(&self) -> Option<f64> { OrderBook::best_bid(self) }
