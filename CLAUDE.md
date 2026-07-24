@@ -219,7 +219,7 @@ rs/
 | Full check | `make check` |
 ## ADRs
 
-- ADR-025: Use cli_instrument (database inst_id format) for metrics instrument label
+- ADR-026: Use cli_instrument (database inst_id format) for metrics instrument label
 
 ## ADRs
 
