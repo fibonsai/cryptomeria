@@ -265,13 +265,13 @@ impl OkxClient {
                                                     println!("{}", line);
                                                 }
 
-                                                // Update trades metrics
+// Update trades metrics
                                                 if let Some(trade) = parsed.data.first().and_then(|d| {
                                                     serde_json::from_value::<TradeData>(d.clone()).ok()
                                                 }) {
                                                     self.metrics()
                                                         .trades_total
-                                                        .with_label_values(&[&self.exchange, &self.instrument])
+                                                        .with_label_values(&[&self.exchange, &self.cli_instrument])
                                                         .inc();
                                                     last_trade_count += 1;
                                                     let elapsed = last_trade_time.elapsed();
@@ -649,13 +649,14 @@ mod tests {
         let registry = Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         // Set some sample values so they appear in /metrics output
-        lob_metrics.best_bid.with_label_values(&["okx", "BTC-USDT"]).set(50000.0);
-        lob_metrics.best_ask.with_label_values(&["okx", "BTC-USDT"]).set(50100.0);
-        lob_metrics.spread.with_label_values(&["okx", "BTC-USDT"]).set(100.0);
-        lob_metrics.last_update.with_label_values(&["okx", "BTC-USDT"]).set(1234567890.0);
-        lob_metrics.trades_total.with_label_values(&["okx", "BTC-USDT"]).inc();
-        lob_metrics.lob_depth_bid.with_label_values(&["okx", "BTC-USDT", "50000.00"]).set(1.5);
-        lob_metrics.lob_depth_ask.with_label_values(&["okx", "BTC-USDT", "50100.00"]).set(2.0);
+        // Using cli_instrument format (lowercase, no separators) to match database inst_id format per ADR-026
+        lob_metrics.best_bid.with_label_values(&["okx", "btcusdt"]).set(50000.0);
+        lob_metrics.best_ask.with_label_values(&["okx", "btcusdt"]).set(50100.0);
+        lob_metrics.spread.with_label_values(&["okx", "btcusdt"]).set(100.0);
+        lob_metrics.last_update.with_label_values(&["okx", "btcusdt"]).set(1234567890.0);
+        lob_metrics.trades_total.with_label_values(&["okx", "btcusdt"]).inc();
+        lob_metrics.lob_depth_bid.with_label_values(&["okx", "btcusdt", "50000.00"]).set(1.5);
+        lob_metrics.lob_depth_ask.with_label_values(&["okx", "btcusdt", "50100.00"]).set(2.0);
         let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
         let port = 19092;
 
@@ -687,9 +688,9 @@ mod tests {
                 // Response is grouped by exchange -> instrument
                 let okx_inst = obj.get("okx")
                     .and_then(|v| v.as_object())
-                    .and_then(|v| v.get("BTC-USDT"))
+                    .and_then(|v| v.get("btcusdt"))
                     .and_then(|v| v.as_object())
-                    .expect("Should contain okx -> BTC-USDT");
+                    .expect("Should contain okx -> btcusdt");
                 assert!(okx_inst.contains_key("best_bid"), "Should contain best_bid, got keys: {:?}", okx_inst.keys());
                 assert!(okx_inst.contains_key("best_ask"), "Should contain best_ask");
                 assert!(okx_inst.contains_key("spread"), "Should contain spread");
