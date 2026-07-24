@@ -361,10 +361,9 @@ async fn main() {
     let show_top_pct = cli.show_top_pct;
     let data_output = cli.data_output;
 
-    // Generate cli_inst_id from original CLI instrument (lowercase, no separator)
-    let cli_inst_id = cli.instrument.to_lowercase().replace(['/', '-'], "");
+    let cli_inst_id = parse_exchange_override(&cli.instrument).0.to_lowercase().replace(['/', '-'], "");
 
-    let (instrument, exchange, _resolved_from) = resolve_instrument(&cli.instrument, &cli.exchange);
+    let (instrument, exchange, _) = resolve_instrument(&cli.instrument, &cli.exchange);
 
     let region = &cli.region;
     let ws_url = cryptomeria::urls::websocket_url(region, &exchange);
