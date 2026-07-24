@@ -2,11 +2,7 @@
 
 ## Context
 
-The OKX WebSocket client always connected to the global endpoint (`ws.okx.com:8443`). Users in Europe experienced higher latency because OKX provides a Europe-specific WebSocket endpoint (`wseea.okx.com:8443`) that routes to geographically closer servers.
-
-**Additionally, OKX Europe API keys are only valid on the Europe endpoint (`wseea.okx.com`) — they do not work on the global endpoint (`ws.okx.com`).** Users with Europe-registered accounts must use the Europe endpoint for authenticated operations.
-
-Additionally, each exchange module hardcoded its own `const WS_URL` (and Bitstamp had a separate `const REST_BASE`), while `main.rs` duplicated these in a match arm. This duplication made URL changes error-prone and prevented region-based routing.
+The OKX WebSocket client used the global endpoint (`ws.okx.com:8443`), but Europe users need `wseea.okx.com:8443` for lower latency and because OKX Europe API keys are only valid there. Separately, each exchange module hardcoded its own `const WS_URL` (plus `REST_BASE` for Bitstamp), duplicated in `main.rs` — making URL changes error-prone and preventing region-based routing.
 
 ## Options Considered
 
