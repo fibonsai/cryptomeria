@@ -1,5 +1,3 @@
-DROP TABLE IF EXISTS orderbook_snapshots;
-
 CREATE TABLE IF NOT EXISTS lob_levels (
     inst_id SYMBOL INDEX TYPE POSTING,
     ts TIMESTAMP,
