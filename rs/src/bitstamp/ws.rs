@@ -49,6 +49,7 @@ pub struct BitstampClient {
     pub sender: Option<Sender>,
     pub lob_metrics_override: Option<Arc<LobMetrics>>,
     pub status_handle: Option<StatusHandle>,
+    pub snapshot_depth: usize,
 }
 
 impl ExchangeClientBuilder for BitstampClient {
@@ -82,6 +83,7 @@ impl BitstampClient {
             sender: None,
             lob_metrics_override: None,
             status_handle: None,
+            snapshot_depth: 400,
         }
     }
 
@@ -117,6 +119,11 @@ impl BitstampClient {
 
     pub fn with_status_handle(mut self, handle: StatusHandle) -> Self {
         self.status_handle = Some(handle);
+        self
+    }
+
+    pub fn with_snapshot_depth(mut self, depth: usize) -> Self {
+        self.snapshot_depth = depth;
         self
     }
 
@@ -226,7 +233,7 @@ impl BitstampClient {
             }
             eprintln!("[SUBSCRIBED] {}", trades_channel);
 
-            let mut order_book = OrderBook::new();
+            let mut order_book = crate::bitstamp::lob::OrderBook::with_snapshot_depth(self.snapshot_depth);
             let mut last_trade_count = 0u64;
             let mut last_trade_time = std::time::Instant::now();
 

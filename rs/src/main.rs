@@ -221,6 +221,10 @@ pub struct CliArgs {
     #[arg(long)]
     pub retention_window: Option<u64>,
 
+    /// Bitstamp REST snapshot depth (levels per side). Default: 400.
+    #[arg(long, default_value_t = 400)]
+    pub bitstamp_snapshot_depth: usize,
+
     /// Port for the HTTP server hosting /metrics and /status endpoints.
     #[arg(long)]
     pub metrics_port: Option<u16>,
@@ -495,7 +499,8 @@ async fn main() {
                     let mut client = BitstampClient::new(&symbol, &exchange, &region, show_top_pct, data_output, &qc)
                         .with_cli_instrument(cli_inst_id)
                         .with_lob_metrics(lm)
-                        .with_status_handle(sh);
+                        .with_status_handle(sh)
+                        .with_snapshot_depth(cli.bitstamp_snapshot_depth);
                     if let Some(s) = sender_opt {
                         client = client.with_sender(s);
                     }

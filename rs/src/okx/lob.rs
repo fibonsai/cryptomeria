@@ -261,6 +261,7 @@ impl OrderBook {
 
 impl crate::traits::OrderBook for OrderBook {
     fn new() -> Self { OrderBook::new() }
+    fn with_snapshot_depth(_depth: usize) -> Self { OrderBook::new() }
     fn num_bids(&self) -> usize { OrderBook::num_bids(self) }
     fn num_asks(&self) -> usize { OrderBook::num_asks(self) }
     fn best_bid(&self) -> Option<f64> { OrderBook::best_bid(self) }
