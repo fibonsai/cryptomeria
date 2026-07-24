@@ -358,7 +358,7 @@ impl OkxClient {
 
     fn update_lob_metrics(&self, order_book: &OrderBook) {
         let lm = self.metrics();
-        let labels = [self.exchange.as_str(), self.instrument.as_str()];
+        let labels = [self.exchange.as_str(), self.cli_instrument.as_str()];
         if let Some(best_bid) = order_book.best_bid() {
             lm.best_bid.with_label_values(&labels).set(best_bid);
         }
@@ -393,10 +393,7 @@ impl OkxClient {
 
     fn update_depth_metrics(&self, order_book: &OrderBook) {
         let lm = self.metrics();
-        let base_labels = [self.exchange.as_str(), self.instrument.as_str()];
-
-        lm.lob_depth_bid.reset();
-        lm.lob_depth_ask.reset();
+        let base_labels = [self.exchange.as_str(), self.cli_instrument.as_str()];
 
         let (bids, asks) = order_book.levels_within_pct(self.show_top_pct);
         for (price, size) in &bids {
