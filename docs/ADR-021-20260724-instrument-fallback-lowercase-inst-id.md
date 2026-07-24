@@ -27,6 +27,8 @@ Implement a fallback priority chain in `resolve_instrument()`:
 5. If USD not supported → prioritize USDT then USDC
 6. Fall back to raw formatting if none match
 
+Fallback only applies to USD-denominated targets (USDC, USDT, USD). Non-USD quote currencies (EUR, GBP, etc.) are never substituted — the raw formatted symbol is used directly, even if the exchange has no alias for that pair.
+
 Fallback only activates when the base currency exists on the exchange but the specific quote target is missing. If the base itself has no aliases, raw formatting is used.
 
 ### Lowercase inst_id Persistence
@@ -35,7 +37,9 @@ Fallback only activates when the base currency exists on the exchange but the sp
 - The `cli_instrument` field is threaded from `main.rs` through the `ExchangeClientBuilder` trait to each WS client's persistence calls
 
 ### --list-instruments Enhancement
-The instrument mapping table now shows fallback paths in the notes column, e.g. `OKX: USDC->USDT` or `KRAKEN: USDT->USD`, indicating which fallback rule would apply for unsupported quote currencies.
+The instrument mapping table now shows:
+- Fallback paths in the notes column, e.g. `OKX: USDC->USDT` or `KRAKEN: USDT->USD`, indicating which fallback rule would apply for unsupported quote currencies
+- Raw formatted symbols (e.g. `ADA-EUR`, `btc-eur`) with `raw format (not in aliases)` note for non-USD quote currencies that have no alias on the exchange
 
 ## Consequences
 
