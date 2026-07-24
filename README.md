@@ -253,6 +253,8 @@ Examples:
 - `ETH/USDT` on Kraken → resolves to `ETH/USD` (USDT not on Kraken, fallback to USD)
 - `ETH/USDC` on Bitstamp → resolves to `eth-usd` (USDC not on Bitstamp, fallback to USD)
 
+The fallback only applies to USD-denominated targets (USDC, USDT, USD). Non-USD quote currencies (EUR, GBP, etc.) are never substituted — the raw formatted symbol is used directly, even if the exchange has no alias for that pair.
+
 The fallback only activates when the base currency is found on the exchange but the specific quote target is missing. If the base itself has no entries on that exchange, the raw formatting is used instead.
 
 #### Database `inst_id` Format
