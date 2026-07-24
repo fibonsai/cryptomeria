@@ -233,7 +233,7 @@ impl KrakenClient {
                                                     let line = display_message(&parsed);
                                                     println!("{}", line);
                                                 }
-                                                self.metrics().trades_total.with_label_values(&[&self.exchange, &self.instrument]).inc();
+                                                self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
                                                 last_trade_count += 1;
                                                 let elapsed = last_trade_time.elapsed();
                                                 if elapsed >= std::time::Duration::from_secs(1) {
