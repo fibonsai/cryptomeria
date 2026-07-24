@@ -448,7 +448,7 @@ async fn main() {
         // Initialize status entry
         {
             let mut status_map = status_handle.write().unwrap();
-            let key = format!("{}@{}", symbol, exchange);
+            let key = format!("{}@{}", cli_inst_id, exchange);
             status_map.insert(key, ClientStatus {
                 active: false,
                 ts: 0,

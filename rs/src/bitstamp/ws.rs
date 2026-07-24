@@ -127,7 +127,7 @@ impl BitstampClient {
     fn update_status_active(&self, active: bool, detail: String) {
         if let Some(ref sh) = self.status_handle {
             if let Ok(mut map) = sh.write() {
-                let key = format!("{}@{}", self.instrument, self.exchange);
+                let key = format!("{}@{}", self.cli_instrument, self.exchange);
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -500,7 +500,7 @@ impl BitstampClient {
 
         if let Some(ref sh) = self.status_handle {
             if let Ok(mut map) = sh.write() {
-                let key = format!("{}@{}", self.instrument, self.exchange);
+                let key = format!("{}@{}", self.cli_instrument, self.exchange);
                 if let Some(status) = map.get_mut(&key) {
                     status.bid_size = order_book.total_bid_size();
                     status.ask_size = order_book.total_ask_size();
