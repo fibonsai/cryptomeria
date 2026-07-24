@@ -239,6 +239,26 @@ cargo run -- --list-instruments
 
 The `--instrument` flag accepts a generic instrument name (e.g., `BTC/USDT`) and resolves it to the exchange-specific symbol using embedded aliases (compiled into the binary, covering OKX, Kraken, and Bitstamp). The `symbol@exchange_id` format overrides the `--exchange` flag. If no alias is found, the raw name is formatted per exchange conventions (uppercase/dash for OKX, uppercase/slash for Kraken, lowercase/no separator for Bitstamp).
 
+#### Currency Fallback Rules
+
+If the requested instrument's quote currency is not supported by the target exchange, the system applies a fallback chain before resorting to raw formatting:
+
+1. If USDC not supported → try USDT
+2. If USDT not supported → try USDC
+3. If neither USDC nor USDT supported → try USD
+4. If USD not supported → prioritize USDT then USDC
+
+Examples:
+- `BTC/USDC` on OKX → resolves to `BTC-USDT` (USDC not on OKX, fallback to USDT)
+- `ETH/USDT` on Kraken → resolves to `ETH/USD` (USDT not on Kraken, fallback to USD)
+- `ETH/USDC` on Bitstamp → resolves to `eth-usd` (USDC not on Bitstamp, fallback to USD)
+
+The fallback only activates when the base currency is found on the exchange but the specific quote target is missing. If the base itself has no entries on that exchange, the raw formatting is used instead.
+
+#### Database `inst_id` Format
+
+When persisting to QuestDB, the `inst_id` column stores the original CLI instrument in lowercase with no separators (e.g., `btcusdt`, `ethusd`, `solusdt`), not the exchange-specific symbol. This ensures consistent querying across exchanges regardless of their naming conventions.
+
 By default, only connection lifecycle events (`[CONNECTING]`, `[CONNECTED]`, `[SUBSCRIBED]`, `[DISCONNECTED]`) are shown on stderr. Pass `--data-output` to print LOB and trade data to stdout.
 
 ### Terminal output format (with `--data-output`)

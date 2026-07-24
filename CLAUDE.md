@@ -133,6 +133,7 @@ rs/
 - **ADR-018** (`docs/ADR-018-...`): Bitstamp diff_order_book with REST snapshot reconciliation
 - **ADR-019** (`docs/ADR-019-...`): Instrument mapping via external config file (`--instrument`, `scripts/coins_aliases.json`)
 - **ADR-020** (`docs/ADR-020-...`): `--list-instruments` CLI flag for instrument mapping discovery
+- **ADR-021** (`docs/ADR-021-...`): Instrument fallback rules and lowercase inst_id persistence
 
 ---
 

@@ -41,6 +41,7 @@ pub struct BitstampClient {
     pub instrument: String,
     pub channel_instrument: String,
     pub exchange: String,
+    pub cli_instrument: String,
     pub show_top_pct: f64,
     pub messages_received: Arc<AtomicU64>,
     pub retention_window: Option<u64>,
@@ -56,6 +57,7 @@ impl ExchangeClientBuilder for BitstampClient {
     fn with_retention_window(self, hours: u64) -> Self { BitstampClient::with_retention_window(self, hours) }
     fn with_metrics_port(self, port: u16) -> Self { BitstampClient::with_metrics_port(self, port) }
     fn with_data_output(self, enabled: bool) -> Self { BitstampClient::with_data_output(self, enabled) }
+    fn with_cli_instrument(self, inst_id: String) -> Self { BitstampClient::with_cli_instrument(self, inst_id) }
 }
 
 impl BitstampClient {
@@ -67,6 +69,7 @@ impl BitstampClient {
             instrument: instrument.to_string(),
             channel_instrument,
             exchange: exchange.to_string(),
+            cli_instrument: String::new(),
             show_top_pct,
             messages_received: Arc::new(AtomicU64::new(0)),
             retention_window: None,
@@ -95,6 +98,11 @@ impl BitstampClient {
 
     pub fn with_data_output(mut self, enabled: bool) -> Self {
         self.data_output = enabled;
+        self
+    }
+
+    pub fn with_cli_instrument(mut self, inst_id: String) -> Self {
+        self.cli_instrument = inst_id;
         self
     }
 
@@ -223,11 +231,11 @@ impl BitstampClient {
                                                         last_trade_count = 0;
                                                         last_trade_time = std::time::Instant::now();
                                                     }
-                                                    if let Some(sender) = self.sender.as_mut() {
-                                                        if let Err(e) = Self::persist_message(sender, &self.exchange, &parsed).await {
-                                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
-                                                        }
-                                                    }
+if let Some(sender) = self.sender.as_mut() {
+    if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
+        eprintln!("[DB ERROR] Failed to persist: {}", e);
+    }
+}
                                                 }
                                                 MessageType::Event => {
                                                     if parsed.event.as_deref() == Some("bts:subscription_succeeded") {
@@ -360,11 +368,11 @@ impl BitstampClient {
                                                 }
                                             }
 
-                                            if let Some(sender) = self.sender.as_mut() {
-                                                if let Err(e) = Self::persist_message(sender, &self.exchange, &parsed).await {
-                                                    eprintln!("[DB ERROR] Failed to persist: {}", e);
-                                                }
-                                            }
+if let Some(sender) = self.sender.as_mut() {
+    if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
+        eprintln!("[DB ERROR] Failed to persist: {}", e);
+    }
+}
                                         }
                                     }
                                     Err(e) => {
@@ -464,47 +472,47 @@ impl BitstampClient {
         }
     }
 
-    async fn persist_message(
-        sender: &mut Sender,
-        exchange: &str,
-        msg: &BitstampWsMessage,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let inst_id = msg.channel.as_deref().unwrap_or("?");
-        let ts_ms = msg.timestamp_ms().unwrap_or(0);
+async fn persist_message(
+    sender: &mut Sender,
+    exchange: &str,
+    cli_inst_id: &str,
+    msg: &BitstampWsMessage,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let ts_ms = msg.timestamp_ms().unwrap_or(0);
 
-        match msg.message_type() {
-            MessageType::L2Snapshot | MessageType::L2Update => {
-                let levels = msg.lob_levels();
-                if !levels.is_empty() {
-                    let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
-                        .into_iter()
-                        .map(|(side, bl)| {
-                            (side, crate::okx::types::LobLevel {
-                                price: bl.price,
-                                size: bl.size,
-                                count: "0".to_string(),
-                                orders: "0".to_string(),
-                            })
+    match msg.message_type() {
+        MessageType::L2Snapshot | MessageType::L2Update => {
+            let levels = msg.lob_levels();
+            if !levels.is_empty() {
+                let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
+                    .into_iter()
+                    .map(|(side, bl)| {
+                        (side, crate::okx::types::LobLevel {
+                            price: bl.price,
+                            size: bl.size,
+                            count: "0".to_string(),
+                            orders: "0".to_string(),
                         })
-                        .collect();
-                    persist_lob(sender, inst_id, exchange, ts_ms, "update", &okx_levels).await?;
-                }
+                    })
+                    .collect();
+                persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &okx_levels).await?;
             }
-            MessageType::Trade => {
-                if let Some(trade) = msg.data.as_ref().and_then(|d| {
-                    serde_json::from_value::<TradeData>(d.clone()).ok()
-                }) {
-                    let px = trade.price.parse().unwrap_or(0.0);
-                    let sz = trade.amount.parse().unwrap_or(0.0);
-                    let side = if trade.trade_type == 0 { "buy" } else { "sell" };
-                    persist_trade(sender, inst_id, exchange, &trade.id.to_string(), px, sz, side, ts_ms)
-                        .await?;
-                }
-            }
-            _ => {}
         }
-        Ok(())
+        MessageType::Trade => {
+            if let Some(trade) = msg.data.as_ref().and_then(|d| {
+                serde_json::from_value::<TradeData>(d.clone()).ok()
+            }) {
+                let px = trade.price.parse().unwrap_or(0.0);
+                let sz = trade.amount.parse().unwrap_or(0.0);
+                let side = if trade.trade_type == 0 { "buy" } else { "sell" };
+                persist_trade(sender, cli_inst_id, exchange, &trade.id.to_string(), px, sz, side, ts_ms)
+                    .await?;
+            }
+        }
+        _ => {}
     }
+    Ok(())
+}
 }
 
 #[cfg(test)]

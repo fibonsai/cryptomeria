@@ -31,6 +31,7 @@ pub fn display_message(msg: &KrakenWsMessage) -> String {
 pub struct KrakenClient {
     pub instrument: String,
     pub exchange: String,
+    pub cli_instrument: String,
     pub show_top_pct: f64,
     pub messages_received: Arc<AtomicU64>,
     pub retention_window: Option<u64>,
@@ -46,6 +47,7 @@ impl ExchangeClientBuilder for KrakenClient {
     fn with_retention_window(self, hours: u64) -> Self { KrakenClient::with_retention_window(self, hours) }
     fn with_metrics_port(self, port: u16) -> Self { KrakenClient::with_metrics_port(self, port) }
     fn with_data_output(self, enabled: bool) -> Self { KrakenClient::with_data_output(self, enabled) }
+    fn with_cli_instrument(self, inst_id: String) -> Self { KrakenClient::with_cli_instrument(self, inst_id) }
 }
 
 impl KrakenClient {
@@ -55,6 +57,7 @@ impl KrakenClient {
         Self {
             instrument: instrument.to_string(),
             exchange: exchange.to_string(),
+            cli_instrument: String::new(),
             show_top_pct,
             messages_received: Arc::new(AtomicU64::new(0)),
             retention_window: None,
@@ -83,6 +86,11 @@ impl KrakenClient {
 
     pub fn with_data_output(mut self, enabled: bool) -> Self {
         self.data_output = enabled;
+        self
+    }
+
+    pub fn with_cli_instrument(mut self, inst_id: String) -> Self {
+        self.cli_instrument = inst_id;
         self
     }
 
@@ -227,11 +235,11 @@ impl KrakenClient {
                                             }
                                         }
 
-                                        if let Some(sender) = self.sender.as_mut() {
-                                            if let Err(e) = Self::persist_message(sender, &self.exchange, &parsed).await {
-                                                eprintln!("[DB ERROR] Failed to persist: {}", e);
-                                            }
-                                        }
+if let Some(sender) = self.sender.as_mut() {
+    if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
+        eprintln!("[DB ERROR] Failed to persist: {}", e);
+    }
+}
                                     }
                                     Err(e) => {
                                         eprintln!(
@@ -333,13 +341,9 @@ impl KrakenClient {
     async fn persist_message(
         sender: &mut Sender,
         exchange: &str,
+        cli_inst_id: &str,
         msg: &KrakenWsMessage,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let inst_id = msg
-            .data
-            .first()
-            .and_then(|d| d.get("symbol").and_then(|s| s.as_str()))
-            .unwrap_or("?");
         let ts_ms = msg.timestamp_ms().unwrap_or(0);
 
         match msg.message_type() {
@@ -358,7 +362,7 @@ impl KrakenClient {
                     })
                     .collect();
                 if !okx_levels.is_empty() {
-                    db::persist_lob(sender, inst_id, exchange, ts_ms, "snapshot", &okx_levels).await?;
+                    db::persist_lob(sender, cli_inst_id, exchange, ts_ms, "snapshot", &okx_levels).await?;
                 }
             }
             MessageType::L2Update => {
@@ -376,7 +380,7 @@ impl KrakenClient {
                     })
                     .collect();
                 if !okx_levels.is_empty() {
-                    db::persist_lob(sender, inst_id, exchange, ts_ms, "update", &okx_levels).await?;
+                    db::persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &okx_levels).await?;
                 }
             }
             MessageType::Trade => {
@@ -384,7 +388,7 @@ impl KrakenClient {
                     if let Some(trade) = msg.data.first().and_then(|d| {
                         serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
                     }) {
-                        db::persist_trade(sender, symbol, exchange, &trade.trade_id, trade.price, trade.qty, &trade.side, ts_ms)
+                        db::persist_trade(sender, cli_inst_id, exchange, &trade.trade_id, trade.price, trade.qty, &trade.side, ts_ms)
                             .await?;
                     }
                 }
