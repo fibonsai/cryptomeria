@@ -12,8 +12,6 @@ use std::sync::Arc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
-const WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/public";
-
 /// Subscribe message builder — pure function, testable without I/O.
 pub fn build_subscribe_msg(channel: &str, instrument: &str) -> String {
     serde_json::json!({
@@ -36,6 +34,7 @@ pub fn display_message(msg: &OkxWsMessage) -> String {
 pub struct OkxClient {
     pub instrument: String,
     pub exchange: String,
+    pub region: String,
     pub cli_instrument: String,
     pub show_top_pct: f64,
     pub messages_received: Arc<AtomicU64>,
@@ -56,12 +55,13 @@ impl ExchangeClientBuilder for OkxClient {
 }
 
 impl OkxClient {
-    pub fn new(instrument: &str, exchange: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
+    pub fn new(instrument: &str, exchange: &str, region: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
         let registry = Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         Self {
             instrument: instrument.to_string(),
             exchange: exchange.to_string(),
+            region: region.to_string(),
             cli_instrument: String::new(),
             show_top_pct,
             messages_received: Arc::new(AtomicU64::new(0)),
@@ -144,10 +144,11 @@ impl OkxClient {
 
         loop {
             // Attempt connection
-            let ws_stream = match connect_async(WS_URL).await {
+            let ws_url = crate::urls::websocket_url(&self.region, &self.exchange);
+            let ws_stream = match connect_async(ws_url).await {
                 Ok((stream, _)) => {
                     attempt = 0;
-                    eprintln!("[CONNECTED] {}", WS_URL);
+                    eprintln!("[CONNECTED] {}", ws_url);
                     stream
                 }
                 Err(e) => {
@@ -455,9 +456,10 @@ mod tests {
 
     #[test]
     fn test_client_new_sets_instrument() {
-        let client = OkxClient::new("ETH-USDT", "okx", 0.1, false, "http::addr=localhost:9000;");
+        let client = OkxClient::new("ETH-USDT", "okx", "europe", 0.1, false, "http::addr=localhost:9000;");
         assert_eq!(client.instrument, "ETH-USDT");
         assert_eq!(client.exchange, "okx");
+        assert_eq!(client.region, "europe");
         assert!((client.show_top_pct - 0.1).abs() < f64::EPSILON);
     }
 
@@ -511,31 +513,31 @@ mod tests {
 
     #[test]
     fn test_client_retention_window() {
-        let client = OkxClient::new("BTC-USDT", "okx", 0.1, false, "http::addr=localhost:9000;").with_retention_window(60);
+        let client = OkxClient::new("BTC-USDT", "okx", "europe", 0.1, false, "http::addr=localhost:9000;").with_retention_window(60);
         assert_eq!(client.retention_window, Some(60));
     }
 
     #[test]
     fn test_client_default_no_retention() {
-        let client = OkxClient::new("BTC-USDT", "okx", 0.1, false, "http::addr=localhost:9000;");
+        let client = OkxClient::new("BTC-USDT", "okx", "europe", 0.1, false, "http::addr=localhost:9000;");
         assert_eq!(client.retention_window, None);
     }
 
     #[test]
     fn test_client_data_output_default_is_false() {
-        let client = OkxClient::new("BTC-USDT", "okx", 0.1, false, "http::addr=localhost:9000;");
+        let client = OkxClient::new("BTC-USDT", "okx", "europe", 0.1, false, "http::addr=localhost:9000;");
         assert!(!client.data_output);
     }
 
     #[test]
     fn test_client_data_output_true() {
-        let client = OkxClient::new("BTC-USDT", "okx", 0.1, true, "http::addr=localhost:9000;");
+        let client = OkxClient::new("BTC-USDT", "okx", "europe", 0.1, true, "http::addr=localhost:9000;");
         assert!(client.data_output);
     }
 
     #[test]
     fn test_client_with_data_output_builder() {
-        let client = OkxClient::new("BTC-USDT", "okx", 0.1, false, "http::addr=localhost:9000;")
+        let client = OkxClient::new("BTC-USDT", "okx", "europe", 0.1, false, "http::addr=localhost:9000;")
             .with_data_output(true);
         assert!(client.data_output);
     }

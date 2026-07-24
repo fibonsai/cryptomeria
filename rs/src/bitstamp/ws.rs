@@ -12,10 +12,6 @@ use std::sync::Arc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
-const REST_BASE: &str = "https://www.bitstamp.net/api/v2";
-
-const WS_URL: &str = "wss://ws.bitstamp.net";
-
 /// Convert an instrument ID to Bitstamp channel format (lowercase, no separators).
 /// e.g. "BTC/USD" -> "btcusd", "BTC-USD" -> "btcusd", "btcusd" -> "btcusd"
 fn instrument_to_channel(instrument: &str) -> String {
@@ -41,6 +37,7 @@ pub struct BitstampClient {
     pub instrument: String,
     pub channel_instrument: String,
     pub exchange: String,
+    pub region: String,
     pub cli_instrument: String,
     pub show_top_pct: f64,
     pub messages_received: Arc<AtomicU64>,
@@ -61,7 +58,7 @@ impl ExchangeClientBuilder for BitstampClient {
 }
 
 impl BitstampClient {
-    pub fn new(instrument: &str, exchange: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
+    pub fn new(instrument: &str, exchange: &str, region: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
         let registry = Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         let channel_instrument = instrument_to_channel(instrument);
@@ -69,6 +66,7 @@ impl BitstampClient {
             instrument: instrument.to_string(),
             channel_instrument,
             exchange: exchange.to_string(),
+            region: region.to_string(),
             cli_instrument: String::new(),
             show_top_pct,
             messages_received: Arc::new(AtomicU64::new(0)),
@@ -132,10 +130,11 @@ impl BitstampClient {
         )?;
 
         loop {
-            let ws_stream = match connect_async(WS_URL).await {
+            let ws_url = crate::urls::websocket_url(&self.region, &self.exchange);
+            let ws_stream = match connect_async(ws_url).await {
                 Ok((stream, _)) => {
                     attempt = 0;
-                    eprintln!("[CONNECTED] {}", WS_URL);
+                    eprintln!("[CONNECTED] {}", ws_url);
                     stream
                 }
                 Err(e) => {
@@ -259,7 +258,8 @@ if let Some(sender) = self.sender.as_mut() {
                                                 if subscription_confirmed && !snapshot_applied && !snapshot_attempted {
                                                     snapshot_attempted = true;
                                                     eprintln!("[SNAPSHOT] Fetching REST snapshot for {}...", self.channel_instrument);
-                                                    let url = format!("{}/order_book/{}/?group=1", REST_BASE, self.channel_instrument);
+                                                    let rest_base = crate::urls::rest_url(&self.region, &self.exchange);
+                                                    let url = format!("{}/order_book/{}/?group=1", rest_base, self.channel_instrument);
                                                     match reqwest::get(&url).await {
                                                         Ok(resp) => {
                                                             match resp.json::<OrderBookData>().await {
@@ -544,28 +544,29 @@ mod tests {
 
     #[test]
     fn test_client_new_sets_instrument() {
-        let client = BitstampClient::new("BTC/USD", "bitstamp", 0.1, false, "http::addr=localhost:9000;");
+        let client = BitstampClient::new("BTC/USD", "bitstamp", "europe", 0.1, false, "http::addr=localhost:9000;");
         assert_eq!(client.instrument, "BTC/USD");
         assert_eq!(client.channel_instrument, "btcusd");
         assert_eq!(client.exchange, "bitstamp");
+        assert_eq!(client.region, "europe");
     }
 
     #[test]
     fn test_client_retention_window() {
-        let client = BitstampClient::new("BTC/USD", "bitstamp", 0.1, false, "http::addr=localhost:9000;")
+        let client = BitstampClient::new("BTC/USD", "bitstamp", "europe", 0.1, false, "http::addr=localhost:9000;")
             .with_retention_window(60);
         assert_eq!(client.retention_window, Some(60));
     }
 
     #[test]
     fn test_client_data_output_default_is_false() {
-        let client = BitstampClient::new("BTC/USD", "bitstamp", 0.1, false, "http::addr=localhost:9000;");
+        let client = BitstampClient::new("BTC/USD", "bitstamp", "europe", 0.1, false, "http::addr=localhost:9000;");
         assert!(!client.data_output);
     }
 
     #[test]
     fn test_client_data_output_true() {
-        let client = BitstampClient::new("BTC/USD", "bitstamp", 0.1, true, "http::addr=localhost:9000;");
+        let client = BitstampClient::new("BTC/USD", "bitstamp", "europe", 0.1, true, "http::addr=localhost:9000;");
         assert!(client.data_output);
     }
 

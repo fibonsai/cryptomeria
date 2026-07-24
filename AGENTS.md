@@ -57,7 +57,7 @@ python/
 ├── tests/test_lob.py         # Fixtures via pa.Table.from_pylist() → temp dirs
 ├── main.py                   # Research entry point (empty)
 rs/
-├── src/main.rs               # CLI entry (clap args, --exchange flag, okx/kraken/bitstamp dispatch)
+├── src/main.rs               # CLI entry (clap args, --exchange/--region flags, okx/kraken/bitstamp dispatch)
 ├── src/traits/               # Shared traits + utilities (OrderBook, LobMetrics, backoff, signal)
 ├── src/okx/types.rs          # OKX WS message types + JSON parsing + display
 ├── src/okx/ws.rs             # OKX WS client + pure helpers
@@ -68,6 +68,7 @@ rs/
 ├── src/bitstamp/types.rs     # Bitstamp WS message types + JSON parsing + display
 ├── src/bitstamp/ws.rs        # Bitstamp WS client (diff_order_book + REST snapshot reconciliation)
 ├── src/bitstamp/lob.rs       # Bitstamp OrderBook: apply_snapshot (REST) + apply_diff (WS diff_order_book)
+├── src/urls.rs               # EXCHANGE_URL dict: region->exchange->{websocket,rest}
 ├── tests/okx_integration.rs  # #[ignore] E2E test (needs network)
 ├── tests/kraken_integration.rs # #[ignore] E2E test (needs network)
 └── tests/bitstamp_integration.rs # #[ignore] E2E test (needs network)
@@ -75,7 +76,7 @@ rs/
 
 **Python package** is `cryptomeria` (src layout in `python/`). Tests discovered from `python/`, not inside package.
 
-**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod traits`, `pub mod bitstamp`, `pub mod okx`, `pub mod kraken`.
+**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod traits`, `pub mod bitstamp`, `pub mod kraken`, `pub mod okx`, `pub mod db`, `pub mod urls`.
 
 ---
 
@@ -152,6 +153,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | 019 | Instrument mapping via external config file | `docs/ADR-019-...` |
 | 020 | `--list-instruments` CLI flag for mapping discovery | `docs/ADR-020-...` |
 | 021 | Instrument fallback rules and lowercase inst_id persistence | `docs/ADR-021-...` |
+| 022 | Region-based exchange URL configuration | `docs/ADR-022-...` |
 
 ---
 
@@ -195,6 +197,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | Run Rust WS client (Bitstamp) | `cargo run -- --exchange bitstamp btc/usd` |
 | Run Rust WS client (Bitstamp, custom) | `cargo run -- --exchange bitstamp eth/usd --show-top-pct 0.5` |
 | List supported instrument mappings | `cargo run -- --list-instruments` |
+| Run with global endpoint | `cargo run -- --region global` |
 | Single Python test | `uv run pytest python/tests/test_lob.py::test_name -v` |
 | Single Rust test | `cargo test test_name` |
 | Format all | `make format` |
@@ -205,7 +208,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 
 ## Rust-Specific Notes
 
-- **Entry point**: `rs/src/main.rs` parses CLI via `clap` with `--exchange` (okx/kraken/bitstamp), `--show-top-pct`, `--questdb-conf`, `--retention-window`, `--metrics-port`, `--data-output`, `--list-instruments` flags
+- **Entry point**: `rs/src/main.rs` parses CLI via `clap` with `--exchange` (okx/kraken/bitstamp), `--region` (europe/global), `--show-top-pct`, `--questdb-conf`, `--retention-window`, `--metrics-port`, `--data-output`, `--list-instruments` flags
 - **WS clients**: All three exchange clients share the same architecture via shared traits/utilities (ADR-017): exponential backoff with jitter reconnection (ADR-012), graceful shutdown on SIGINT/SIGTERM (ADR-014), heartbeat handling (Kraken), diff_order_book + REST snapshot reconciliation (Bitstamp, ADR-018)
 - **Instrument resolution**: `resolve_instrument()` in `main.rs` implements a currency fallback chain (USDC→USDT→USD) (ADR-021). `cli_inst_id` (lowercase, no separator) is threaded through `ExchangeClientBuilder` for consistent DB persistence.
 - **LOB state**: OKX and Kraken use `BTreeMap<OrderedFloat<f64>, f64>` (ADR-002); Bitstamp uses `BTreeMap` aggregation with `apply_snapshot()` (REST) + `apply_diff()` (WS diff_order_book, ADR-018)

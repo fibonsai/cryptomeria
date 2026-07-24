@@ -235,6 +235,10 @@ cargo run -- --show-top-pct 0.01 XRP-USDT
 
 # List all supported instrument mappings across exchanges
 cargo run -- --list-instruments
+
+# Connect to the Europe endpoint (default) vs global
+cargo run -- --region europe
+cargo run -- --region global
 ```
 
 The `--instrument` flag accepts a generic instrument name (e.g., `BTC/USDT`) and resolves it to the exchange-specific symbol using embedded aliases (compiled into the binary, covering OKX, Kraken, and Bitstamp). The `symbol@exchange_id` format overrides the `--exchange` flag. If no alias is found, the raw name is formatted per exchange conventions (uppercase/dash for OKX, uppercase/slash for Kraken, lowercase/no separator for Bitstamp).
@@ -292,7 +296,8 @@ Each exchange exposes order book and trade data through different WebSocket chan
 
 | Aspect | OKX | Kraken | Bitstamp |
 |--------|-----|--------|----------|
-| **WS URL** | `wss://ws.okx.com:8443/ws/v5/public` | `wss://ws.kraken.com/v2` | `wss://ws.bitstamp.net` |
+| **WS URL (global)** | `wss://ws.okx.com:8443/ws/v5/public` | `wss://ws.kraken.com/v2` | `wss://ws.bitstamp.net` |
+| **WS URL (europe)** | `wss://wseea.okx.com:8443/ws/v5/public` | `wss://ws.kraken.com/v2` | `wss://ws.bitstamp.net` |
 | **LOB Channel** | `books` | `book` | `diff_order_book_[market]` |
 | **Trade Channel** | `trades` | `trade` | `live_trades_[market]` |
 | **LOB Delivery** | Snapshot + incremental updates | Snapshot + incremental updates | Diff-only (no WS snapshot) |
@@ -349,7 +354,7 @@ This process runs on every (re)connection to guarantee state consistency.
 | Mature, well-documented API | Checksum available but adds overhead to verify |
 | Standard snapshot+update delivery | Instrument format `-` separator differs from industry norm `/` |
 | Order-level detail (count, orders) per price level | 400-level max depth may not suit all strategies |
-| Server-side Pong handled transparently | European OKX domain for non-EU users |
+| Server-side Pong handled transparently |  |
 
 Best suited for: Primary execution venue, strategies requiring per-level order metadata, derivatives trading.
 
@@ -382,7 +387,7 @@ Best suited for: Strategies requiring full depth, venue arbitrage, pairs with hi
 - **Need full book depth from WS without REST?** → OKX or Kraken (native WS snapshots)
 - **Low latency / microsecond precision?** → Bitstamp (microsecond timestamps)
 - **Value checksum verification?** → OKX or Kraken (both provide checksums)
-- **Running in Europe?** → OKX (European exchange, lower latency for EU-based servers)
+- **Running in Europe?** → OKX with `--region europe` (default, uses `wseea.okx.com` for lower latency). Use `--region global` for the global endpoint.
 
 ## Grafana LOB Visualization
 
