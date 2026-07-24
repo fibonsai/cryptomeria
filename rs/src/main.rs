@@ -274,21 +274,27 @@ fn print_instrument_table() {
 
         let check_fallback = |exchange: &str, desired_target: &str, val: &mut String, note: &mut String| {
             let mut available_targets: Vec<&str> = Vec::new();
+            let mut has_exact_match = false;
 
             for (ab, at, ae) in COIN_ALIASES {
                 if *ae == exchange && normalize_base(ab) == base_norm.as_str() {
                     if at.eq_ignore_ascii_case(desired_target) {
                         *val = format_instrument(&format!("{}-{}", ab, at), exchange);
+                        has_exact_match = true;
                     }
                     available_targets.push(at);
                 }
             }
 
-            if val == "not supported" {
+            if !has_exact_match {
                 if let Some(fallback_target) = find_fallback_target(desired_target, &available_targets) {
                     let fallback_formatted = format_instrument(&format!("{}-{}", base_norm, fallback_target), exchange);
                     *val = fallback_formatted;
                     *note = format!("{}->{}&", desired_target, fallback_target);
+                } else if val == "not supported" {
+                    // No alias and no fallback -> raw formatting
+                    *val = format_instrument(&format!("{}-{}", base_norm, desired_target), exchange);
+                    *note = "raw format (not in aliases)".to_string();
                 }
             }
         };
