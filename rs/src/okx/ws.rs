@@ -2,7 +2,7 @@ use crate::db::{persist_lob, persist_trade};
 use crate::db::apply_ttl;
 use crate::okx::lob::OrderBook;
 use crate::okx::types::{MessageType, OkxWsMessage, TradeData};
-use crate::traits::{self, ExchangeClientBuilder, LobMetrics, StatusHandle, backoff_delay};
+use crate::traits::{self, ExchangeClientBuilder, ClientStatus, LobMetrics, StatusHandle, backoff_delay};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use prometheus::Registry;
@@ -176,6 +176,7 @@ impl OkxClient {
                 Ok((stream, _)) => {
                     attempt = 0;
                     eprintln!("[CONNECTED] {}", ws_url);
+                    self.update_status_active(true, format!("connected"));
                     stream
                 }
                 Err(e) => {
@@ -205,6 +206,7 @@ impl OkxClient {
                 continue;
             }
             eprintln!("[SUBSCRIBED] books {}", self.instrument);
+            self.update_status_active(true, format!("subscribed to books {}", self.instrument));
 
             // Subscribe to trades channel
             let trades_msg = build_subscribe_msg("trades", &self.instrument);
@@ -337,6 +339,7 @@ impl OkxClient {
                 "[DISCONNECTED] attempt {}, reconnecting in {:?}",
                 attempt, delay
             );
+            self.update_status_active(false, format!("disconnected, attempt {}", attempt));
 
             shutdown = traits::signal_sleep(delay, &mut sigterm).await;
 
@@ -371,7 +374,7 @@ impl OkxClient {
         // Update status handle with bid/ask sizes
         if let Some(ref sh) = self.status_handle {
             if let Ok(mut map) = sh.write() {
-                let key = format!("{}@{}", self.instrument, self.exchange);
+                let key = format!("{}@{}", self.cli_instrument, self.exchange);
                 if let Some(status) = map.get_mut(&key) {
                     status.bid_size = order_book.total_bid_size();
                     status.ask_size = order_book.total_ask_size();
@@ -441,6 +444,26 @@ impl OkxClient {
             _ => {}
         }
         Ok(())
+    }
+
+    fn update_status_active(&self, active: bool, detail: String) {
+        if let Some(ref sh) = self.status_handle {
+            if let Ok(mut map) = sh.write() {
+                let key = format!("{}@{}", self.cli_instrument, self.exchange);
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                map.insert(key, ClientStatus {
+                    active,
+                    ts: now,
+                    last_price: None,
+                    bid_size: 0.0,
+                    ask_size: 0.0,
+                    detail,
+                });
+            }
+        }
     }
 
 }
