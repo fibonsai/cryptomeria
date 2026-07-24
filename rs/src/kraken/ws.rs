@@ -243,6 +243,12 @@ impl KrakenClient {
                                                     last_trade_count = 0;
                                                     last_trade_time = std::time::Instant::now();
                                                 }
+                                                // Update last_price in status
+                                                if let Some(trade) = parsed.data.first().and_then(|d| {
+                                                    serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
+                                                }) {
+                                                    self.update_last_price(trade.price);
+                                                }
                                             }
                                             MessageType::Event => {
                                                 if self.data_output {
@@ -401,6 +407,21 @@ impl KrakenClient {
                     ask_size: 0.0,
                     detail,
                 });
+            }
+        }
+    }
+
+    fn update_last_price(&self, price: f64) {
+        if let Some(ref sh) = self.status_handle {
+            if let Ok(mut map) = sh.write() {
+                let key = format!("{}@{}", self.cli_instrument, self.exchange);
+                if let Some(status) = map.get_mut(&key) {
+                    status.last_price = Some(price);
+                    status.ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                }
             }
         }
     }

@@ -151,6 +151,21 @@ impl BitstampClient {
         }
     }
 
+    fn update_last_price(&self, price: f64) {
+        if let Some(ref sh) = self.status_handle {
+            if let Ok(mut map) = sh.write() {
+                let key = format!("{}@{}", self.cli_instrument, self.exchange);
+                if let Some(status) = map.get_mut(&key) {
+                    status.last_price = Some(price);
+                    status.ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                }
+            }
+        }
+    }
+
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.lob_metrics_override.is_none() {
             if let Some(port) = self.metrics_port {
@@ -283,8 +298,16 @@ impl BitstampClient {
                                                         last_trade_time = std::time::Instant::now();
                                                     }
                                                     if let Some(sender) = self.sender.as_mut() {
-                                                        if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
+if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await {
                                                             eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                        }
+                                                    }
+                                                    // Update last_price in status
+                                                    if let Some(trade) = parsed.data.as_ref().and_then(|d| {
+                                                        serde_json::from_value::<TradeData>(d.clone()).ok()
+                                                    }) {
+                                                        if let Ok(px) = trade.price.parse::<f64>() {
+                                                            self.update_last_price(px);
                                                         }
                                                     }
                                                 }
@@ -405,6 +428,12 @@ impl BitstampClient {
                                                         last_trade_count = 0;
                                                         last_trade_time = std::time::Instant::now();
                                                     }
+                                                    // Update last_price in status
+                                                    if let Some(trade) = parsed.data.as_ref().and_then(|d| {
+                                                        serde_json::from_value::<crate::bitstamp::types::TradeData>(d.clone()).ok()
+                                                    }) {
+                                                        self.update_last_price(trade.price.parse().unwrap_or(0.0));
+                                                    }
                                                 }
                                                 MessageType::Event => {
                                                     if self.data_output {
@@ -420,11 +449,11 @@ impl BitstampClient {
                                                 }
                                             }
 
-                                            if let Some(sender) = self.sender.as_mut() {
-                                                if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
-                                                    eprintln!("[DB ERROR] Failed to persist: {}", e);
+if let Some(sender) = self.sender.as_mut() {
+                                                    if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await {
+                                                        eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                    }
                                                 }
-                                            }
                                         }
                                     }
                                     Err(e) => {
@@ -547,6 +576,7 @@ impl BitstampClient {
         exchange: &str,
         cli_inst_id: &str,
         msg: &BitstampWsMessage,
+        status_handle: Option<StatusHandle>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let ts_ms = msg.timestamp_ms().unwrap_or(0);
 
@@ -577,6 +607,19 @@ impl BitstampClient {
                     let side = if trade.trade_type == 0 { "buy" } else { "sell" };
                     persist_trade(sender, cli_inst_id, exchange, &trade.id.to_string(), px, sz, side, ts_ms)
                         .await?;
+                    // Update last_price in status
+                    if let Some(ref sh) = status_handle {
+                        if let Ok(mut map) = sh.write() {
+                            let key = format!("{}@{}", cli_inst_id, exchange);
+                            if let Some(status) = map.get_mut(&key) {
+                                status.last_price = Some(px);
+                                status.ts = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64;
+                            }
+                        }
+                    }
                 }
             }
             _ => {}
