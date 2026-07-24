@@ -136,14 +136,20 @@ fn find_fallback_target<'a>(requested: &str, available: &'a [&str]) -> Option<&'
             }
         }
         _ => {
-            // For other targets, try USDT -> USDC -> USD
-            if has_usdt {
-                Some("USDT")
-            } else if has_usdc {
-                Some("USDC")
-            } else if has_usd {
-                Some("USD")
+            let upper = requested.to_uppercase();
+            if upper == "USDC" || upper == "USDT" || upper == "USD" {
+                // Fallback among stablecoin targets
+                if has_usdt {
+                    Some("USDT")
+                } else if has_usdc {
+                    Some("USDC")
+                } else if has_usd {
+                    Some("USD")
+                } else {
+                    None
+                }
             } else {
+                // Do not fallback for non-stablecoin targets (EUR, GBP, etc.)
                 None
             }
         }
@@ -498,6 +504,34 @@ mod tests {
         assert_eq!(ex, "okx");
     }
 
+    #[test]
+    fn test_resolve_instrument_eur_no_fallback_okx() {
+        let (sym, ex, _) = resolve_instrument("BTC/EUR", "okx");
+        assert_eq!(sym, "BTC/EUR");
+        assert_eq!(ex, "okx");
+    }
+
+    #[test]
+    fn test_resolve_instrument_eur_no_fallback_kraken() {
+        let (sym, ex, _) = resolve_instrument("BTC/EUR", "kraken");
+        assert_eq!(sym, "BTC/EUR");
+        assert_eq!(ex, "kraken");
+    }
+
+    #[test]
+    fn test_resolve_instrument_eur_no_fallback_bitstamp() {
+        let (sym, ex, _) = resolve_instrument("BTC/EUR", "bitstamp");
+        assert_eq!(sym, "btc/eur");
+        assert_eq!(ex, "bitstamp");
+    }
+
+    #[test]
+    fn test_resolve_instrument_gbp_no_fallback_okx() {
+        let (sym, ex, _) = resolve_instrument("BTC/GBP", "okx");
+        assert_eq!(sym, "BTC/GBP");
+        assert_eq!(ex, "okx");
+    }
+
 #[test]
     fn test_resolve_instrument_no_aliases_fallback_kraken() {
         let (sym, ex, _) = resolve_instrument("ETH-USDT", "kraken");
@@ -585,9 +619,9 @@ mod tests {
     }
 
     #[test]
-    fn test_find_fallback_target_other_target_has_usdt() {
+    fn test_find_fallback_target_other_target_no_fallback() {
         let result = find_fallback_target("EUR", &["USDT", "USD"]);
-        assert_eq!(result, Some("USDT"));
+        assert_eq!(result, None);
     }
 
     // --- print_instrument_table smoke test ---
