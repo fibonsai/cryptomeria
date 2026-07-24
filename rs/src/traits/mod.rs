@@ -27,6 +27,7 @@ pub trait ExchangeClientBuilder: Sized {
     fn with_retention_window(self, hours: u64) -> Self;
     fn with_metrics_port(self, port: u16) -> Self;
     fn with_data_output(self, enabled: bool) -> Self;
+    fn with_cli_instrument(self, inst_id: String) -> Self;
 }
 
 /// Exponential backoff with random jitter.

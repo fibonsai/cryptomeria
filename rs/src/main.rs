@@ -41,10 +41,22 @@ fn format_instrument(symbol: &str, exchange: &str) -> String {
 /// - `BTC/USDT` or `BTC-USDT` (generic) — looked up in COIN_ALIASES
 /// - `BTC/USDT@kraken` — overrides `--exchange` with the part after `@`
 ///
-/// Returns (resolved_symbol, effective_exchange).
-fn resolve_instrument(instrument: &str, exchange: &str) -> (String, String) {
+/// Implements currency fallback chain:
+/// 1. Try exact match (current behavior)
+/// 2. If quote is USDC and not found -> try USDT
+/// 3. If quote is USDT and not found -> try USDC
+/// 4. If neither USDC nor USDT found -> try USD
+/// 5. If USD not found -> prioritize USDT then USDC
+/// 6. Finally fall back to raw formatting
+///
+/// Returns (resolved_symbol, effective_exchange, cli_inst_id).
+fn resolve_instrument(instrument: &str, exchange: &str) -> (String, String, String) {
     let (symbol, exchange_override) = parse_exchange_override(instrument);
     let effective_exchange = exchange_override.unwrap_or(exchange).to_lowercase();
+
+    // Generate cli_inst_id from original instrument (lowercase, no separator)
+    let cli_inst_id = symbol.to_lowercase().replace(['/', '-'], "");
+
     let sep = if symbol.contains('/') { '/' } else { '-' };
     let parts: Vec<&str> = symbol.split(sep).collect();
 
@@ -53,20 +65,36 @@ fn resolve_instrument(instrument: &str, exchange: &str) -> (String, String) {
         let target = parts[1].to_uppercase();
         let json_id = map_exchange_to_id(&effective_exchange);
 
-        for (alias_base, alias_target, alias_exchange) in COIN_ALIASES {
-            if *alias_exchange == json_id
-                && alias_base.to_uppercase() == base
-                && alias_target.to_uppercase() == target
-            {
-                let formatted = format_instrument(&format!("{}-{}", base, target), &effective_exchange);
-                let note = if exchange_override.is_some() {
-                    format!("(resolved from {}@{})", symbol, exchange_override.unwrap())
-                } else {
-                    format!("(resolved from {})", symbol)
-                };
-                eprintln!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note);
-                return (formatted, effective_exchange);
-            }
+        // Get available targets for this base on this exchange
+        let available_targets: Vec<&str> = COIN_ALIASES
+            .iter()
+            .filter(|(ab, _, ae)| *ae == json_id && ab.to_uppercase() == base)
+            .map(|(_, at, _)| *at)
+            .collect();
+
+        // Try exact match first
+        if let Some(found) = available_targets.iter().find(|t| t.to_uppercase() == target) {
+            let formatted = format_instrument(&format!("{}-{}", base, found), &effective_exchange);
+            let note = if exchange_override.is_some() {
+                format!("(resolved from {}@{})", symbol, exchange_override.unwrap())
+            } else {
+                format!("(resolved from {})", symbol)
+            };
+            eprintln!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note);
+            return (formatted, effective_exchange, cli_inst_id);
+        }
+
+        // Fallback chain
+        let fallback_target = find_fallback_target(&target, &available_targets);
+        if let Some(fallback) = fallback_target {
+            let formatted = format_instrument(&format!("{}-{}", base, fallback), &effective_exchange);
+            let note = if exchange_override.is_some() {
+                format!("(fallback {}->{} from {}@{})", target, fallback, symbol, exchange_override.unwrap())
+            } else {
+                format!("(fallback {}->{})", target, fallback)
+            };
+            eprintln!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note);
+            return (formatted, effective_exchange, cli_inst_id);
         }
     }
 
@@ -77,7 +105,49 @@ fn resolve_instrument(instrument: &str, exchange: &str) -> (String, String) {
         format!("(raw)")
     };
     eprintln!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note);
-    (formatted, effective_exchange)
+    (formatted, effective_exchange, cli_inst_id)
+}
+
+/// Find fallback target based on priority rules:
+/// 1. If USDC not supported -> USDT
+/// 2. If USDT not supported -> USDC
+/// 3. If neither USDC nor USDT -> USD
+/// 4. If USD not supported -> prioritize USDT then USDC
+fn find_fallback_target<'a>(requested: &str, available: &'a [&str]) -> Option<&'a str> {
+    if available.iter().any(|t| t.eq_ignore_ascii_case(requested)) {
+        return None;
+    }
+
+    let has_usdc = available.iter().any(|t| t.eq_ignore_ascii_case("USDC"));
+    let has_usdt = available.iter().any(|t| t.eq_ignore_ascii_case("USDT"));
+    let has_usd = available.iter().any(|t| t.eq_ignore_ascii_case("USD"));
+
+    match requested {
+        "USDC" if !has_usdc && has_usdt => Some("USDT"),
+        "USDT" if !has_usdt && has_usdc => Some("USDC"),
+        "USDC" | "USDT" if !has_usdc && !has_usdt && has_usd => Some("USD"),
+        "USD" if !has_usd => {
+            if has_usdt {
+                Some("USDT")
+            } else if has_usdc {
+                Some("USDC")
+            } else {
+                None
+            }
+        }
+        _ => {
+            // For other targets, try USDT -> USDC -> USD
+            if has_usdt {
+                Some("USDT")
+            } else if has_usdc {
+                Some("USDC")
+            } else if has_usd {
+                Some("USD")
+            } else {
+                None
+            }
+        }
+    }
 }
 
 /// Cryptomeria — real-time market data client.
@@ -128,6 +198,7 @@ pub struct CliArgs {
 /// Build and print the instrument mapping table grouped by base/target pair.
 /// Normalizes base name aliases (XBT→BTC, XDG→DOGE) to group equivalent pairs
 /// across exchanges into the same row.
+/// Shows fallback availability in notes column.
 fn print_instrument_table() {
     use std::collections::BTreeMap;
 
@@ -158,10 +229,13 @@ fn print_instrument_table() {
         let canonical = format!("{}/{}", base_norm, target);
 
         let mut okx_val = "not supported".to_string();
+        let mut okx_note = String::new();
         let mut kraken_val = "not supported".to_string();
+        let mut kraken_note = String::new();
         let mut bitstamp_val = "not supported".to_string();
-        let mut notes: Vec<String> = Vec::new();
+        let mut bitstamp_note = String::new();
 
+        // Process each exchange's actual offerings
         for (exchange, orig_base, orig_target) in entries {
             let formatted = format_instrument(&format!("{}-{}", orig_base, orig_target), exchange);
             match *exchange {
@@ -172,21 +246,80 @@ fn print_instrument_table() {
             }
             if *orig_base != *base_norm {
                 match *exchange {
-                    "kraken" => notes.push(format!("kraken uses {} for {}", orig_base, base_norm)),
-                    "bitstamp" => notes.push(format!("bitstamp uses {} for {}", orig_base, base_norm)),
+                    "kraken" => {
+                        if kraken_note.is_empty() {
+                            kraken_note = format!("kraken uses {} for {}", orig_base, base_norm);
+                        } else {
+                            kraken_note = format!("{}; kraken uses {} for {}", kraken_note, orig_base, base_norm);
+                        }
+                    }
+                    "bitstamp" => {
+                        if bitstamp_note.is_empty() {
+                            bitstamp_note = format!("bitstamp uses {} for {}", orig_base, base_norm);
+                        } else {
+                            bitstamp_note = format!("{}; bitstamp uses {} for {}", bitstamp_note, orig_base, base_norm);
+                        }
+                    }
                     _ => {}
                 }
             }
         }
 
-        notes.dedup();
+
+        let check_fallback = |exchange: &str, desired_target: &str, val: &mut String, note: &mut String| {
+            let mut available_targets: Vec<&str> = Vec::new();
+
+            for (ab, at, ae) in COIN_ALIASES {
+                if *ae == exchange && normalize_base(ab) == base_norm.as_str() {
+                    if at.eq_ignore_ascii_case(desired_target) {
+                        *val = format_instrument(&format!("{}-{}", ab, at), exchange);
+                    }
+                    available_targets.push(at);
+                }
+            }
+
+            if val == "not supported" {
+                if let Some(fallback_target) = find_fallback_target(desired_target, &available_targets) {
+                    let fallback_formatted = format_instrument(&format!("{}-{}", base_norm, fallback_target), exchange);
+                    *val = fallback_formatted;
+                    *note = format!("{}->{}&", desired_target, fallback_target);
+                }
+            }
+        };
+
+        // Check what each exchange would actually provide for this row's request
+        check_fallback("okx", &target, &mut okx_val, &mut okx_note);
+        check_fallback("kraken", &target, &mut kraken_val, &mut kraken_note);
+        check_fallback("bitstamp", &target, &mut bitstamp_val, &mut bitstamp_note);
+
+        // Clean up notes (remove trailing &)
+        if okx_note.ends_with('&') {
+            okx_note.pop();
+        }
+        if kraken_note.ends_with('&') {
+            kraken_note.pop();
+        }
+        if bitstamp_note.ends_with('&') {
+            bitstamp_note.pop();
+        }
+
+        let mut all_notes = Vec::new();
+        if !okx_note.is_empty() {
+            all_notes.push(format!("OKX: {}", okx_note));
+        }
+        if !kraken_note.is_empty() {
+            all_notes.push(format!("KRAKEN: {}", kraken_note));
+        }
+        if !bitstamp_note.is_empty() {
+            all_notes.push(format!("BITSTAMP: {}", bitstamp_note));
+        }
 
         table.add_row(Row::new(vec![
             cell!(&canonical),
             cell!(&okx_val),
             cell!(&kraken_val),
             cell!(&bitstamp_val),
-            cell!(&notes.join("; ")),
+            cell!(&all_notes.join(" | ")),
         ]));
     }
 
@@ -212,7 +345,10 @@ async fn main() {
     let show_top_pct = cli.show_top_pct;
     let data_output = cli.data_output;
 
-    let (instrument, exchange) = resolve_instrument(&cli.instrument, &cli.exchange);
+    // Generate cli_inst_id from original CLI instrument (lowercase, no separator)
+    let cli_inst_id = cli.instrument.to_lowercase().replace(['/', '-'], "");
+
+    let (instrument, exchange, _resolved_from) = resolve_instrument(&cli.instrument, &cli.exchange);
 
     let ws_url = match exchange.as_str() {
         "kraken" => "wss://ws.kraken.com/v2",
@@ -246,7 +382,8 @@ async fn main() {
 
     match exchange.as_str() {
         "kraken" => {
-            let mut client = KrakenClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf);
+            let mut client = KrakenClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf)
+                .with_cli_instrument(cli_inst_id);
             if let Some(sender) = sender {
                 client = client.with_sender(sender);
             }
@@ -261,7 +398,8 @@ async fn main() {
             }
         }
         "bitstamp" => {
-            let mut client = BitstampClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf);
+            let mut client = BitstampClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf)
+                .with_cli_instrument(cli_inst_id);
             if let Some(sender) = sender {
                 client = client.with_sender(sender);
             }
@@ -276,7 +414,8 @@ async fn main() {
             }
         }
         _ => {
-            let mut client = OkxClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf);
+            let mut client = OkxClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf)
+                .with_cli_instrument(cli_inst_id);
             if let Some(sender) = sender {
                 client = client.with_sender(sender);
             }
@@ -354,51 +493,109 @@ mod tests {
 
     #[test]
     fn test_resolve_instrument_no_aliases_fallback_okx() {
-        let (sym, ex) = resolve_instrument("ETH-USDT", "okx");
+        let (sym, ex, _) = resolve_instrument("ETH-USDT", "okx");
         assert_eq!(sym, "ETH-USDT");
         assert_eq!(ex, "okx");
     }
 
-    #[test]
+#[test]
     fn test_resolve_instrument_no_aliases_fallback_kraken() {
-        let (sym, ex) = resolve_instrument("ETH-USDT", "kraken");
-        assert_eq!(sym, "ETH/USDT");
+        let (sym, ex, _) = resolve_instrument("ETH-USDT", "kraken");
+        assert_eq!(sym, "ETH/USD");
         assert_eq!(ex, "kraken");
     }
 
-    #[test]
+#[test]
     fn test_resolve_instrument_no_aliases_fallback_bitstamp() {
-        let (sym, ex) = resolve_instrument("ETH-USDT", "bitstamp");
-        assert_eq!(sym, "eth-usdt");
+        let (sym, ex, _) = resolve_instrument("ETH-USDT", "bitstamp");
+        assert_eq!(sym, "eth-usd");
         assert_eq!(ex, "bitstamp");
     }
 
     #[test]
     fn test_resolve_instrument_at_overrides_exchange() {
-        let (sym, ex) = resolve_instrument("ETH-USDT@kraken", "okx");
-        assert_eq!(sym, "ETH/USDT");
+        let (sym, ex, _) = resolve_instrument("ETH-USDT@kraken", "okx");
+        assert_eq!(sym, "ETH/USD");
         assert_eq!(ex, "kraken");
     }
 
     #[test]
     fn test_resolve_instrument_with_known_alias_okx() {
-        let (sym, ex) = resolve_instrument("BTC/USDT", "okx");
+        let (sym, ex, _) = resolve_instrument("BTC/USDT", "okx");
         assert_eq!(sym, "BTC-USDT");
         assert_eq!(ex, "okx");
     }
 
     #[test]
     fn test_resolve_instrument_with_alias_at_overrides() {
-        let (sym, ex) = resolve_instrument("XBT/USD@kraken", "okx");
+        let (sym, ex, _) = resolve_instrument("XBT/USD@kraken", "okx");
         assert_eq!(sym, "XBT/USD");
         assert_eq!(ex, "kraken");
     }
 
     #[test]
     fn test_resolve_instrument_unmatched_fallback() {
-        let (sym, ex) = resolve_instrument("SOL-USDT", "okx");
+        let (sym, ex, _) = resolve_instrument("SOL-USDT", "okx");
         assert_eq!(sym, "SOL-USDT");
         assert_eq!(ex, "okx");
+    }
+
+    // --- find_fallback_target tests ---
+
+    #[test]
+    fn test_find_fallback_target_usdc_to_usdt() {
+        let result = find_fallback_target("USDC", &["USDT", "USD"]);
+        assert_eq!(result, Some("USDT"));
+    }
+
+    #[test]
+    fn test_find_fallback_target_usdt_to_usdc() {
+        let result = find_fallback_target("USDT", &["USDC", "USD"]);
+        assert_eq!(result, Some("USDC"));
+    }
+
+    #[test]
+    fn test_find_fallback_target_usdc_usdt_to_usd() {
+        let result = find_fallback_target("USDC", &["USD"]);
+        assert_eq!(result, Some("USD"));
+    }
+
+    #[test]
+    fn test_find_fallback_target_usd_to_usdt() {
+        let result = find_fallback_target("USD", &["USDT"]);
+        assert_eq!(result, Some("USDT"));
+    }
+
+    #[test]
+    fn test_find_fallback_target_usd_to_usdc() {
+        let result = find_fallback_target("USD", &["USDC"]);
+        assert_eq!(result, Some("USDC"));
+    }
+
+    #[test]
+    fn test_find_fallback_target_exact_match() {
+        let result = find_fallback_target("USDC", &["USDC", "USDT"]);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_fallback_target_no_fallback() {
+        let result = find_fallback_target("EUR", &[]);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_fallback_target_other_target_has_usdt() {
+        let result = find_fallback_target("EUR", &["USDT", "USD"]);
+        assert_eq!(result, Some("USDT"));
+    }
+
+    // --- print_instrument_table smoke test ---
+
+    #[test]
+    fn test_print_instrument_table_does_not_panic() {
+        // Verify the table builds and prints without panicking
+        print_instrument_table();
     }
 
     // --- clap derive tests (instrument + show_top_pct) ---

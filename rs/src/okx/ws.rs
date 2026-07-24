@@ -36,6 +36,7 @@ pub fn display_message(msg: &OkxWsMessage) -> String {
 pub struct OkxClient {
     pub instrument: String,
     pub exchange: String,
+    pub cli_instrument: String,
     pub show_top_pct: f64,
     pub messages_received: Arc<AtomicU64>,
     pub retention_window: Option<u64>,
@@ -51,6 +52,7 @@ impl ExchangeClientBuilder for OkxClient {
     fn with_retention_window(self, hours: u64) -> Self { OkxClient::with_retention_window(self, hours) }
     fn with_metrics_port(self, port: u16) -> Self { OkxClient::with_metrics_port(self, port) }
     fn with_data_output(self, enabled: bool) -> Self { OkxClient::with_data_output(self, enabled) }
+    fn with_cli_instrument(self, inst_id: String) -> Self { OkxClient::with_cli_instrument(self, inst_id) }
 }
 
 impl OkxClient {
@@ -60,6 +62,7 @@ impl OkxClient {
         Self {
             instrument: instrument.to_string(),
             exchange: exchange.to_string(),
+            cli_instrument: String::new(),
             show_top_pct,
             messages_received: Arc::new(AtomicU64::new(0)),
             retention_window: None,
@@ -92,6 +95,12 @@ impl OkxClient {
     /// Enable or disable output of LOB/trade data to stdout.
     pub fn with_data_output(mut self, enabled: bool) -> Self {
         self.data_output = enabled;
+        self
+    }
+
+    /// Set the CLI instrument ID for database persistence (lowercase, no separator).
+    pub fn with_cli_instrument(mut self, inst_id: String) -> Self {
+        self.cli_instrument = inst_id;
         self
     }
 
@@ -246,7 +255,7 @@ impl OkxClient {
 
                                         // Persist to QuestDB if sender is configured
                                         if let Some(sender) = self.sender.as_mut() {
-                                            if let Err(e) = Self::persist_message(sender, &self.exchange, &parsed).await {
+                                            if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
                                                 eprintln!("[DB ERROR] Failed to persist: {}", e);
                                             }
                                         }
@@ -354,22 +363,22 @@ impl OkxClient {
     async fn persist_message(
         sender: &mut Sender,
         exchange: &str,
+        cli_inst_id: &str,
         msg: &OkxWsMessage,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let inst_id = msg.arg.as_ref().map(|a| a.inst_id.as_str()).unwrap_or("?");
         let ts_ms = msg.timestamp_ms().unwrap_or(0);
 
         match msg.message_type() {
             MessageType::L2Snapshot => {
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
-                    persist_lob(sender, inst_id, exchange, ts_ms, "snapshot", &levels).await?;
+                    persist_lob(sender, cli_inst_id, exchange, ts_ms, "snapshot", &levels).await?;
                 }
             }
             MessageType::L2Update => {
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
-                    persist_lob(sender, inst_id, exchange, ts_ms, "update", &levels).await?;
+                    persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &levels).await?;
                 }
             }
             MessageType::Trade => {
@@ -378,7 +387,7 @@ impl OkxClient {
                 }) {
                     let px = trade.px.parse().unwrap_or(0.0);
                     let sz = trade.sz.parse().unwrap_or(0.0);
-                    persist_trade(sender, inst_id, exchange, &trade.trade_id, px, sz, &trade.side, ts_ms)
+                    persist_trade(sender, cli_inst_id, exchange, &trade.trade_id, px, sz, &trade.side, ts_ms)
                         .await?;
                 }
             }
