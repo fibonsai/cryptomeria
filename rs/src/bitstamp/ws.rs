@@ -2,7 +2,7 @@ use crate::bitstamp::lob::OrderBook;
 use crate::bitstamp::types::{display_message, BitstampWsMessage, MessageType, OrderBookData, TradeData};
 use crate::db::{persist_lob, persist_trade};
 use crate::db::apply_ttl;
-use crate::traits::{self, ExchangeClientBuilder, LobMetrics, backoff_delay};
+use crate::traits::{self, ExchangeClientBuilder, ClientStatus, LobMetrics, StatusHandle, backoff_delay};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use prometheus::Registry;
@@ -46,7 +46,9 @@ pub struct BitstampClient {
     pub data_output: bool,
     pub lob_metrics: Arc<LobMetrics>,
     pub questdb_conf: String,
-    sender: Option<Sender>,
+    pub sender: Option<Sender>,
+    pub lob_metrics_override: Option<Arc<LobMetrics>>,
+    pub status_handle: Option<StatusHandle>,
 }
 
 impl ExchangeClientBuilder for BitstampClient {
@@ -55,6 +57,8 @@ impl ExchangeClientBuilder for BitstampClient {
     fn with_metrics_port(self, port: u16) -> Self { BitstampClient::with_metrics_port(self, port) }
     fn with_data_output(self, enabled: bool) -> Self { BitstampClient::with_data_output(self, enabled) }
     fn with_cli_instrument(self, inst_id: String) -> Self { BitstampClient::with_cli_instrument(self, inst_id) }
+    fn with_lob_metrics(self, metrics: Arc<LobMetrics>) -> Self { BitstampClient::with_lob_metrics(self, metrics) }
+    fn with_status_handle(self, handle: StatusHandle) -> Self { BitstampClient::with_status_handle(self, handle) }
 }
 
 impl BitstampClient {
@@ -76,6 +80,8 @@ impl BitstampClient {
             lob_metrics,
             questdb_conf: questdb_conf.to_string(),
             sender: None,
+            lob_metrics_override: None,
+            status_handle: None,
         }
     }
 
@@ -104,15 +110,51 @@ impl BitstampClient {
         self
     }
 
+    pub fn with_lob_metrics(mut self, metrics: Arc<LobMetrics>) -> Self {
+        self.lob_metrics_override = Some(metrics);
+        self
+    }
+
+    pub fn with_status_handle(mut self, handle: StatusHandle) -> Self {
+        self.status_handle = Some(handle);
+        self
+    }
+
+    fn metrics(&self) -> &LobMetrics {
+        self.lob_metrics_override.as_ref().unwrap_or(&self.lob_metrics)
+    }
+
+    fn update_status_active(&self, active: bool, detail: String) {
+        if let Some(ref sh) = self.status_handle {
+            if let Ok(mut map) = sh.write() {
+                let key = format!("{}@{}", self.instrument, self.exchange);
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                map.insert(key, ClientStatus {
+                    active,
+                    ts: now,
+                    last_price: None,
+                    bid_size: 0.0,
+                    ask_size: 0.0,
+                    detail,
+                });
+            }
+        }
+    }
+
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(port) = self.metrics_port {
-            let lob_metrics = self.lob_metrics.clone();
-            std::thread::spawn(move || {
-                let system = actix_web::rt::System::new();
-                if let Err(e) = system.block_on(LobMetrics::start_metrics_server(port, lob_metrics)) {
-                    eprintln!("[METRICS] Server error: {}", e);
-                }
-            });
+        if self.lob_metrics_override.is_none() {
+            if let Some(port) = self.metrics_port {
+                let lob_metrics = self.lob_metrics.clone();
+                std::thread::spawn(move || {
+                    let system = actix_web::rt::System::new();
+                    if let Err(e) = system.block_on(LobMetrics::start_metrics_server(port, lob_metrics)) {
+                        eprintln!("[METRICS] Server error: {}", e);
+                    }
+                });
+            }
         }
 
         if let Some(hours) = self.retention_window {
@@ -135,6 +177,7 @@ impl BitstampClient {
                 Ok((stream, _)) => {
                     attempt = 0;
                     eprintln!("[CONNECTED] {}", ws_url);
+                    self.update_status_active(true, format!("connected to {}", ws_url));
                     stream
                 }
                 Err(e) => {
@@ -144,6 +187,7 @@ impl BitstampClient {
                         "[CONNECT ERROR] {} — attempt {}, reconnecting in {:?}",
                         e, attempt, delay
                     );
+                    self.update_status_active(false, format!("connect error, attempt {}", attempt));
                     shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                     continue;
                 }
@@ -165,6 +209,7 @@ impl BitstampClient {
                 continue;
             }
             eprintln!("[SUBSCRIBED] {}", orders_channel);
+            self.update_status_active(true, format!("subscribed to {}", orders_channel));
 
             // Subscribe to live_trades channel
             let trades_channel = format!("live_trades_{}", self.channel_instrument);
@@ -220,21 +265,21 @@ impl BitstampClient {
                                                         let line = display_message(&parsed);
                                                         println!("{}", line);
                                                     }
-                                                    self.lob_metrics.trades_total.inc();
+                                                    self.metrics().trades_total.with_label_values(&[&self.exchange, &self.instrument]).inc();
                                                     last_trade_count += 1;
                                                     let elapsed = last_trade_time.elapsed();
                                                     if elapsed >= std::time::Duration::from_secs(1) {
                                                         let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                                        self.lob_metrics.trades_per_second
+                                                        self.metrics().trades_per_second
                                                             .store(f64::to_bits(rate), Ordering::Relaxed);
                                                         last_trade_count = 0;
                                                         last_trade_time = std::time::Instant::now();
                                                     }
-if let Some(sender) = self.sender.as_mut() {
-    if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
-        eprintln!("[DB ERROR] Failed to persist: {}", e);
-    }
-}
+                                                    if let Some(sender) = self.sender.as_mut() {
+                                                        if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
+                                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                        }
+                                                    }
                                                 }
                                                 MessageType::Event => {
                                                     if parsed.event.as_deref() == Some("bts:subscription_succeeded") {
@@ -254,76 +299,76 @@ if let Some(sender) = self.sender.as_mut() {
                                                 MessageType::L2Snapshot => {}
                                             }
 
-// Fetch snapshot once subscription is confirmed (one attempt per connection)
-                                                if subscription_confirmed && !snapshot_applied && !snapshot_attempted {
-                                                    snapshot_attempted = true;
-                                                    eprintln!("[SNAPSHOT] Fetching REST snapshot for {}...", self.channel_instrument);
-                                                    let rest_base = crate::urls::rest_url(&self.region, &self.exchange);
-                                                    let url = format!("{}/order_book/{}/?group=1", rest_base, self.channel_instrument);
-                                                    match reqwest::get(&url).await {
-                                                        Ok(resp) => {
-                                                            match resp.json::<OrderBookData>().await {
-                                                                Ok(snapshot) => {
-                                                                    let snapshot_microtimestamp = match snapshot.microtimestamp.parse::<u64>() {
-                                                                        Ok(ts) => ts,
-                                                                        Err(_) => 0,
-                                                                    };
-                                                                    let snapshot_msg = BitstampWsMessage {
-                                                                        event: Some("snapshot".to_string()),
-                                                                        channel: Some(orders_channel.clone()),
-                                                                        data: Some(serde_json::to_value(&snapshot).unwrap_or_default()),
-                                                                    };
-                                                                    order_book.process_msg(&snapshot_msg);
-                                                                    eprintln!("[SNAPSHOT] Applied — microtimestamp={} bids={} asks={}",
-                                                                            snapshot_microtimestamp,
-                                                                            order_book.num_bids(),
-                                                                            order_book.num_asks());
+                                            // Fetch snapshot once subscription is confirmed (one attempt per connection)
+                                            if subscription_confirmed && !snapshot_applied && !snapshot_attempted {
+                                                snapshot_attempted = true;
+                                                eprintln!("[SNAPSHOT] Fetching REST snapshot for {}...", self.channel_instrument);
+                                                let rest_base = crate::urls::rest_url(&self.region, &self.exchange);
+                                                let url = format!("{}/order_book/{}/?group=1", rest_base, self.channel_instrument);
+                                                match reqwest::get(&url).await {
+                                                    Ok(resp) => {
+                                                        match resp.json::<OrderBookData>().await {
+                                                            Ok(snapshot) => {
+                                                                let snapshot_microtimestamp = match snapshot.microtimestamp.parse::<u64>() {
+                                                                    Ok(ts) => ts,
+                                                                    Err(_) => 0,
+                                                                };
+                                                                let snapshot_msg = BitstampWsMessage {
+                                                                    event: Some("snapshot".to_string()),
+                                                                    channel: Some(orders_channel.clone()),
+                                                                    data: Some(serde_json::to_value(&snapshot).unwrap_or_default()),
+                                                                };
+                                                                order_book.process_msg(&snapshot_msg);
+                                                                eprintln!("[SNAPSHOT] Applied — microtimestamp={} bids={} asks={}",
+                                                                        snapshot_microtimestamp,
+                                                                        order_book.num_bids(),
+                                                                        order_book.num_asks());
 
-                                                                    // Reconcile: discard buffered diffs with microtimestamp <= snapshot
-                                                                    let mut keep = Vec::new();
-                                                                    for buf_msg in buffer.drain(..) {
-                                                                        match buf_msg.microtimestamp_us() {
-                                                                            Some(us) if us > snapshot_microtimestamp => {
-                                                                                keep.push(buf_msg);
-                                                                            }
-                                                                            Some(_) => {} // discard (older than or equal to snapshot)
-                                                                            None => {
-                                                                                // No microtimestamp — apply anyway (cannot determine age)
-                                                                                keep.push(buf_msg);
-                                                                            }
+                                                                // Reconcile: discard buffered diffs with microtimestamp <= snapshot
+                                                                let mut keep = Vec::new();
+                                                                for buf_msg in buffer.drain(..) {
+                                                                    match buf_msg.microtimestamp_us() {
+                                                                        Some(us) if us > snapshot_microtimestamp => {
+                                                                            keep.push(buf_msg);
+                                                                        }
+                                                                        Some(_) => {} // discard (older than or equal to snapshot)
+                                                                        None => {
+                                                                            // No microtimestamp — apply anyway (cannot determine age)
+                                                                            keep.push(buf_msg);
                                                                         }
                                                                     }
-
-                                                                    // Apply remaining buffered diffs in order
-                                                                    for buf_msg in &keep {
-                                                                        order_book.process_msg(buf_msg);
-                                                                    }
-                                                                    eprintln!("[SNAPSHOT] Replayed {} buffered diffs", keep.len());
-
-                                                                    if self.data_output {
-                                                                        let now = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
-                                                                        let book_line = order_book.display(&self.instrument, self.show_top_pct);
-                                                                        println!("[{} LOB2] {}", now, book_line);
-                                                                    }
-                                                                    self.update_lob_metrics(&order_book);
-                                                                    self.update_depth_metrics(&order_book);
-
-                                                                    snapshot_applied = true;
                                                                 }
-                                                                Err(e) => {
-                                                                    eprintln!("[SNAPSHOT ERROR] Failed to parse snapshot JSON: {}", e);
+
+                                                                // Apply remaining buffered diffs in order
+                                                                for buf_msg in &keep {
+                                                                    order_book.process_msg(buf_msg);
                                                                 }
+                                                                eprintln!("[SNAPSHOT] Replayed {} buffered diffs", keep.len());
+
+                                                                if self.data_output {
+                                                                    let now = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
+                                                                    let book_line = order_book.display(&self.instrument, self.show_top_pct);
+                                                                    println!("[{} LOB2] {}", now, book_line);
+                                                                }
+                                                                self.update_lob_metrics(&order_book);
+                                                                self.update_depth_metrics(&order_book);
+
+                                                                snapshot_applied = true;
+                                                            }
+                                                            Err(e) => {
+                                                                eprintln!("[SNAPSHOT ERROR] Failed to parse snapshot JSON: {}", e);
                                                             }
                                                         }
-                                                        Err(e) => {
-                                                            eprintln!("[SNAPSHOT ERROR] HTTP request failed: {}", e);
-                                                        }
                                                     }
-                                                    if !snapshot_applied {
-                                                        eprintln!("[SNAPSHOT] Failed — continuing without initial snapshot (will reconcile on reconnect)");
-                                                        snapshot_applied = true; // prevent infinite retry
+                                                    Err(e) => {
+                                                        eprintln!("[SNAPSHOT ERROR] HTTP request failed: {}", e);
                                                     }
                                                 }
+                                                if !snapshot_applied {
+                                                    eprintln!("[SNAPSHOT] Failed — continuing without initial snapshot (will reconcile on reconnect)");
+                                                    snapshot_applied = true; // prevent infinite retry
+                                                }
+                                            }
                                         } else {
                                             // Phase 2: Live processing (snapshot already applied)
                                             match parsed.message_type() {
@@ -343,12 +388,12 @@ if let Some(sender) = self.sender.as_mut() {
                                                         let line = display_message(&parsed);
                                                         println!("{}", line);
                                                     }
-                                                    self.lob_metrics.trades_total.inc();
+                                                    self.metrics().trades_total.with_label_values(&[&self.exchange, &self.instrument]).inc();
                                                     last_trade_count += 1;
                                                     let elapsed = last_trade_time.elapsed();
                                                     if elapsed >= std::time::Duration::from_secs(1) {
                                                         let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                                        self.lob_metrics.trades_per_second
+                                                        self.metrics().trades_per_second
                                                             .store(f64::to_bits(rate), Ordering::Relaxed);
                                                         last_trade_count = 0;
                                                         last_trade_time = std::time::Instant::now();
@@ -368,11 +413,11 @@ if let Some(sender) = self.sender.as_mut() {
                                                 }
                                             }
 
-if let Some(sender) = self.sender.as_mut() {
-    if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
-        eprintln!("[DB ERROR] Failed to persist: {}", e);
-    }
-}
+                                            if let Some(sender) = self.sender.as_mut() {
+                                                if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
+                                                    eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                }
+                                            }
                                         }
                                     }
                                     Err(e) => {
@@ -421,6 +466,7 @@ if let Some(sender) = self.sender.as_mut() {
                 "[DISCONNECTED] attempt {}, reconnecting in {:?}",
                 attempt, delay
             );
+            self.update_status_active(false, format!("disconnected, attempt {}", attempt));
 
             shutdown = traits::signal_sleep(delay, &mut sigterm).await;
 
@@ -434,85 +480,102 @@ if let Some(sender) = self.sender.as_mut() {
     }
 
     fn update_lob_metrics(&self, order_book: &OrderBook) {
+        let lm = self.metrics();
+        let labels = &[self.exchange.as_str(), self.instrument.as_str()] as &[&str];
         if let Some(best_bid) = order_book.best_bid() {
-            self.lob_metrics.best_bid.set(best_bid);
+            lm.best_bid.with_label_values(labels).set(best_bid);
         }
         if let Some(best_ask) = order_book.best_ask() {
-            self.lob_metrics.best_ask.set(best_ask);
+            lm.best_ask.with_label_values(labels).set(best_ask);
         }
         if let Some(spread) = order_book.spread() {
-            self.lob_metrics.spread.set(spread);
+            lm.spread.with_label_values(labels).set(spread);
         }
-        self.lob_metrics.last_update.set(
+        lm.last_update.with_label_values(labels).set(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as f64,
         );
+
+        if let Some(ref sh) = self.status_handle {
+            if let Ok(mut map) = sh.write() {
+                let key = format!("{}@{}", self.instrument, self.exchange);
+                if let Some(status) = map.get_mut(&key) {
+                    status.bid_size = order_book.total_bid_size();
+                    status.ask_size = order_book.total_ask_size();
+                    status.ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                }
+            }
+        }
     }
 
     fn update_depth_metrics(&self, order_book: &OrderBook) {
-        self.lob_metrics.lob_depth_bid.reset();
-        self.lob_metrics.lob_depth_ask.reset();
+        let lm = self.metrics();
+        let base_labels = &[self.exchange.as_str(), self.instrument.as_str()] as &[&str];
+
+        lm.lob_depth_bid.reset();
+        lm.lob_depth_ask.reset();
 
         let (bids, asks) = order_book.levels_within_pct(self.show_top_pct);
         for (price, size) in &bids {
             let price_str = format!("{:.2}", price);
-            self.lob_metrics
-                .lob_depth_bid
-                .with_label_values(&[&price_str])
+            lm.lob_depth_bid
+                .with_label_values(&[base_labels[0], base_labels[1], &price_str])
                 .set(*size);
         }
         for (price, size) in &asks {
             let price_str = format!("{:.2}", price);
-            self.lob_metrics
-                .lob_depth_ask
-                .with_label_values(&[&price_str])
+            lm.lob_depth_ask
+                .with_label_values(&[base_labels[0], base_labels[1], &price_str])
                 .set(*size);
         }
     }
 
-async fn persist_message(
-    sender: &mut Sender,
-    exchange: &str,
-    cli_inst_id: &str,
-    msg: &BitstampWsMessage,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let ts_ms = msg.timestamp_ms().unwrap_or(0);
+    async fn persist_message(
+        sender: &mut Sender,
+        exchange: &str,
+        cli_inst_id: &str,
+        msg: &BitstampWsMessage,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let ts_ms = msg.timestamp_ms().unwrap_or(0);
 
-    match msg.message_type() {
-        MessageType::L2Snapshot | MessageType::L2Update => {
-            let levels = msg.lob_levels();
-            if !levels.is_empty() {
-                let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
-                    .into_iter()
-                    .map(|(side, bl)| {
-                        (side, crate::okx::types::LobLevel {
-                            price: bl.price,
-                            size: bl.size,
-                            count: "0".to_string(),
-                            orders: "0".to_string(),
+        match msg.message_type() {
+            MessageType::L2Snapshot | MessageType::L2Update => {
+                let levels = msg.lob_levels();
+                if !levels.is_empty() {
+                    let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
+                        .into_iter()
+                        .map(|(side, bl)| {
+                            (side, crate::okx::types::LobLevel {
+                                price: bl.price,
+                                size: bl.size,
+                                count: "0".to_string(),
+                                orders: "0".to_string(),
+                            })
                         })
-                    })
-                    .collect();
-                persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &okx_levels).await?;
+                        .collect();
+                    persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &okx_levels).await?;
+                }
             }
-        }
-        MessageType::Trade => {
-            if let Some(trade) = msg.data.as_ref().and_then(|d| {
-                serde_json::from_value::<TradeData>(d.clone()).ok()
-            }) {
-                let px = trade.price.parse().unwrap_or(0.0);
-                let sz = trade.amount.parse().unwrap_or(0.0);
-                let side = if trade.trade_type == 0 { "buy" } else { "sell" };
-                persist_trade(sender, cli_inst_id, exchange, &trade.id.to_string(), px, sz, side, ts_ms)
-                    .await?;
+            MessageType::Trade => {
+                if let Some(trade) = msg.data.as_ref().and_then(|d| {
+                    serde_json::from_value::<TradeData>(d.clone()).ok()
+                }) {
+                    let px = trade.price.parse().unwrap_or(0.0);
+                    let sz = trade.amount.parse().unwrap_or(0.0);
+                    let side = if trade.trade_type == 0 { "buy" } else { "sell" };
+                    persist_trade(sender, cli_inst_id, exchange, &trade.id.to_string(), px, sz, side, ts_ms)
+                        .await?;
+                }
             }
+            _ => {}
         }
-        _ => {}
+        Ok(())
     }
-    Ok(())
-}
 }
 
 #[cfg(test)]

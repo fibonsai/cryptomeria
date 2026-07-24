@@ -254,6 +254,16 @@ impl OrderBook {
         }
     }
 
+    /// Total size across all bid levels.
+    pub fn total_bid_size(&self) -> f64 {
+        self.bids.values().sum()
+    }
+
+    /// Total size across all ask levels.
+    pub fn total_ask_size(&self) -> f64 {
+        self.asks.values().sum()
+    }
+
     /// Format the order book for terminal display.
     pub fn display(&self, instrument: &str, top_pct: f64) -> String {
         let num_bids = self.num_bids();
@@ -323,6 +333,8 @@ impl crate::traits::OrderBook for OrderBook {
     fn best_ask(&self) -> Option<f64> { OrderBook::best_ask(self) }
     fn spread(&self) -> Option<f64> { OrderBook::spread(self) }
     fn levels_within_pct(&self, top_pct: f64) -> (Vec<(f64, f64)>, Vec<(f64, f64)>) { OrderBook::levels_within_pct(self, top_pct) }
+    fn total_bid_size(&self) -> f64 { OrderBook::total_bid_size(self) }
+    fn total_ask_size(&self) -> f64 { OrderBook::total_ask_size(self) }
     fn display(&self, instrument: &str, top_pct: f64) -> String { OrderBook::display(self, instrument, top_pct) }
 }
 

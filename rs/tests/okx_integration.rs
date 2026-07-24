@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 #[tokio::test]
 #[ignore]
 async fn test_connect_to_okx_and_subscribe() {
-    let mut client = OkxClient::new("BTC-USDT", "okx", 0.1, false, "http::addr=localhost:9000;");
+    let mut client = OkxClient::new("BTC-USDT", "okx", "global", 0.1, false, "http::addr=localhost:9000;");
     let msg_count = client.messages_received.clone();
 
     // Run for a limited time, then disconnect

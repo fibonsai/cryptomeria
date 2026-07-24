@@ -2,13 +2,14 @@ use crate::db::{persist_lob, persist_trade};
 use crate::db::apply_ttl;
 use crate::okx::lob::OrderBook;
 use crate::okx::types::{MessageType, OkxWsMessage, TradeData};
-use crate::traits::{self, ExchangeClientBuilder, LobMetrics, backoff_delay};
+use crate::traits::{self, ExchangeClientBuilder, LobMetrics, StatusHandle, backoff_delay};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use prometheus::Registry;
 use questdb::ingress::Sender;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -42,6 +43,8 @@ pub struct OkxClient {
     pub metrics_port: Option<u16>,
     pub data_output: bool,
     pub lob_metrics: Arc<LobMetrics>,
+    pub lob_metrics_override: Option<Arc<LobMetrics>>,
+    pub status_handle: Option<StatusHandle>,
     pub questdb_conf: String,
     sender: Option<Sender>,
 }
@@ -52,6 +55,8 @@ impl ExchangeClientBuilder for OkxClient {
     fn with_metrics_port(self, port: u16) -> Self { OkxClient::with_metrics_port(self, port) }
     fn with_data_output(self, enabled: bool) -> Self { OkxClient::with_data_output(self, enabled) }
     fn with_cli_instrument(self, inst_id: String) -> Self { OkxClient::with_cli_instrument(self, inst_id) }
+    fn with_lob_metrics(self, metrics: Arc<LobMetrics>) -> Self { OkxClient::with_lob_metrics(self, metrics) }
+    fn with_status_handle(self, handle: StatusHandle) -> Self { OkxClient::with_status_handle(self, handle) }
 }
 
 impl OkxClient {
@@ -69,6 +74,8 @@ impl OkxClient {
             metrics_port: None,
             data_output,
             lob_metrics,
+            lob_metrics_override: None,
+            status_handle: None,
             questdb_conf: questdb_conf.to_string(),
             sender: None,
         }
@@ -104,6 +111,23 @@ impl OkxClient {
         self
     }
 
+    /// Override the LobMetrics instance (for shared metrics across exchanges).
+    pub fn with_lob_metrics(mut self, metrics: Arc<LobMetrics>) -> Self {
+        self.lob_metrics_override = Some(metrics);
+        self
+    }
+
+    /// Attach a shared StatusHandle for cross-exchange status updates.
+    pub fn with_status_handle(mut self, handle: StatusHandle) -> Self {
+        self.status_handle = Some(handle);
+        self
+    }
+
+    /// Get the LobMetrics instance to use (shared override or local).
+    fn metrics(&self) -> &LobMetrics {
+        self.lob_metrics_override.as_ref().unwrap_or(&self.lob_metrics)
+    }
+
     /// Connect, subscribe, run the event loop, and reconnect indefinitely on
     /// disconnection with exponential backoff and random jitter.
     ///
@@ -116,15 +140,18 @@ impl OkxClient {
     /// with jitter. A SIGINT signal during a backoff sleep exits the process
     /// cleanly.
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Start metrics server if port is specified (once, outside reconnect loop)
-        if let Some(port) = self.metrics_port {
-            let lob_metrics = self.lob_metrics.clone();
-            std::thread::spawn(move || {
-                let system = actix_web::rt::System::new();
-                if let Err(e) = system.block_on(LobMetrics::start_metrics_server(port, lob_metrics)) {
-                    eprintln!("[METRICS] Server error: {}", e);
-                }
-            });
+        // Start metrics server if port is specified (only when not using shared LobMetrics)
+        if self.lob_metrics_override.is_none() {
+            if let Some(port) = self.metrics_port {
+                let lob_metrics = self.lob_metrics.clone();
+                let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
+                std::thread::spawn(move || {
+                    let system = actix_web::rt::System::new();
+                    if let Err(e) = system.block_on(LobMetrics::start_http_server(port, lob_metrics, status_handle)) {
+                        eprintln!("[METRICS] Server error: {}", e);
+                    }
+                });
+            }
         }
 
         // Set TTL once at startup (one-time table config, not per-message)
@@ -240,12 +267,15 @@ impl OkxClient {
                                                 if let Some(_trade) = parsed.data.first().and_then(|d| {
                                                     serde_json::from_value::<TradeData>(d.clone()).ok()
                                                 }) {
-                                                    self.lob_metrics.trades_total.inc();
+                                                    self.metrics()
+                                                        .trades_total
+                                                        .with_label_values(&[&self.exchange, &self.instrument])
+                                                        .inc();
                                                     last_trade_count += 1;
                                                     let elapsed = last_trade_time.elapsed();
                                                     if elapsed >= std::time::Duration::from_secs(1) {
                                                         let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                                        self.lob_metrics.trades_per_second
+                                                        self.metrics().trades_per_second
                                                             .store(f64::to_bits(rate), Ordering::Relaxed);
                                                         last_trade_count = 0;
                                                         last_trade_time = std::time::Instant::now();
@@ -320,42 +350,58 @@ impl OkxClient {
     }
 
     fn update_lob_metrics(&self, order_book: &OrderBook) {
-        // Update best bid/ask
+        let lm = self.metrics();
+        let labels = [self.exchange.as_str(), self.instrument.as_str()];
         if let Some(best_bid) = order_book.best_bid() {
-            self.lob_metrics.best_bid.set(best_bid);
+            lm.best_bid.with_label_values(&labels).set(best_bid);
         }
         if let Some(best_ask) = order_book.best_ask() {
-            self.lob_metrics.best_ask.set(best_ask);
+            lm.best_ask.with_label_values(&labels).set(best_ask);
         }
         if let Some(spread) = order_book.spread() {
-            self.lob_metrics.spread.set(spread);
+            lm.spread.with_label_values(&labels).set(spread);
         }
-        self.lob_metrics.last_update.set(
+        lm.last_update.with_label_values(&labels).set(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as f64,
         );
+
+        // Update status handle with bid/ask sizes
+        if let Some(ref sh) = self.status_handle {
+            if let Ok(mut map) = sh.write() {
+                let key = format!("{}@{}", self.instrument, self.exchange);
+                if let Some(status) = map.get_mut(&key) {
+                    status.bid_size = order_book.total_bid_size();
+                    status.ask_size = order_book.total_ask_size();
+                    status.ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                }
+            }
+        }
     }
 
     fn update_depth_metrics(&self, order_book: &OrderBook) {
-        // Reset all depth labels to clear stale prices
-        self.lob_metrics.lob_depth_bid.reset();
-        self.lob_metrics.lob_depth_ask.reset();
+        let lm = self.metrics();
+        let base_labels = [self.exchange.as_str(), self.instrument.as_str()];
+
+        lm.lob_depth_bid.reset();
+        lm.lob_depth_ask.reset();
 
         let (bids, asks) = order_book.levels_within_pct(self.show_top_pct);
         for (price, size) in &bids {
             let price_str = format!("{:.2}", price);
-            self.lob_metrics
-                .lob_depth_bid
-                .with_label_values(&[&price_str])
+            lm.lob_depth_bid
+                .with_label_values(&[base_labels[0], base_labels[1], &price_str])
                 .set(*size);
         }
         for (price, size) in &asks {
             let price_str = format!("{:.2}", price);
-            self.lob_metrics
-                .lob_depth_ask
-                .with_label_values(&[&price_str])
+            lm.lob_depth_ask
+                .with_label_values(&[base_labels[0], base_labels[1], &price_str])
                 .set(*size);
         }
     }
@@ -403,6 +449,9 @@ impl OkxClient {
 mod tests {
     use super::*;
     use prometheus::Registry;
+    use std::collections::HashMap;
+    use std::sync::{Arc, RwLock};
+    use crate::traits::StatusHandle;
 
     #[test]
     fn test_build_subscribe_msg() {
@@ -546,12 +595,21 @@ mod tests {
     fn test_metrics_endpoint_responds_with_json() {
         let registry = Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
+        // Set some sample values so they appear in /metrics output
+        lob_metrics.best_bid.with_label_values(&["okx", "BTC-USDT"]).set(50000.0);
+        lob_metrics.best_ask.with_label_values(&["okx", "BTC-USDT"]).set(50100.0);
+        lob_metrics.spread.with_label_values(&["okx", "BTC-USDT"]).set(100.0);
+        lob_metrics.last_update.with_label_values(&["okx", "BTC-USDT"]).set(1234567890.0);
+        lob_metrics.trades_total.with_label_values(&["okx", "BTC-USDT"]).inc();
+        lob_metrics.lob_depth_bid.with_label_values(&["okx", "BTC-USDT", "50000.00"]).set(1.5);
+        lob_metrics.lob_depth_ask.with_label_values(&["okx", "BTC-USDT", "50100.00"]).set(2.0);
+        let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
         let port = 19092;
 
         std::thread::spawn(move || {
             let system = actix_web::rt::System::new();
             if let Err(e) =
-                system.block_on(LobMetrics::start_metrics_server(port, lob_metrics))
+                system.block_on(LobMetrics::start_http_server(port, lob_metrics, status_handle))
             {
                 eprintln!("[METRICS TEST] Server error: {}", e);
             }
@@ -573,14 +631,19 @@ mod tests {
                 let parsed: serde_json::Value = serde_json::from_str(&body)
                     .expect("Response should be valid JSON");
                 let obj = parsed.as_object().expect("Response should be a JSON object");
-                assert!(obj.contains_key("best_bid"), "Should contain best_bid, got keys: {:?}", obj.keys());
-                assert!(obj.contains_key("best_ask"), "Should contain best_ask");
-                assert!(obj.contains_key("last_spread"), "Should contain last_spread");
-                assert!(obj.contains_key("trades_total"), "Should contain trades_total");
-                assert!(obj.contains_key("trades_per_second"), "Should contain trades_per_second");
-                assert!(obj.contains_key("last_update_timestamp"), "Should contain last_update_timestamp");
-                assert!(obj.contains_key("depth"), "Should contain depth");
-                let depth = obj.get("depth").and_then(|v| v.as_array()).expect("depth should be an array");
+                // Response is grouped by exchange -> instrument
+                let okx_inst = obj.get("okx")
+                    .and_then(|v| v.as_object())
+                    .and_then(|v| v.get("BTC-USDT"))
+                    .and_then(|v| v.as_object())
+                    .expect("Should contain okx -> BTC-USDT");
+                assert!(okx_inst.contains_key("best_bid"), "Should contain best_bid, got keys: {:?}", okx_inst.keys());
+                assert!(okx_inst.contains_key("best_ask"), "Should contain best_ask");
+                assert!(okx_inst.contains_key("spread"), "Should contain spread");
+                assert!(okx_inst.contains_key("last_update_ts"), "Should contain last_update_ts");
+                assert!(okx_inst.contains_key("trades_total"), "Should contain trades_total");
+                assert!(okx_inst.contains_key("depth"), "Should contain depth");
+                let depth = okx_inst.get("depth").and_then(|v| v.as_array()).expect("depth should be an array");
                 if !depth.is_empty() {
                     assert!(depth[0].get("price").is_some(), "depth entry missing price");
                     assert!(depth[0].get("volume").is_some(), "depth entry missing volume");

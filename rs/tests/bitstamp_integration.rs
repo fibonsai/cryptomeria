@@ -14,6 +14,7 @@ async fn test_bitstamp_connect_and_receive() {
     let mut client = BitstampClient::new(
         "BTC/USD",
         "bitstamp",
+        "europe",
         0.1,
         false,
         "http::addr=localhost:9000;",
