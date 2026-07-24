@@ -51,7 +51,7 @@ python/
 ├── tests/test_lob.py         # Fixtures via pa.Table.from_pylist() → temp dirs
 ├── main.py                   # Research entry point (empty)
 rs/
-├── src/main.rs               # CLI entry (clap args, --exchange flag, okx/kraken/bitstamp dispatch)
+├── src/main.rs               # CLI entry (clap args, --exchange/--region flags, okx/kraken/bitstamp dispatch)
 ├── src/traits/               # Shared traits + utilities (OrderBook, LobMetrics, backoff, signal)
 ├── src/okx/types.rs          # OKX WS message types + JSON parsing + display
 ├── src/okx/ws.rs             # OKX WS client + pure helpers
@@ -62,6 +62,7 @@ rs/
 ├── src/bitstamp/types.rs     # Bitstamp WS message types + JSON parsing + display
 ├── src/bitstamp/ws.rs        # Bitstamp WS client (diff_order_book + REST snapshot reconciliation)
 ├── src/bitstamp/lob.rs       # Bitstamp OrderBook: apply_snapshot (REST) + apply_diff (WS diff_order_book)
+├── src/urls.rs               # EXCHANGE_URL dict: region->exchange->{websocket,rest}
 ├── tests/okx_integration.rs  # #[ignore] E2E test (needs network)
 ├── tests/kraken_integration.rs # #[ignore] E2E test (needs network)
 └── tests/bitstamp_integration.rs # #[ignore] E2E test (needs network)
@@ -69,7 +70,7 @@ rs/
 
 **Python package** is `cryptomeria` (src layout in `python/`). Tests discovered from `python/`, not inside package.
 
-**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod traits`, `pub mod bitstamp`, `pub mod okx`, `pub mod kraken`.
+**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod traits`, `pub mod bitstamp`, `pub mod kraken`, `pub mod okx`, `pub mod db`, `pub mod urls`.
 
 ---
 
@@ -134,6 +135,7 @@ rs/
 - **ADR-019** (`docs/ADR-019-...`): Instrument mapping via external config file (`--instrument`, `scripts/coins_aliases.json`)
 - **ADR-020** (`docs/ADR-020-...`): `--list-instruments` CLI flag for instrument mapping discovery
 - **ADR-021** (`docs/ADR-021-...`): Instrument fallback rules and lowercase inst_id persistence
+- **ADR-022** (`docs/ADR-022-...`): Region-based exchange URL configuration via `EXCHANGE_URL` dict and `--region` flag
 
 ---
 
@@ -199,6 +201,7 @@ rs/
 | Run Rust WS client (Bitstamp) | `cargo run -- --exchange bitstamp btc/usd` |
 | Run Rust WS client (Bitstamp, custom) | `cargo run -- --exchange bitstamp eth/usd --show-top-pct 0.5` |
 | List supported instrument mappings | `cargo run -- --list-instruments` |
+| Run with global endpoint | `cargo run -- --region global` |
 | Single Python test | `uv run pytest python/tests/test_lob.py::test_name -v` |
 | Single Rust test | `cargo test test_name` |
 | Format all | `make format` |

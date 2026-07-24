@@ -11,8 +11,6 @@ use std::sync::Arc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
-const WS_URL: &str = "wss://ws.kraken.com/v2";
-
 pub fn build_subscribe_msg(channel: &str, instrument: &str) -> String {
     serde_json::json!({
         "method": "subscribe",
@@ -31,6 +29,7 @@ pub fn display_message(msg: &KrakenWsMessage) -> String {
 pub struct KrakenClient {
     pub instrument: String,
     pub exchange: String,
+    pub region: String,
     pub cli_instrument: String,
     pub show_top_pct: f64,
     pub messages_received: Arc<AtomicU64>,
@@ -51,12 +50,13 @@ impl ExchangeClientBuilder for KrakenClient {
 }
 
 impl KrakenClient {
-    pub fn new(instrument: &str, exchange: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
+    pub fn new(instrument: &str, exchange: &str, region: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
         let registry = prometheus::Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         Self {
             instrument: instrument.to_string(),
             exchange: exchange.to_string(),
+            region: region.to_string(),
             cli_instrument: String::new(),
             show_top_pct,
             messages_received: Arc::new(AtomicU64::new(0)),
@@ -120,10 +120,11 @@ impl KrakenClient {
         )?;
 
         loop {
-            let ws_stream = match connect_async(WS_URL).await {
+            let ws_url = crate::urls::websocket_url(&self.region, &self.exchange);
+            let ws_stream = match connect_async(ws_url).await {
                 Ok((stream, _)) => {
                     attempt = 0;
-                    eprintln!("[CONNECTED] {}", WS_URL);
+                    eprintln!("[CONNECTED] {}", ws_url);
                     stream
                 }
                 Err(e) => {
@@ -446,9 +447,10 @@ mod tests {
 
     #[test]
     fn test_client_new_sets_instrument() {
-        let client = KrakenClient::new("XBT/USD", "kraken", 0.1, false, "http::addr=localhost:9000;");
+        let client = KrakenClient::new("XBT/USD", "kraken", "europe", 0.1, false, "http::addr=localhost:9000;");
         assert_eq!(client.instrument, "XBT/USD");
         assert_eq!(client.exchange, "kraken");
+        assert_eq!(client.region, "europe");
     }
 
     #[test]
@@ -514,14 +516,14 @@ mod tests {
 
     #[test]
     fn test_client_retention_window() {
-        let client = KrakenClient::new("XBT/USD", "kraken", 0.1, false, "http::addr=localhost:9000;")
+        let client = KrakenClient::new("XBT/USD", "kraken", "europe", 0.1, false, "http::addr=localhost:9000;")
             .with_retention_window(60);
         assert_eq!(client.retention_window, Some(60));
     }
 
     #[test]
     fn test_client_default_no_retention() {
-        let client = KrakenClient::new("XBT/USD", "kraken", 0.1, false, "http::addr=localhost:9000;");
+        let client = KrakenClient::new("XBT/USD", "kraken", "europe", 0.1, false, "http::addr=localhost:9000;");
         assert_eq!(client.retention_window, None);
     }
 }

@@ -199,6 +199,10 @@ pub struct CliArgs {
     /// List all supported instrument mappings and exit.
     #[arg(long)]
     pub list_instruments: bool,
+
+    /// Geographic region for exchange endpoints (europe or global).
+    #[arg(long, default_value = "europe")]
+    pub region: String,
 }
 
 /// Build and print the instrument mapping table grouped by base/target pair.
@@ -362,13 +366,9 @@ async fn main() {
 
     let (instrument, exchange, _resolved_from) = resolve_instrument(&cli.instrument, &cli.exchange);
 
-    let ws_url = match exchange.as_str() {
-        "kraken" => "wss://ws.kraken.com/v2",
-        "bitstamp" => "wss://ws.bitstamp.net",
-        _ => "wss://ws.okx.com:8443/ws/v5/public",
-    };
-
-    eprintln!("[CONNECTING] {}", ws_url);
+    let region = &cli.region;
+    let ws_url = cryptomeria::urls::websocket_url(region, &exchange);
+    eprintln!("[CONNECTING] {} ({})", ws_url, region);
 
     let questdb_conf = cryptomeria::db::resolve_questdb_conf(cli.questdb_conf.as_deref());
 
@@ -394,7 +394,7 @@ async fn main() {
 
     match exchange.as_str() {
         "kraken" => {
-            let mut client = KrakenClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf)
+            let mut client = KrakenClient::new(&instrument, &exchange, region, show_top_pct, data_output, &questdb_conf)
                 .with_cli_instrument(cli_inst_id);
             if let Some(sender) = sender {
                 client = client.with_sender(sender);
@@ -410,7 +410,7 @@ async fn main() {
             }
         }
         "bitstamp" => {
-            let mut client = BitstampClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf)
+            let mut client = BitstampClient::new(&instrument, &exchange, region, show_top_pct, data_output, &questdb_conf)
                 .with_cli_instrument(cli_inst_id);
             if let Some(sender) = sender {
                 client = client.with_sender(sender);
@@ -426,7 +426,7 @@ async fn main() {
             }
         }
         _ => {
-            let mut client = OkxClient::new(&instrument, &exchange, show_top_pct, data_output, &questdb_conf)
+            let mut client = OkxClient::new(&instrument, &exchange, region, show_top_pct, data_output, &questdb_conf)
                 .with_cli_instrument(cli_inst_id);
             if let Some(sender) = sender {
                 client = client.with_sender(sender);
