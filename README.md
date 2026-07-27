@@ -62,7 +62,7 @@ Architecture Decision Records (ADRs) are organized by category in the [Topic Ind
 
 ## License
 
-Proprietary – Fibonsai internal project.
+Apache License 2.0 with additional brand protections — see [LICENSE](LICENSE).
 
 ## Contact
 
