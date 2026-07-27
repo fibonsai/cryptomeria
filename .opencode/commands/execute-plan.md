@@ -179,7 +179,70 @@ rm -rf /tmp/cryptomeria-wiki
 
 Do NOT create the ADR in `docs/`. The wiki is the canonical location.
 
-### 11. Create a PR from exclusive branch
+### 11. Upload companion docs to GitHub Wiki
+
+If the worktree contains companion markdown files beyond the ADR (e.g. CONTRIBUTIONS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE, `docs/*.md`), sync them to the wiki so sidebar links resolve.
+
+```bash
+# Identify companion markdown files created or modified in the worktree
+# (exclude .opencode/, .claude/, node_modules/, .venv/)
+COMPANION_FILES=$(git diff --name-only --diff-filter=ACM HEAD~1 HEAD -- '*.md' 'LICENSE' ':!.opencode/' ':!.claude/' 2>/dev/null || git ls-files --others --exclude-standard '*.md' 'LICENSE')
+
+# If no companion files found (besides the ADR which is handled separately), skip
+echo "$COMPANION_FILES" | grep -v -E 'ADR-|PLAN\.md' || { echo "No companion docs to sync"; exit 0; }
+
+# Clone wiki repo
+gh repo view --json name | xargs -I{} git clone "https://github.com/fibonsai/{}.wiki.git" /tmp/cryptomeria-wiki
+
+# Copy each companion file to wiki
+for FILE in $COMPANION_FILES; do
+  case "$FILE" in
+    LICENSE)
+      # LICENSE has no .md extension — create LICENSE.md for wiki
+      cp "$FILE" /tmp/cryptomeria-wiki/LICENSE.md
+      ;;
+    *.md)
+      cp "$FILE" /tmp/cryptomeria-wiki/
+      ;;
+  esac
+done
+
+# Sync docs/ markdown files to wiki
+if ls docs/*.md 2>/dev/null; then
+  for DOC in docs/*.md; do
+    cp "$DOC" /tmp/cryptomeria-wiki/
+  done
+fi
+
+# Update _Sidebar.md if new top-level pages were added (governance, docs, etc.)
+# This is a manual step — the agent must verify the sidebar reflects the new files
+
+# Verify all sidebar links resolve to existing wiki pages
+SIDEBAR_PAGES=$(grep -oP '\* \[\K[^\]]+' /tmp/cryptomeria-wiki/_Sidebar.md | grep -v '#' | tr ' ' '-')
+BROKEN=""
+for PAGE in $SIDEBAR_PAGES; do
+  if [ ! -f "/tmp/cryptomeria-wiki/${PAGE}.md" ]; then
+    BROKEN="$BROKEN $PAGE"
+  fi
+done
+if [ -n "$BROKEN" ]; then
+  echo "ERROR: Sidebar links without wiki pages:$BROKEN"
+  echo "Create the missing pages before continuing."
+  exit 1
+fi
+echo "OK: All sidebar links resolve to existing wiki pages"
+
+# Commit and push wiki changes
+cd /tmp/cryptomeria-wiki
+git add .
+git commit -m "Sync companion docs from repo"
+git push
+
+# Clean up
+rm -rf /tmp/cryptomeria-wiki
+```
+
+### 12. Create a PR from exclusive branch
 
 1. PR title is the same as the issue title.
 2. PR body is a PLAN summary, explain what and how it fix the issue.
@@ -188,7 +251,7 @@ Do NOT create the ADR in `docs/`. The wiki is the canonical location.
 
 Do not merge the PR (it will be checked by a human or another agent).
 
-### 12. Return to main branch
+### 13. Return to main branch
 
 ```bash
 cd $PROJECT_ROOT
@@ -198,5 +261,5 @@ git worktree remove $WORKTREE
 ## Full workflow
 
 ```
-check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → return to main and remove worktree
+check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → upload ADR to wiki → upload companion docs to wiki → verify sidebar links → create PR → close issue → return to main and remove worktree
 ```
