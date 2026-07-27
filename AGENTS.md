@@ -149,6 +149,8 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 
 All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibonsai/cryptomeria/wiki/Topic-Index#architecture-decision-records-adrs), organized by category. The wiki is the canonical source — no ADR files are created in `docs/`.
 
+See [ADR-029: Apache 2.0 License with Brand Protection](https://github.com/fibonsai/cryptomeria/wiki/ADR-029-20260727-apache-license-brand-protection) for the licensing decision.
+
 ---
 
 ## LOB Semantics (Python + Rust)
@@ -176,6 +178,13 @@ All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibon
 
 - `.env.local` only for secrets (in `.gitignore`)
 - No API keys, tokens, or credentials in repo
+- See [SECURITY.md](SECURITY.md) for reporting vulnerabilities
+
+---
+
+## License
+
+Licensed under [Apache 2.0](LICENSE) with additional brand protections for Fibonsai and Cryptomeria.
 
 ---
 

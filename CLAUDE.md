@@ -166,10 +166,15 @@ All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibon
 
 ---
 
+## License
+
+Licensed under [Apache 2.0](LICENSE) with additional brand protections for Fibonsai and Cryptomeria ([ADR-029](https://github.com/fibonsai/cryptomeria/wiki/ADR-029-20260727-apache-license-brand-protection)).
+
 ## Security
 
 - `.env.local` only for secrets (in `.gitignore`)
 - No API keys, tokens, or credentials in repo
+- See [SECURITY.md](SECURITY.md) for reporting vulnerabilities
 
 ---
 

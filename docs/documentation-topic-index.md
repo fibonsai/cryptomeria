@@ -65,3 +65,14 @@ All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibon
 |---|-------|-----------|
 | 012 | Exponential backoff for WS reconnect | [ADR-012](https://github.com/fibonsai/cryptomeria/wiki/ADR-012-20260722-websocket-reconnect-with-exponential-backoff) |
 | 014 | Graceful shutdown for SIGINT/SIGTERM | [ADR-014](https://github.com/fibonsai/cryptomeria/wiki/ADR-014-20260722-graceful-shutdown-signal-handling) |
+| 028 | Upload ADRs to GitHub Wiki | [ADR-028](https://github.com/fibonsai/cryptomeria/wiki/ADR-028-20260727-upload-adrs-to-github-wiki) |
+| 029 | Apache 2.0 license with brand protection | [ADR-029](https://github.com/fibonsai/cryptomeria/wiki/ADR-029-20260727-apache-license-brand-protection) |
+
+## Governance Files
+
+| File | Description |
+|------|-------------|
+| [CONTRIBUTIONS.md](CONTRIBUTIONS.md) | Contribution guidelines and code standards |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community code of conduct |
+| [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
+| [LICENSE](LICENSE) | Apache License 2.0 with brand protection terms |
