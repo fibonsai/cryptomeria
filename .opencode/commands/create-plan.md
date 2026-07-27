@@ -32,7 +32,7 @@ Using the full context (title, body, comments), write `docs/PLAN.md` with:
 - **Verification** — shell commands to validate the result
 - **Changelog** — the final workflow: post changelog as an issue comment, then close the issue
 
-If the plan changes behavior or introduces a new approach (not a simple refactor or bug fix), add a subtask to **Create an ADR** documenting the decision. The ADR creation is a sub-step for `/execute-plan`, not executed here.
+If the plan changes behavior or introduces a new approach (not a simple refactor or bug fix), add a subtask to **Create an ADR** documenting the decision. The ADR will be created and uploaded directly to GitHub Wiki (not to `docs/`) during `/execute-plan`, not executed here.
 
 ### 3. Check if the issue body is empty
 
@@ -82,14 +82,16 @@ Issues found:
 
 ### 2. ...
  
-+ ### N. Create ADR (if behavior change)
-+
-+ Issues found:
-+ - <why an ADR is needed>
-+
-+- [ ] Create `docs/ADR-<N>-<YYYYMMDD>-<short-title>.md`
-+- [ ] Update `AGENTS.md` and `CLAUDE.md` with ADR link
-+
+ ### N. Create ADR (IMPORTANT: ADR will be created but uploaded to GitHub Wiki, not docs/)
+
+ Issues found:
+ - <why an ADR is needed>
+
+- [ ] Create ADR-<N> documenting the decision
+- [ ] Upload ADR to GitHub Wiki in the appropriate category (not to `docs/`)
+- [ ] Add entry to wiki Topic-Index.md
+- [ ] **Do NOT create the ADR in `docs/` — the wiki is the canonical location**
+
  ## Verification
 
 ```bash

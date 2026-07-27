@@ -115,32 +115,7 @@ rs/
 
 ## Key Architectural Decisions (ADRs)
 
-- **ADR-001** (`docs/ADR-001-...`): `tokio-tungstenite` for OKX WS — async, tokio-native, stream/sink traits
-- **ADR-002** (`docs/ADR-002-...`): `BTreeMap<OrderedFloat>` for LOB2 — O(log n) insert/remove, sorted iteration for display
-- **ADR-003** (`docs/ADR-003-...`): Use QuestDB with refinery for market data persistence and SQL migrations
-- **ADR-004** (`docs/ADR-004-...`): Normalized LOB levels storage in QuestDB
-- **ADR-005** (`docs/ADR-005-...`): QuestDB persistence cleanup with configurable retention
-- **ADR-006** (`docs/ADR-006-...`): Grafana LOB visualization with dual data source (Prometheus + QuestDB)
-- **ADR-007** (`docs/ADR-007-...`): Data output flag (`--data-output`) for LOB/trade logging control
-- **ADR-008** (`docs/ADR-008-...`): QuestDB TTL (`SET TTL N HOURS`) for automatic data retention
-- **ADR-009** (`docs/ADR-009-...`): Use Grafana Infinity datasource for real-time metrics visualization
-- **ADR-010** (`docs/ADR-010-...`): Move TTL execution from per-message loop to application startup
-- **ADR-011** (`docs/ADR-011-...`): Serve /metrics as JSON for Grafana Infinity datasource
-- **ADR-012** (`docs/ADR-012-...`): Exponential backoff with jitter for WebSocket reconnection
-- **ADR-013** (`docs/ADR-013-...`): Restructure /metrics endpoint to single aggregated JSON object
-- **ADR-014** (`docs/ADR-014-...`): Graceful shutdown for SIGINT and SIGTERM signals
-- **ADR-015** (`docs/ADR-015-...`): Kraken exchange module for market data ingestion
-- **ADR-016** (`docs/ADR-016-...`): Exchange column in DB schema for cross-exchange data disambiguation
-- **ADR-017** (`docs/ADR-017-...`): Bitstamp exchange with shared trait abstraction layer
-- **ADR-018** (`docs/ADR-018-...`): Bitstamp diff_order_book with REST snapshot reconciliation
-- **ADR-019** (`docs/ADR-019-...`): Instrument mapping via external config file (`--instrument`, `scripts/coins_aliases.json`)
-- **ADR-020** (`docs/ADR-020-...`): `--list-instruments` CLI flag for instrument mapping discovery
-- **ADR-021** (`docs/ADR-021-...`): Instrument fallback rules and lowercase inst_id persistence
-- **ADR-022** (`docs/ADR-022-...`): Region-based exchange URL configuration via `EXCHANGE_URL` dict and `--region` flag
-- **ADR-023** (`docs/ADR-023-...`): Consolidate refinery migrations — merge V1+V4, V2+V5+V6, drop V3
-- **ADR-024** (`docs/ADR-024-...`): Multi-instrument with per-symbol@exchange async tasks — `--instruments` CLI flag, shared registry, /metrics restructure, /status endpoint
-- **ADR-026** (`docs/ADR-026-20260726-cli-instrument-for-metrics-label.md`): Use cli_instrument (database inst_id format) for metrics instrument label
-- **ADR-027** (`docs/ADR-027-20260727-documentation-refactoring-extract-readme-sections.md`): Extract README sections to dedicated docs files — Project Structure, QuestDB Persistence, Exchange Comparison, Grafana LOB Visualization, LOB Data Processing
+All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibonsai/cryptomeria/wiki/Topic-Index#architecture-decision-records-adrs), organized by category. The wiki is the canonical source — no ADR files are created in `docs/`.
 
 ---
 
@@ -150,7 +125,7 @@ rs/
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise → update docs → post changelog → delete PLAN.md → create ADR → create PR → return to main |
+| `/execute-plan` | Execute PLAN.md stepwise → update docs → post changelog → delete PLAN.md → create ADR and upload to wiki → create PR → close issue → return to main |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 **Never commit unless asked** — keep changes in working tree.

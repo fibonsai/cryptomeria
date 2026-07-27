@@ -12,7 +12,7 @@ Defined in `.opencode/commands/`. Available in the TUI:
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → return to main and remove worktree |
+| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → close issue → return to main and remove worktree |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 These are ports of the original `.claude/commands/` equivalents. The `.claude/` versions are legacy and may diverge.
@@ -147,34 +147,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 
 ## Key Architectural Decisions (ADRs)
 
-| # | Title | File |
-|---|-------|------|
-| 001 | `tokio-tungstenite` for OKX WS | `docs/ADR-001-...` |
-| 002 | `BTreeMap<OrderedFloat>` for LOB2 | `docs/ADR-002-...` |
-| 003 | QuestDB with refinery for persistence | `docs/ADR-003-...` |
-| 004 | Normalized LOB levels storage | `docs/ADR-004-...` |
-| 005 | QuestDB persistence cleanup | `docs/ADR-005-...` |
-| 006 | Grafana LOB visualization | `docs/ADR-006-...` |
-| 007 | Data output flag | `docs/ADR-007-...` |
-| 008 | QuestDB TTL for automatic retention | `docs/ADR-008-...` |
-| 009 | Grafana Infinity datasource | `docs/ADR-009-...` |
-| 010 | Move TTL execution to startup | `docs/ADR-010-...` |
-| 011 | Serve /metrics as JSON | `docs/ADR-011-...` |
-| 012 | Exponential backoff for WS reconnect | `docs/ADR-012-...` |
-| 013 | Restructure /metrics to single JSON object | `docs/ADR-013-...` |
-| 014 | Graceful shutdown for SIGINT and SIGTERM | `docs/ADR-014-...` |
-| 015 | Kraken exchange module | `docs/ADR-015-...` |
-| 016 | Exchange column in DB schema | `docs/ADR-016-...` |
-| 017 | Bitstamp exchange with shared trait abstraction layer | `docs/ADR-017-...` |
-| 018 | Bitstamp diff_order_book with REST snapshot reconciliation | `docs/ADR-018-...` |
-| 019 | Instrument mapping via external config file | `docs/ADR-019-...` |
-| 020 | `--list-instruments` CLI flag for mapping discovery | `docs/ADR-020-...` |
-| 021 | Instrument fallback rules and lowercase inst_id persistence | `docs/ADR-021-...` |
-| 022 | Region-based exchange URL configuration | `docs/ADR-022-...` |
-| 023 | Consolidate refinery migrations | `docs/ADR-023-20260724-consolidate-refinery-migrations.md` |
-| 024 | Multi-instrument with per-symbol@exchange async tasks | `docs/ADR-024-...` |
-| 026 | Use cli_instrument (database inst_id format) for metrics instrument label | `docs/ADR-026-20260724-metrics-instrument-label-format.md` |
-| 027 | Documentation refactoring — extract README sections to dedicated docs files | `docs/ADR-027-20260727-documentation-refactoring-extract-readme-sections.md` |
+All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibonsai/cryptomeria/wiki/Topic-Index#architecture-decision-records-adrs), organized by category. The wiki is the canonical source — no ADR files are created in `docs/`.
 
 ---
 
@@ -259,7 +232,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → return to main and remove worktree |
+| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → close issue → return to main and remove worktree |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 **Never commit unless asked** — keep changes in working tree.
