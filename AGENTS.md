@@ -12,10 +12,18 @@ Defined in `.opencode/commands/`. Available in the TUI:
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → close issue → return to main and remove worktree |
+| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree in repo directory → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → return to main and remove worktree |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 These are ports of the original `.claude/commands/` equivalents. The `.claude/` versions are legacy and may diverge.
+
+
+**Never commit unless asked** — keep changes in working tree.
+
+**Never auto-execute plan** — only run `/execute-plan` when explicitly asked.
+
+---
+
 
 ### Usage notes
 - All four commands use `gh` (GitHub CLI) — must be authenticated
@@ -108,6 +116,8 @@ rs/
 | **One SQL statement per migration file** | Each `V{N}__*.sql` contains exactly one statement; split multi-statement changes across sequential versions |
 | **Never auto-execute plan** | Plans are executed only via explicit `/execute-plan` — never start execution unasked |
 | **No destructive git commands** | Never use `git reset`, `git push --force`, `git rebase`, `git commit --amend`, `git rm --cached`, or any command that rewrites history without explicit user approval |
+| **Git worktree only in repo directory** | All changes must be applied via git worktree inside the repository directory — never create external clones or direct branches |
+| **NEVER commit to the main branch** | All changes must be applied via git worktree — never commit directly to the main branch |
 
 ### Python-Specific (enforced by ruff + extra)
 - **Type hints mandatory** — every function; `str \| None` union syntax (3.13)
@@ -235,21 +245,6 @@ Licensed under [Apache 2.0](LICENSE) with additional brand protections for Fibon
 - **LOB processing**: Streaming parquet reader via `pyarrow.parquet.ParquetFile.iter_batches()`, processes row-by-row to maintain order book state
 - **Progress logging**: `rebuild_to_lob2` logs progress every 5s with count, %, ETA (conforms to >10s rule)
 - **Tests**: 17 tests covering `_apply_level` edge cases, `read_lob` integration (snapshots, updates, cross-row-group, null prices), and `rebuild_to_lob2` output verification
-
----
-
-## Workflow (Slash Commands)
-
-| Command | Action |
-|---------|--------|
-| `/add-task "<desc>"` | Create a GitHub issue |
-| `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → close issue → return to main and remove worktree |
-| `/commit` | Stage task-related files only, commit with project-style message (no push) |
-
-**Never commit unless asked** — keep changes in working tree.
-
-**Never auto-execute plan** — only run `/execute-plan` when explicitly asked.
 
 ---
 

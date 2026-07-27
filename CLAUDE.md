@@ -86,6 +86,8 @@ rs/
 | **One SQL statement per migration file** | Each `V{N}__*.sql` contains exactly one statement; split multi-statement changes across sequential versions |
 | **Never auto-execute plan** | Plans are executed only via explicit `/execute-plan` — never start execution unasked |
 | **No destructive git commands** | Never use `git reset`, `git push --force`, `git rebase`, `git commit --amend`, `git rm --cached`, or any command that rewrites history without explicit user approval |
+| **Git worktree only in repo directory** | All changes must be applied via git worktree inside the repository directory — never create external clones or direct branches |
+| **NEVER commit to the main branch** | All changes must be applied via git worktree — never commit directly to the main branch |
 
 ### Python-Specific (enforced by ruff + extra)
 - **Type hints mandatory** — every function; `str \| None` union syntax (3.13)
@@ -127,7 +129,7 @@ See [ADR-030: GitHub Actions CI for Automated Tests and Lint](https://github.com
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise → update docs → post changelog → delete PLAN.md → create ADR and upload to wiki → create PR → close issue → return to main |
+| `/execute-plan` | Execute PLAN.md stepwise → update docs → post changelog → delete PLAN.md → create ADR and upload to wiki → create PR → return to main |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 **Never commit unless asked** — keep changes in working tree.
