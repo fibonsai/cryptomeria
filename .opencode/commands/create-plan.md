@@ -34,6 +34,12 @@ Using the full context (title, body, comments), write `docs/PLAN.md` with:
 
 If the plan changes behavior or introduces a new approach (not a simple refactor or bug fix), add a subtask to **Create an ADR** documenting the decision. The ADR will be created and uploaded directly to GitHub Wiki (not to `docs/`) during `/execute-plan`, not executed here.
 
+If the task creates or modifies markdown files (CONTRIBUTIONS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE, `docs/*.md`), add a subtask to **Upload companion docs to GitHub Wiki** — the wiki is the canonical location alongside the repo. Include sub-steps for:
+- Syncing each file to the wiki repo
+- Updating `_Sidebar.md` if new pages are introduced
+- Verifying that every sidebar link resolves to an existing wiki page
+- Committing and pushing wiki changes
+
 ### 3. Check if the issue body is empty
 
 ```bash
@@ -92,10 +98,24 @@ Issues found:
 - [ ] Add entry to wiki Topic-Index.md
 - [ ] **Do NOT create the ADR in `docs/` — the wiki is the canonical location**
 
+ ### N+1. Upload companion docs to GitHub Wiki (if markdown files were created)
+
+ Issues found:
+ - Markdown files are created in the repo but missing from the wiki, causing broken sidebar links
+
+- [ ] Identify new markdown files (CONTRIBUTIONS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE, docs/*.md)
+- [ ] Clone wiki repo to /tmp
+- [ ] Copy each file to wiki repo, adapting links for wiki format
+- [ ] Update `_Sidebar.md` if new categories or pages were introduced
+- [ ] Verify every sidebar link in `_Sidebar.md` resolves to an existing wiki page
+- [ ] Commit and push wiki changes
+- [ ] Clean up /tmp
+
  ## Verification
 
 ```bash
 <shell command to confirm correctness>
+# Also verify wiki sidebar links resolve (add if sidebar was modified)
 ```
 
 ## Changelog
