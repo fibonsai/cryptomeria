@@ -12,7 +12,7 @@ Defined in `.opencode/commands/`. Available in the TUI:
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise - check if in main brach → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue → return to main and remove worktree |
+| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue → return to main and remove worktree |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 These are ports of the original `.claude/commands/` equivalents. The `.claude/` versions are legacy and may diverge.
@@ -171,9 +171,9 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | 020 | `--list-instruments` CLI flag for mapping discovery | `docs/ADR-020-...` |
 | 021 | Instrument fallback rules and lowercase inst_id persistence | `docs/ADR-021-...` |
 | 022 | Region-based exchange URL configuration | `docs/ADR-022-...` |
+| 023 | Consolidate refinery migrations | `docs/ADR-023-20260724-consolidate-refinery-migrations.md` |
 | 024 | Multi-instrument with per-symbol@exchange async tasks | `docs/ADR-024-...` |
-| 025 | <not created> |
-| 026 | Use cli_instrument (database inst_id format) for metrics instrument label |
+| 026 | Use cli_instrument (database inst_id format) for metrics instrument label | `docs/ADR-026-20260724-metrics-instrument-label-format.md` |
 
 ---
 
@@ -258,7 +258,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise → update docs → post changelog → delete PLAN.md → create ADR → create PR → close issue → return to main |
+| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue → return to main and remove worktree |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 **Never commit unless asked** — keep changes in working tree.
@@ -270,6 +270,8 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 ## Tooling & Environment
 
 - **Python**: 3.13 via `uv` (lockfile: `uv.lock`), `pyproject.toml` uses `pdm-backend`
-- **Rust**: stable toolchain, edition 2024 (`Cargo.toml` in `rs/`)
+- **Rust**: stable toolchain, edition 2024 (`rust-toolchain.toml` in `rs/`)
 - **RTK (Rust Token Killer)**: Active proxy for FS reads & git ops (transparent)
+- **graphify** (`~/.config/opencode/skills/graphify/SKILL.md`): Knowledge graph generator — `/graphify` builds navigable graphs from repo contents into `graphify-out/`
+- **graphify-out/**: Generated knowledge graph outputs (graph.html, GRAPH_REPORT.md, graph.json) — regenerated with `/graphify`
 - **No CI/CD configs**: No Cursor, Copilot, or GitHub Actions in this repo
