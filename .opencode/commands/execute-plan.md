@@ -188,13 +188,7 @@ Do NOT create the ADR in `docs/`. The wiki is the canonical location.
 
 Do not merge the PR (it will be checked by a human or another agent).
 
-### 12. Close the issue
-
-```bash
-gh issue close "$ISSUE"
-```
-
-### 13. Return to main branch
+### 12. Return to main branch
 
 ```bash
 cd $PROJECT_ROOT
@@ -204,5 +198,5 @@ git worktree remove $WORKTREE
 ## Full workflow
 
 ```
-check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → close issue → return to main and remove worktree
+check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → return to main and remove worktree
 ```
