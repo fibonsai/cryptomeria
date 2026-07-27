@@ -2,7 +2,7 @@
 
 A Medium-Frequency Trading (MFT) platform for crypto markets, supporting OKX, Kraken, and Bitstamp exchanges, operated from Europe.
 
-Built by **Fibonsai**. **Python** drives data analysis, research, strategy development, and backtesting. **Rust** powers production WebSocket ingest, data normalization, strategy execution, and order management.
+Using **Python** to data analysis, research, strategy development, and backtesting, and **Rust** powers to improve WebSocket ingestion, data normalization, strategy execution, and order management.
 
 ## Quick Start
 
