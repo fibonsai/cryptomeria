@@ -202,6 +202,7 @@ All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibon
 | Format all | `make format` |
 | Lint all | `make lint` |
 | Full check | `make check` |
+| CLI Reference | See all CLI params and use cases in the [wiki](https://github.com/fibonsai/cryptomeria/wiki/CLI-Reference) |
 
 ---
 
