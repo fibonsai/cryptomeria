@@ -151,6 +151,8 @@ All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibon
 
 See [ADR-029: Apache 2.0 License with Brand Protection](https://github.com/fibonsai/cryptomeria/wiki/ADR-029-20260727-apache-license-brand-protection) for the licensing decision.
 
+See [ADR-030: GitHub Actions CI for Automated Tests and Lint](https://github.com/fibonsai/cryptomeria/wiki/ADR-030-20260727-github-actions-ci) for the CI pipeline decision.
+
 ---
 
 ## LOB Semantics (Python + Rust)

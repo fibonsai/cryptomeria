@@ -67,6 +67,8 @@ All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibon
 | 014 | Graceful shutdown for SIGINT/SIGTERM | [ADR-014](https://github.com/fibonsai/cryptomeria/wiki/ADR-014-20260722-graceful-shutdown-signal-handling) |
 | 028 | Upload ADRs to GitHub Wiki | [ADR-028](https://github.com/fibonsai/cryptomeria/wiki/ADR-028-20260727-upload-adrs-to-github-wiki) |
 | 029 | Apache 2.0 license with brand protection | [ADR-029](https://github.com/fibonsai/cryptomeria/wiki/ADR-029-20260727-apache-license-brand-protection) |
+| 030 | GitHub Actions CI for automated tests and lint | [ADR-030](https://github.com/fibonsai/cryptomeria/wiki/ADR-030-20260727-github-actions-ci) |
+| 030 | GitHub Actions CI for automated tests and lint | [ADR-030](https://github.com/fibonsai/cryptomeria/wiki/ADR-030-20260727-github-actions-ci) |
 
 ## Governance Files
 
