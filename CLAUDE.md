@@ -117,6 +117,8 @@ rs/
 
 All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibonsai/cryptomeria/wiki/Topic-Index#architecture-decision-records-adrs), organized by category. The wiki is the canonical source — no ADR files are created in `docs/`.
 
+See [ADR-030: GitHub Actions CI for Automated Tests and Lint](https://github.com/fibonsai/cryptomeria/wiki/ADR-030-20260727-github-actions-ci) for the CI pipeline decision.
+
 ---
 
 ## Workflow (Slash Commands)
