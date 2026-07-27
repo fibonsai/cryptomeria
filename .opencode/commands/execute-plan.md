@@ -82,7 +82,7 @@ For each section:
 
 ### 6. Update `README.md`, `AGENTS.md`, and `CLAUDE.md`
 
-If the execution changed architecture, CLI flags, added/removed commands, or changed behavior, update `README.md`, `AGENTS.md`, and `CLAUDE.md` to reflect it.
+If the execution changed architecture, CLI flags, added/removed commands, or changed behavior, update `README.md`, `AGENTS.md`, and `CLAUDE.md` to reflect it. Use GitHub Wiki links (not `docs/` paths) for all documentation and ADR references.
 
 ### 7. Post the changelog as an issue comment
 
@@ -123,22 +123,61 @@ If the plan lives in a comment, post a new comment with the completed plan.
 rm docs/PLAN.md
 ```
 
-### 10. Create Architecture Decision Record (ADR)
+### 10. Create Architecture Decision Record (ADR) and upload to GitHub Wiki
 
-Create an ADR doc in `docs/` with at least these sections:
+Create an ADR and upload it directly to GitHub Wiki (not to `docs/`).
 
-* **Title**: A sequential number and an active-voice statement of the decision (e.g., ADR-001: Use PostgreSQL for primary database).
+The ADR **must** contain at least these sections:
+
+* **Title**: A sequential number and an active-voice statement of the decision (e.g., ADR-028: Upload ADRs to GitHub Wiki instead of docs/).
 * **Context**: The forces, requirements, and background circumstances that prompted the decision.
 * **Options Considered**: A list of serious alternatives, including their pros and cons.
 * **Decision**: The chosen solution and a brief justification/rationale.
 * **Consequences**: The positive and negative implications of the chosen path, including trade-offs.
 * **Status**: Tracks the lifecycle stage of the choice (e.g., Proposed, Accepted, Rejected, or Superseded).
 
-File name template: `docs/ADR-<sequential-number>-<YYYYMMDD>-<short-title-with-dashes>.md`
+The sequential number should be one more than the highest existing ADR in the wiki Topic-Index. The datetime is the date of creation in UTC.
 
-The sequential number should be one more than the highest existing ADR in `docs/`. The datetime is the date of creation in UTC.
+#### Category Mapping
 
-Update `AGENTS.md` and `CLAUDE.md`, adding a link to each ADR under an **ADRs** section.
+Assign the new ADR to one of these categories based on its topic:
+
+| Category | Topics |
+|----------|--------|
+| Core Architecture | Foundational technology choices, framework decisions, language/runtime choices |
+| Exchange Integration | Exchange-specific modules, traits, instrument resolution, URL config |
+| Persistence & Storage | Database choice, schema, migrations, retention policies |
+| Metrics & Visualization | Prometheus, Grafana, dashboard layout, endpoint structure |
+| Operations | Deployment, networking, signaling, reliability, workflow changes |
+
+#### Upload steps
+
+```bash
+# Clone wiki repo
+gh repo view --json name | xargs -I{} git clone https://github.com/fibonsai/{}.wiki.git /tmp/cryptomeria-wiki
+
+# Write ADR file to wiki repo (using title as filename: ADR-<N>-<YYYYMMDD>-<short-title>.md)
+cat > /tmp/cryptomeria-wiki/ADR-<N>-<YYYYMMDD>-<short-title>.md << 'EOF'
+<ADR content>
+EOF
+
+# Add entry to Topic-Index.md in the appropriate category section
+# File name in wiki, without path
+# Inserted alphabetically by ADR number within the category
+
+# If the ADR introduces a new category, add it to Topic-Index.md and _Sidebar.md
+
+# Commit and push wiki changes
+cd /tmp/cryptomeria-wiki
+git add .
+git commit -m "Add ADR-<N>: <short title>"
+git push
+
+# Clean up
+rm -rf /tmp/cryptomeria-wiki
+```
+
+Do NOT create the ADR in `docs/`. The wiki is the canonical location.
 
 ### 11. Create a PR from exclusive branch
 
@@ -149,7 +188,13 @@ Update `AGENTS.md` and `CLAUDE.md`, adding a link to each ADR under an **ADRs** 
 
 Do not merge the PR (it will be checked by a human or another agent).
 
-### 12. Return to main branch
+### 12. Close the issue
+
+```bash
+gh issue close "$ISSUE"
+```
+
+### 13. Return to main branch
 
 ```bash
 cd $PROJECT_ROOT
@@ -159,5 +204,5 @@ git worktree remove $WORKTREE
 ## Full workflow
 
 ```
-check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → return to main and remove worktree
+check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → close issue → return to main and remove worktree
 ```
