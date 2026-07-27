@@ -12,7 +12,7 @@ Defined in `.opencode/commands/`. Available in the TUI:
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise → update docs → post changelog → delete PLAN.md → create ADR → create PR → close issue → return to main |
+| `/execute-plan` | Execute PLAN.md stepwise - check if in main brach → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue → return to main and remove worktree |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 These are ports of the original `.claude/commands/` equivalents. The `.claude/` versions are legacy and may diverge.
@@ -22,6 +22,7 @@ These are ports of the original `.claude/commands/` equivalents. The `.claude/` 
 - Commands accept `$ARGUMENTS` and shell injection (`!`cmd``) in templates
 - Never commit unless asked — `/commit` stages explicitly, avoids `git add -A`
 - Never auto-execute plan — only run `/execute-plan` when explicitly asked
+- Output only the code change, no commentary
 
 ---
 
@@ -36,16 +37,30 @@ These are ports of the original `.claude/commands/` equivalents. The `.claude/` 
 Neither `AGENTS.md` nor `.opencode/` is gitignored — they are trackable.
 
 ---
-
-## Repo Quick Commands (from CLAUDE.md)
+## Quick Commands
 
 ```bash
-make dev    # uv sync --dev + cargo build
-make check  # lint + test (both languages)
-make quick  # format → lint → test
-make lint   # ruff check + cargo clippy -D warnings
-make test   # pytest python/ + cargo test (rs)
-make format # ruff format + cargo fmt
+# Dev setup
+make dev              # uv sync --dev + cargo build
+
+# Quality gates (run before committing)
+make check            # lint + test (both languages)
+make quick            # format → lint → test
+
+# Per-language
+make lint             # ruff check + cargo clippy -D warnings
+make test             # pytest python/ + cargo test (rs)
+make format           # ruff format + cargo fmt
+
+# Python specifics
+uv run pytest python/ -v                    # all tests
+uv run pytest python/tests/test_lob.py::test_name -v  # single test
+PYTHONPATH=python uv run python -m cryptomeria.lob in.parquet out.parquet  # LOB CLI
+
+# Rust specifics
+cargo test                    # all (46 unit, 1 ignored integration)
+cargo test <name>             # filter by name substring
+cargo test -- --include-ignored  # run ignored integration test (needs network)
 ```
 
 ---
@@ -157,6 +172,8 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | 021 | Instrument fallback rules and lowercase inst_id persistence | `docs/ADR-021-...` |
 | 022 | Region-based exchange URL configuration | `docs/ADR-022-...` |
 | 024 | Multi-instrument with per-symbol@exchange async tasks | `docs/ADR-024-...` |
+| 025 | <not created> |
+| 026 | Use cli_instrument (database inst_id format) for metrics instrument label |
 
 ---
 
@@ -256,10 +273,3 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 - **Rust**: stable toolchain, edition 2024 (`Cargo.toml` in `rs/`)
 - **RTK (Rust Token Killer)**: Active proxy for FS reads & git ops (transparent)
 - **No CI/CD configs**: No Cursor, Copilot, or GitHub Actions in this repo
-## ADRs
-
-- ADR-026: Use cli_instrument (database inst_id format) for metrics instrument label
-
-## ADRs
-
-- ADR-026: Use cli_instrument (database inst_id format) for metrics instrument label

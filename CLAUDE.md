@@ -6,7 +6,7 @@ High-signal facts for agents working in this repo. Only includes what's non-obvi
 
 ## Project Identity
 
-**Cryptomeria** — MFT platform for OKX crypto derivatives (Europe, Fibonsai).
+**Cryptomeria** — MFT platform for multi-exchange crypto derivatives (OKX, Kraken, Bitstamp; Europe, Fibonsai).
 
 | Language | Role |
 |----------|------|
@@ -139,6 +139,7 @@ rs/
 - **ADR-022** (`docs/ADR-022-...`): Region-based exchange URL configuration via `EXCHANGE_URL` dict and `--region` flag
 - **ADR-023** (`docs/ADR-023-...`): Consolidate refinery migrations — merge V1+V4, V2+V5+V6, drop V3
 - **ADR-024** (`docs/ADR-024-...`): Multi-instrument with per-symbol@exchange async tasks — `--instruments` CLI flag, shared registry, /metrics restructure, /status endpoint
+- **ADR-026** (`docs/ADR-026-20260726-cli-instrument-for-metrics-label.md`): Use cli_instrument (database inst_id format) for metrics instrument label
 
 ---
 
@@ -162,6 +163,8 @@ rs/
 - **Python**: 3.13 via `uv` (lockfile: `uv.lock`), `pyproject.toml` uses `pdm-backend`
 - **Rust**: stable toolchain, edition 2024 (`rust-toolchain.toml` in `rs/`)
 - **RTK (Rust Token Killer)**: Active proxy for FS reads & git ops (transparent)
+- **graphify** (`~/.config/opencode/skills/graphify/SKILL.md`): Knowledge graph generator — `/graphify` builds navigable graphs from repo contents into `graphify-out/`
+- **graphify-out/**: Generated knowledge graph outputs (graph.html, GRAPH_REPORT.md, graph.json) — regenerated with `/graphify`
 - **No CI/CD configs**: No Cursor, Copilot, or GitHub Actions in this repo
 
 ---
@@ -217,10 +220,3 @@ rs/
 | Format all | `make format` |
 | Lint all | `make lint` |
 | Full check | `make check` |
-## ADRs
-
-- ADR-026: Use cli_instrument (database inst_id format) for metrics instrument label
-
-## ADRs
-
-- ADR-026: Use cli_instrument (database inst_id format) for metrics instrument label

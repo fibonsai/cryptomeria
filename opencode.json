@@ -8,7 +8,13 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "default",
       "options": {
-        "baseURL": "http://localhost:8080/v1"
+        "baseURL": "http://localhost:8080/v1",
+        "headers": {
+          "x-bf-cache-key": "criptomeria",
+          "x-bf-cache-type": "direct"
+        },
+        "thinking": { "type": "enabled", "budgetTokens": 4000 },
+        "textVerbosity": "low"
       },
       "models": {
         "default": {

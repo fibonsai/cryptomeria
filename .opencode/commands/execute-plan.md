@@ -5,25 +5,36 @@ description: Execute the plan stored in the GitHub issue body, step by step, the
 
 # Execute PLAN
 
-The plan lives in the **GitHub issue body** (not `docs/PLAN.md`). The issue is the single source of truth.
+The plan lives in the **GitHub Issue** (not `docs/PLAN.md`). The issue is the single source of truth.
+
+IMPORTANT: ALWAYS download the PLAN from Github Issue BEFORE read it, saving in docs/PLAN.md, overriding old version, if exists. This file is a temp/cache.
 
 ## Steps
 
-### 0. Pull main and review the plan for conflicts
+### 0. Check current branch. If is not `main`, ABORT
 
 ```bash
-git checkout main && git pull origin main
+git branch
 ```
 
-After pulling, check if any new changes on main affect the plan (e.g. files the plan modifies were changed upstream). If the plan needs updating:
+If the current branch is not `main`, ABORT this command, explaining that it is mandatory for the current branch to be `main` first.
 
-1. Identify what changed in the conflicting files (`git diff HEAD@{1} -- <file>`)
-2. Update the issue body with the revised plan
-3. Re-read the plan from the updated issue body before proceeding
+### 1. Fetch remote main branch and create an git worktree
 
-If there are no conflicts, proceed.
+Worktree name template: <tags separated by "-">/<short description replacing spaces with "-">
 
-### 1. Get the issue and read all context
+```bash
+PROJECT_ROOT=$(pwd)
+WORKTREE='<tags separated by "-">/<short description replacing spaces with "-">'
+git fetch --all
+git worktree add $WORKTREE
+cd $WORKTREE
+git pull --rebase origin main
+```
+
+If rebase can conflict, RESOLVE it before. Abort if not possible resolve the rebase problem.
+
+### 2. Get the issue and read all context
 
 ```bash
 ISSUE=$(gh issue list --state open --json number -L 1 -q '.[0].number')
@@ -32,7 +43,14 @@ FULL=$(gh issue view "$ISSUE" --json title,body,comments)
 
 Read all available context: title, body, and comments.
 
-### 2. Find the most recent plan
+### 3. Review the plan for conflicts
+
+Check if any new changes on main affect the plan (e.g. files the plan modifies were changed upstream). If the plan needs updating:
+
+1. Identify what changed in the planned files (`git diff HEAD@{1} -- <file>`)
+2. Add a new issue comment with the FULL revised plan
+
+### 4. Find the most recent plan
 
 The plan may be in the issue body or in a comment. Scan all comments for the most recent one containing a `# PLAN` header. Use that as the active plan. If no comment contains a plan, fall back to the issue body.
 
@@ -45,13 +63,7 @@ If the plan is outdated or missing, abort and run `/create-plan` first.
 
 Extract all task sections (lines starting with `### `) and their `- [ ]` sub-steps from the plan.
 
-### 3. Create an exclusive branch from main and work in there
-
-If the current branch is not `main`, ABORT this command, explaining that it is mandatory for the current branch to be `main` first.
-
-branch name template: <tags separated by "-">/<short description replacing spaces with "-">
-
-### 4. Execute each task section in order
+### 5. Execute each task section in order
 
 For each section:
 
@@ -68,11 +80,11 @@ For each section:
 - Do not continue to subsequent steps
 - Do not close the issue
 
-### 5. Update `README.md`, `AGENTS.md`, and `CLAUDE.md`
+### 6. Update `README.md`, `AGENTS.md`, and `CLAUDE.md`
 
 If the execution changed architecture, CLI flags, added/removed commands, or changed behavior, update `README.md`, `AGENTS.md`, and `CLAUDE.md` to reflect it.
 
-### 6. Post the changelog as an issue comment
+### 7. Post the changelog as an issue comment
 
 The changelog summarizes what was done. It must **not** contain a `# PLAN` section.
 
@@ -95,7 +107,7 @@ Task: <issue title>
 <count> passed, <count> failed — <notes, e.g., coverage percentage or any regressions>."
 ```
 
-### 7. Update the issue body's sub-steps with completed checkboxes
+### 8. Update the issue body's sub-steps with completed checkboxes
 
 All `[ ]` sub-steps should now be `[x]`. Post an updated plan comment with checkboxes marked complete. If the plan lives in the issue body, edit it:
 
@@ -105,13 +117,13 @@ gh issue edit "$ISSUE" -b "$(echo "$PLAN" | sed 's/- \[ \]/- [x]/g')"
 
 If the plan lives in a comment, post a new comment with the completed plan.
 
-### 8. Delete `docs/PLAN.md`
+### 9. Delete `docs/PLAN.md`
 
 ```bash
 rm docs/PLAN.md
 ```
 
-### 9. Create Architecture Decision Record (ADR)
+### 10. Create Architecture Decision Record (ADR)
 
 Create an ADR doc in `docs/` with at least these sections:
 
@@ -128,28 +140,30 @@ The sequential number should be one more than the highest existing ADR in `docs/
 
 Update `AGENTS.md` and `CLAUDE.md`, adding a link to each ADR under an **ADRs** section.
 
-### 10. Create a PR from exclusive branch
+### 11. Create a PR from exclusive branch
 
 1. PR title is the same as the issue title.
-2. Add ref to issue in PR body — do **not** append `🤖 Generated with [Claude Code](https://claude.com/claude-code)` or any auto-attribution line
+2. PR body is a PLAN summary, explain what and how it fix the issue.
+2. Add at ref to issue in PR body — do **not** append `🤖 Generated with [Claude Code](https://claude.com/claude-code)` or any other auto-attribution line
 3. Execute /commit (check .opencode/commands/commit.md) in this branch
 
 Do not merge the PR (it will be checked by a human or another agent).
 
-### 11. Close the issue
+### 12. Close the issue
 
 ```bash
 gh issue close "$ISSUE"
 ```
 
-### 12. Return to main branch
+### 13. Return to main branch
 
 ```bash
-git checkout main
+cd $PROJECT_ROOT
+git worktree remove $WORKTREE
 ```
 
 ## Full workflow
 
 ```
-pull main → read issue → find latest plan → create branch → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue → return to main
+check if in main brach → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue → return to main and remove worktree
 ```
