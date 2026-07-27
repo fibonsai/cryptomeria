@@ -43,7 +43,7 @@ uv run pytest python/ -v
 PYTHONPATH=python uv run python -m cryptomeria.lob input.parquet output.parquet
 ```
 
-Full CLI reference and configuration options are available in the [GitHub Wiki](https://github.com/fibonsai/cryptomeria/wiki).
+Full CLI reference and configuration options are available in the [CLI Reference](https://github.com/fibonsai/cryptomeria/wiki/CLI-Reference) wiki page.
 
 ## Documentation
 
