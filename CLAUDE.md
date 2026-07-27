@@ -150,7 +150,7 @@ rs/
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise → update docs → post changelog → delete PLAN.md → create ADR → create PR → close issue → return to main |
+| `/execute-plan` | Execute PLAN.md stepwise → update docs → post changelog → delete PLAN.md → create ADR → create PR → return to main |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 **Never commit unless asked** — keep changes in working tree.

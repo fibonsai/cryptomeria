@@ -1,6 +1,6 @@
 ---
 name: execute-plan
-description: Execute the plan stored in the GitHub issue body, step by step, then post a changelog comment and close the issue. If there is more than one open issue, STOP and ask the user how the open issue can be executed. In this case, read only the open issue indicated by the user, ignoring the others.
+description: Execute the plan stored in the GitHub issue body, step by step, then post a changelog comment. If there is more than one open issue, STOP and ask the user how the open issue can be executed. In this case, read only the open issue indicated by the user, ignoring the others.
 ---
 
 # Execute PLAN
@@ -136,13 +136,7 @@ Update `AGENTS.md` and `CLAUDE.md`, adding a link to each ADR under an **ADRs** 
 
 Do not merge the PR (it will be checked by a human or another agent).
 
-### 11. Close the issue
-
-```bash
-gh issue close "$ISSUE"
-```
-
-### 12. Return to main branch
+### 11. Return to main branch
 
 ```bash
 git checkout main
@@ -151,5 +145,5 @@ git checkout main
 ## Full workflow
 
 ```
-pull main → read issue → find latest plan → create branch → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue → return to main
+pull main → read issue → find latest plan → create branch → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → return to main
 ```

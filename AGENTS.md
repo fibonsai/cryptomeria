@@ -12,7 +12,7 @@ Defined in `.opencode/commands/`. Available in the TUI:
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue → return to main and remove worktree |
+| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → return to main and remove worktree |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 These are ports of the original `.claude/commands/` equivalents. The `.claude/` versions are legacy and may diverge.
@@ -259,7 +259,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → close issue → return to main and remove worktree |
+| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR → create PR → return to main and remove worktree |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 **Never commit unless asked** — keep changes in working tree.
