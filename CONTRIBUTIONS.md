@@ -23,7 +23,6 @@ Thank you for your interest in contributing to Cryptomeria, a Medium-Frequency T
 - PR title should match the issue title.
 - PR body should summarize changes and reference the issue.
 - All tests must pass before review.
-- No destructive git commands (`git reset`, `git push --force`, `git rebase`, `git commit --amend`) without explicit approval.
 
 ## Testing
 
