@@ -174,6 +174,7 @@ cargo test -- --include-ignored  # run ignored integration test (needs network)
 | 023 | Consolidate refinery migrations | `docs/ADR-023-20260724-consolidate-refinery-migrations.md` |
 | 024 | Multi-instrument with per-symbol@exchange async tasks | `docs/ADR-024-...` |
 | 026 | Use cli_instrument (database inst_id format) for metrics instrument label | `docs/ADR-026-20260724-metrics-instrument-label-format.md` |
+| 027 | Documentation refactoring — extract README sections to dedicated docs files | `docs/ADR-027-20260727-documentation-refactoring-extract-readme-sections.md` |
 
 ---
 

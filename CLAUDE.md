@@ -140,6 +140,7 @@ rs/
 - **ADR-023** (`docs/ADR-023-...`): Consolidate refinery migrations — merge V1+V4, V2+V5+V6, drop V3
 - **ADR-024** (`docs/ADR-024-...`): Multi-instrument with per-symbol@exchange async tasks — `--instruments` CLI flag, shared registry, /metrics restructure, /status endpoint
 - **ADR-026** (`docs/ADR-026-20260726-cli-instrument-for-metrics-label.md`): Use cli_instrument (database inst_id format) for metrics instrument label
+- **ADR-027** (`docs/ADR-027-20260727-documentation-refactoring-extract-readme-sections.md`): Extract README sections to dedicated docs files — Project Structure, QuestDB Persistence, Exchange Comparison, Grafana LOB Visualization, LOB Data Processing
 
 ---
 
