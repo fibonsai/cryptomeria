@@ -1,0 +1,1 @@
+{"nodes": [], "edges": [], "hyperedges": [{"id": "agent_workflow", "label": "OpenCode Agent Workflow", "nodes": ["opencode_commands_execute_plan", "AGENTS.md", "CLAUDE.md"], "relation": "form", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "AGENTS.md"}]}
