@@ -4,6 +4,10 @@ use serde_json::Value;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
+/// Type alias for the return type of `levels_within_pct` to reduce type complexity.
+type LevelVec = Vec<(f64, f64)>;
+type LevelsWithinPct = (LevelVec, LevelVec);
+
 /// Direction of a price level.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Side {
@@ -84,7 +88,7 @@ impl OrderBook {
     /// Returns `(Vec<(price, size)>, Vec<(price, size)>)` with bids descending
     /// and asks ascending. Only levels within `top_pct%` of the best price
     /// are included, matching the terminal display filter.
-    pub fn levels_within_pct(&self, top_pct: f64) -> (Vec<(f64, f64)>, Vec<(f64, f64)>) {
+    pub fn levels_within_pct(&self, top_pct: f64) -> LevelsWithinPct {
         let bid_threshold = self
             .best_bid()
             .map(|b| b * (1.0 - top_pct / 100.0));
@@ -267,7 +271,7 @@ impl crate::traits::OrderBook for OrderBook {
     fn best_bid(&self) -> Option<f64> { OrderBook::best_bid(self) }
     fn best_ask(&self) -> Option<f64> { OrderBook::best_ask(self) }
     fn spread(&self) -> Option<f64> { OrderBook::spread(self) }
-    fn levels_within_pct(&self, top_pct: f64) -> (Vec<(f64, f64)>, Vec<(f64, f64)>) { OrderBook::levels_within_pct(self, top_pct) }
+    fn levels_within_pct(&self, top_pct: f64) -> LevelsWithinPct { OrderBook::levels_within_pct(self, top_pct) }
     fn total_bid_size(&self) -> f64 { OrderBook::total_bid_size(self) }
     fn total_ask_size(&self) -> f64 { OrderBook::total_ask_size(self) }
     fn display(&self, instrument: &str, top_pct: f64) -> String { OrderBook::display(self, instrument, top_pct) }
