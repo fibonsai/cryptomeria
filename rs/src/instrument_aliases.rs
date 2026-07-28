@@ -22,7 +22,6 @@ pub const COIN_ALIASES: &[(&str, &str, &str)] = &[
     ("ADA", "USD", "okx"),
     ("DOGE", "USDT", "okx"),
     ("DOGE", "USDC", "okx"),
-
     // Kraken (exchange_id = "kraken")
     ("XBT", "USD", "kraken"),
     ("XBT", "EUR", "kraken"),
@@ -43,7 +42,6 @@ pub const COIN_ALIASES: &[(&str, &str, &str)] = &[
     ("XDG", "USD", "kraken"),
     ("XDG", "USDT", "kraken"),
     ("XDG", "EUR", "kraken"),
-
     // Bitstamp (exchange_id = "bitstamp")
     ("BTC", "USD", "bitstamp"),
     ("ETH", "USD", "bitstamp"),

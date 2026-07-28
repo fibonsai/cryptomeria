@@ -21,11 +21,7 @@ async fn test_bitstamp_connect_and_receive() {
     );
 
     // Give it a short timeout — it should connect and subscribe
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        client.run(),
-    )
-    .await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), client.run()).await;
 
     // We expect either success (exited cleanly) or a timeout
     // (still running = connected and receiving data)

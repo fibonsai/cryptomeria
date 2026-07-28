@@ -71,11 +71,7 @@ impl OkxWsMessage {
 
     /// Build a one-line summary for terminal display.
     pub fn summary(&self) -> String {
-        let inst = self
-            .arg
-            .as_ref()
-            .map(|a| a.inst_id.as_str())
-            .unwrap_or("?");
+        let inst = self.arg.as_ref().map(|a| a.inst_id.as_str()).unwrap_or("?");
         match self.display_type() {
             "LOB2 SNAPSHOT" | "LOB2 UPDATE" | "LOB2" => {
                 let top = self.data.first().map(|d| {
@@ -86,9 +82,11 @@ impl OkxWsMessage {
                 format!("{} {}", inst, top.unwrap_or_default())
             }
             "TRADE" => {
-                if let Some(trade) = self.data.first().and_then(|d| {
-                    serde_json::from_value::<TradeData>(d.clone()).ok()
-                }) {
+                if let Some(trade) = self
+                    .data
+                    .first()
+                    .and_then(|d| serde_json::from_value::<TradeData>(d.clone()).ok())
+                {
                     format!(
                         "{} @ {} sz={} side={}",
                         inst, trade.px, trade.sz, trade.side
@@ -97,9 +95,7 @@ impl OkxWsMessage {
                     format!("{} (raw)", inst)
                 }
             }
-            "EVENT" => {
-                self.event.as_deref().unwrap_or("?").to_string()
-            }
+            "EVENT" => self.event.as_deref().unwrap_or("?").to_string(),
             _ => inst.to_string(),
         }
     }
@@ -205,7 +201,9 @@ impl OkxWsMessage {
         if self.action.as_deref() != Some("snapshot") {
             return None;
         }
-        self.data.first().and_then(|d| serde_json::from_value(d.clone()).ok())
+        self.data
+            .first()
+            .and_then(|d| serde_json::from_value(d.clone()).ok())
     }
 
     /// Parse LOB update data when action == "update".
@@ -213,7 +211,9 @@ impl OkxWsMessage {
         if self.action.as_deref() != Some("update") {
             return None;
         }
-        self.data.first().and_then(|d| serde_json::from_value(d.clone()).ok())
+        self.data
+            .first()
+            .and_then(|d| serde_json::from_value(d.clone()).ok())
     }
 
     /// Flatten LOB data into (side, level) pairs for persistence.
@@ -315,8 +315,7 @@ mod tests {
         }"#;
         let msg = OkxWsMessage::from_json(json).unwrap();
         assert_eq!(msg.display_type(), "TRADE");
-        let t: TradeData =
-            serde_json::from_value(msg.data[0].clone()).unwrap();
+        let t: TradeData = serde_json::from_value(msg.data[0].clone()).unwrap();
         assert_eq!(t.px, "42135.6");
         assert_eq!(t.side, "buy");
     }

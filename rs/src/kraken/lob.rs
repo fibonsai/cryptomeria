@@ -36,7 +36,7 @@ impl OrderBook {
     }
 
     pub fn best_bid(&self) -> Option<f64> {
-        self.bids.first_key_value().map(|(k, _)| k.0 .0)
+        self.bids.first_key_value().map(|(k, _)| k.0.0)
     }
 
     pub fn best_ask(&self) -> Option<f64> {
@@ -51,37 +51,25 @@ impl OrderBook {
     }
 
     pub fn top_bids(&self, n: usize) -> Vec<(f64, f64)> {
-        self.bids
-            .iter()
-            .take(n)
-            .map(|(k, v)| (k.0 .0, *v))
-            .collect()
+        self.bids.iter().take(n).map(|(k, v)| (k.0.0, *v)).collect()
     }
 
     pub fn top_asks(&self, n: usize) -> Vec<(f64, f64)> {
-        self.asks
-            .iter()
-            .take(n)
-            .map(|(k, v)| (k.0, *v))
-            .collect()
+        self.asks.iter().take(n).map(|(k, v)| (k.0, *v)).collect()
     }
 
     pub fn levels_within_pct(&self, top_pct: f64) -> LevelsWithinPct {
-        let bid_threshold = self
-            .best_bid()
-            .map(|b| b * (1.0 - top_pct / 100.0));
-        let ask_threshold = self
-            .best_ask()
-            .map(|a| a * (1.0 + top_pct / 100.0));
+        let bid_threshold = self.best_bid().map(|b| b * (1.0 - top_pct / 100.0));
+        let ask_threshold = self.best_ask().map(|a| a * (1.0 + top_pct / 100.0));
 
         let bids: Vec<(f64, f64)> = self
             .bids
             .iter()
             .filter(|(k, _)| match bid_threshold {
-                Some(t) => k.0 .0 >= t,
+                Some(t) => k.0.0 >= t,
                 None => true,
             })
-            .map(|(k, v)| (k.0 .0, *v))
+            .map(|(k, v)| (k.0.0, *v))
             .collect();
 
         let asks: Vec<(f64, f64)> = self
@@ -103,8 +91,7 @@ impl OrderBook {
                 self.bids.clear();
                 for level in data {
                     if let Some((price, amount)) = parse_level(level) {
-                        self.bids
-                            .insert(Reverse(OrderedFloat(price)), amount);
+                        self.bids.insert(Reverse(OrderedFloat(price)), amount);
                     }
                 }
             }
@@ -127,8 +114,7 @@ impl OrderBook {
                         if amount == 0.0 {
                             self.bids.remove(&Reverse(OrderedFloat(price)));
                         } else {
-                            self.bids
-                                .insert(Reverse(OrderedFloat(price)), amount);
+                            self.bids.insert(Reverse(OrderedFloat(price)), amount);
                         }
                     }
                     Side::Ask => {
@@ -180,15 +166,12 @@ impl OrderBook {
         };
 
         let bids_str = self.format_side(
-            self.bids.iter().map(|(k, v)| (k.0 .0, *v)),
+            self.bids.iter().map(|(k, v)| (k.0.0, *v)),
             top_pct,
             Side::Bid,
         );
-        let asks_str = self.format_side(
-            self.asks.iter().map(|(k, v)| (k.0, *v)),
-            top_pct,
-            Side::Ask,
-        );
+        let asks_str =
+            self.format_side(self.asks.iter().map(|(k, v)| (k.0, *v)), top_pct, Side::Ask);
 
         format!(
             "{}  bids={}  asks={}  spread={}  bids: [ {} ] | asks: [ {} ]",
@@ -226,17 +209,39 @@ impl OrderBook {
 }
 
 impl crate::traits::OrderBook for OrderBook {
-    fn new() -> Self { OrderBook::new() }
-    fn with_snapshot_depth(_depth: usize) -> Self { OrderBook::new() }
-    fn num_bids(&self) -> usize { OrderBook::num_bids(self) }
-    fn num_asks(&self) -> usize { OrderBook::num_asks(self) }
-    fn best_bid(&self) -> Option<f64> { OrderBook::best_bid(self) }
-    fn best_ask(&self) -> Option<f64> { OrderBook::best_ask(self) }
-    fn spread(&self) -> Option<f64> { OrderBook::spread(self) }
-    fn levels_within_pct(&self, top_pct: f64) -> LevelsWithinPct { OrderBook::levels_within_pct(self, top_pct) }
-    fn total_bid_size(&self) -> f64 { OrderBook::total_bid_size(self) }
-    fn total_ask_size(&self) -> f64 { OrderBook::total_ask_size(self) }
-    fn display(&self, instrument: &str, top_pct: f64) -> String { OrderBook::display(self, instrument, top_pct) }
+    fn new() -> Self {
+        OrderBook::new()
+    }
+    fn with_snapshot_depth(_depth: usize) -> Self {
+        OrderBook::new()
+    }
+    fn num_bids(&self) -> usize {
+        OrderBook::num_bids(self)
+    }
+    fn num_asks(&self) -> usize {
+        OrderBook::num_asks(self)
+    }
+    fn best_bid(&self) -> Option<f64> {
+        OrderBook::best_bid(self)
+    }
+    fn best_ask(&self) -> Option<f64> {
+        OrderBook::best_ask(self)
+    }
+    fn spread(&self) -> Option<f64> {
+        OrderBook::spread(self)
+    }
+    fn levels_within_pct(&self, top_pct: f64) -> LevelsWithinPct {
+        OrderBook::levels_within_pct(self, top_pct)
+    }
+    fn total_bid_size(&self) -> f64 {
+        OrderBook::total_bid_size(self)
+    }
+    fn total_ask_size(&self) -> f64 {
+        OrderBook::total_ask_size(self)
+    }
+    fn display(&self, instrument: &str, top_pct: f64) -> String {
+        OrderBook::display(self, instrument, top_pct)
+    }
 }
 
 impl Default for OrderBook {
@@ -284,10 +289,7 @@ mod tests {
     #[test]
     fn test_apply_snapshot_replaces_levels() {
         let mut book = OrderBook::new();
-        book.apply_snapshot(
-            &[(50000.0, 1.0), (49900.0, 2.0)],
-            Side::Bid,
-        );
+        book.apply_snapshot(&[(50000.0, 1.0), (49900.0, 2.0)], Side::Bid);
         assert_eq!(book.num_bids(), 2);
         assert!((book.best_bid().unwrap() - 50000.0).abs() < f64::EPSILON);
 
@@ -301,9 +303,7 @@ mod tests {
         book.apply_snapshot(&[(50000.0, 1.0)], Side::Bid);
         book.apply_update(&[(50000.0, 5.0)], Side::Bid);
         assert_eq!(
-            *book.bids
-                .get(&Reverse(OrderedFloat(50000.0)))
-                .unwrap(),
+            *book.bids.get(&Reverse(OrderedFloat(50000.0))).unwrap(),
             5.0
         );
     }
@@ -311,10 +311,7 @@ mod tests {
     #[test]
     fn test_apply_update_removes() {
         let mut book = OrderBook::new();
-        book.apply_snapshot(
-            &[(50000.0, 1.0), (49900.0, 2.0)],
-            Side::Bid,
-        );
+        book.apply_snapshot(&[(50000.0, 1.0), (49900.0, 2.0)], Side::Bid);
         book.apply_update(&[(50000.0, 0.0)], Side::Bid);
         assert_eq!(book.num_bids(), 1);
     }
@@ -332,10 +329,7 @@ mod tests {
     #[test]
     fn test_display_contains_counts() {
         let mut book = OrderBook::new();
-        book.apply_snapshot(
-            &[(50000.0, 1.0), (49900.0, 2.0)],
-            Side::Bid,
-        );
+        book.apply_snapshot(&[(50000.0, 1.0), (49900.0, 2.0)], Side::Bid);
         book.apply_snapshot(&[(50100.0, 3.0)], Side::Ask);
         let out = book.display("XBT/USD", 100.0);
         assert!(out.contains("bids=2"));
