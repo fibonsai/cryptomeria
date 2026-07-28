@@ -1,7 +1,6 @@
 /// Embedded instrument aliases for supported exchanges.
 /// Generated from scripts/coins_aliases.json (filtered for okex, kraken, bitstamp).
 /// Each entry: (base, target, exchange_id)
-
 pub const COIN_ALIASES: &[(&str, &str, &str)] = &[
     // OKX (exchange_id = "okx")
     ("BTC", "EUR", "okx"),

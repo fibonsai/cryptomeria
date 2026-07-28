@@ -108,10 +108,10 @@ impl BitstampWsMessage {
             Some("snapshot") => MessageType::L2Snapshot,
             Some("data") => {
                 // order_book channel sends "data" events with bids/asks arrays
-                if let Some(ref channel) = self.channel {
-                    if channel.starts_with("order_book_") || channel.starts_with("diff_order_book_") || channel.starts_with("live_orders_") {
-                        return MessageType::L2Update;
-                    }
+                if let Some(ref channel) = self.channel
+                    && (channel.starts_with("order_book_") || channel.starts_with("diff_order_book_") || channel.starts_with("live_orders_"))
+                {
+                    return MessageType::L2Update;
                 }
                 MessageType::Unknown
             }
@@ -150,7 +150,7 @@ impl BitstampWsMessage {
                 let event_label = self.event.as_deref().unwrap_or("data");
                 if let Some(ref channel) = self.channel {
                     if let Some(ref data) = self.data {
-                        if let Some(entry) = serde_json::from_value::<OrderEntry>(data.clone()).ok() {
+                        if let Ok(entry) = serde_json::from_value::<OrderEntry>(data.clone()) {
                             let side = if entry.order_type == 0 { "bid" } else { "ask" };
                             format!("{} {} {} {}@{}", event_label, channel, side, entry.amount, entry.price)
                         } else {
@@ -176,10 +176,10 @@ impl BitstampWsMessage {
                 }
             }
             MessageType::Event => {
-                format!("{}", self.event.as_deref().unwrap_or("?"))
+                self.event.as_deref().unwrap_or("?").to_string()
             }
             MessageType::Unknown => {
-                format!("{}", self.channel.as_deref().unwrap_or("?"))
+                self.channel.as_deref().unwrap_or("?").to_string()
             }
         }
     }
@@ -189,16 +189,16 @@ impl BitstampWsMessage {
     pub fn microtimestamp_us(&self) -> Option<u64> {
         let data = self.data.as_ref()?;
         // Try OrderBookData microtimestamp (diff_order_book / order_book format)
-        if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone()) {
-            if let Ok(us) = ob.microtimestamp.parse::<u64>() {
-                return Some(us);
-            }
+        if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone())
+            && let Ok(us) = ob.microtimestamp.parse::<u64>()
+        {
+            return Some(us);
         }
         // Try TradeData microtimestamp
-        if let Ok(trade) = serde_json::from_value::<TradeData>(data.clone()) {
-            if let Ok(us) = trade.microtimestamp.parse::<u64>() {
-                return Some(us);
-            }
+        if let Ok(trade) = serde_json::from_value::<TradeData>(data.clone())
+            && let Ok(us) = trade.microtimestamp.parse::<u64>()
+        {
+            return Some(us);
         }
         None
     }
@@ -207,7 +207,7 @@ impl BitstampWsMessage {
     pub fn timestamp_ms(&self) -> Option<u64> {
         let data = self.data.as_ref()?;
         // Try OrderEntry timestamp first
-        if let Some(entry) = serde_json::from_value::<OrderEntry>(data.clone()).ok() {
+        if let Ok(entry) = serde_json::from_value::<OrderEntry>(data.clone()) {
             if let Ok(secs) = entry.timestamp.parse::<f64>() {
                 return Some((secs * 1000.0) as u64);
             }
@@ -216,10 +216,10 @@ impl BitstampWsMessage {
             }
         }
         // Try TradeData timestamp
-        if let Some(trade) = serde_json::from_value::<TradeData>(data.clone()).ok() {
-            if let Ok(secs) = trade.timestamp.parse::<f64>() {
-                return Some((secs * 1000.0) as u64);
-            }
+        if let Ok(trade) = serde_json::from_value::<TradeData>(data.clone())
+            && let Ok(secs) = trade.timestamp.parse::<f64>()
+        {
+            return Some((secs * 1000.0) as u64);
         }
         None
     }
@@ -254,8 +254,9 @@ impl BitstampWsMessage {
         let mut result = Vec::new();
         if let Some(ref data) = self.data {
             // Try order_book format (bids/asks arrays) — only if at least one side present
-            if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone()) {
-                if !ob.bids.is_empty() || !ob.asks.is_empty() {
+            if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone())
+                && (!ob.bids.is_empty() || !ob.asks.is_empty())
+            {
                     for level in ob.bids {
                         if level.len() >= 2 {
                             result.push(("bid".to_string(), LobLevel { price: level[0].clone(), size: level[1].clone() }));
@@ -268,9 +269,8 @@ impl BitstampWsMessage {
                     }
                     return result;
                 }
-            }
             // Try live_orders format (single order entry)
-            if let Some(entry) = serde_json::from_value::<OrderEntry>(data.clone()).ok() {
+            if let Ok(entry) = serde_json::from_value::<OrderEntry>(data.clone()) {
                 let side = if entry.order_type == 0 { "bid" } else { "ask" };
                 result.push((side.to_string(), LobLevel {
                     price: entry.price.clone(),
