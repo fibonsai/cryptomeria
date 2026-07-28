@@ -91,6 +91,7 @@ pub async fn connect_sender(
     connect(conf_str).await
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_lob_level(
     buffer: &mut Buffer,
     inst_id: &str,
@@ -99,8 +100,15 @@ fn write_lob_level(
     action: &str,
     side: &str,
     level: &LobLevel,
+    best_bid: Option<f64>,
+    best_ask: Option<f64>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (price, size, count, orders) = level.as_f64().unwrap_or((0.0, 0.0, 0.0, 0.0));
+    let best_diff = match side {
+        "bid" => best_bid.map(|bb| bb - price).unwrap_or(0.0),
+        "ask" => best_ask.map(|ba| price - ba).unwrap_or(0.0),
+        _ => 0.0,
+    };
     let timestamp_nanos = (ts_ms as i64) * 1_000_000;
     buffer
         .table("lob_levels")?
@@ -112,10 +120,12 @@ fn write_lob_level(
         .column_f64("size", size)?
         .column_f64("count", count)?
         .column_f64("orders", orders)?
+        .column_f64("best_diff", best_diff)?
         .at(TimestampNanos::new(timestamp_nanos))?;
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn persist_lob(
     sender: &mut Sender,
     inst_id: &str,
@@ -123,10 +133,22 @@ pub async fn persist_lob(
     ts_ms: u64,
     action: &str,
     levels: &[(String, LobLevel)],
+    best_bid: Option<f64>,
+    best_ask: Option<f64>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut buffer = sender.new_buffer();
     for (side, level) in levels {
-        write_lob_level(&mut buffer, inst_id, exchange, ts_ms, action, side, level)?;
+        write_lob_level(
+            &mut buffer,
+            inst_id,
+            exchange,
+            ts_ms,
+            action,
+            side,
+            level,
+            best_bid,
+            best_ask,
+        )?;
     }
     sender.flush(&mut buffer)?;
     Ok(())

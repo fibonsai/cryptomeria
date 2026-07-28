@@ -464,6 +464,13 @@ impl KrakenClient {
 
         match msg.message_type() {
             MessageType::L2Snapshot => {
+                let snapshot = msg.lob_snapshot();
+                let best_bid = snapshot
+                    .as_ref()
+                    .and_then(|d| d.bids.first().map(|l| l.price));
+                let best_ask = snapshot
+                    .as_ref()
+                    .and_then(|d| d.asks.first().map(|l| l.price));
                 let levels = msg.lob_levels();
                 let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
                     .into_iter()
@@ -485,11 +492,20 @@ impl KrakenClient {
                         ts_ms,
                         "snapshot",
                         &okx_levels,
+                        best_bid,
+                        best_ask,
                     )
                     .await?;
                 }
             }
             MessageType::L2Update => {
+                let update = msg.lob_update();
+                let best_bid = update
+                    .as_ref()
+                    .and_then(|d| d.bids.first().map(|l| l.price));
+                let best_ask = update
+                    .as_ref()
+                    .and_then(|d| d.asks.first().map(|l| l.price));
                 let levels = msg.lob_levels();
                 let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
                     .into_iter()
@@ -504,8 +520,17 @@ impl KrakenClient {
                     })
                     .collect();
                 if !okx_levels.is_empty() {
-                    db::persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &okx_levels)
-                        .await?;
+                    db::persist_lob(
+                        sender,
+                        cli_inst_id,
+                        exchange,
+                        ts_ms,
+                        "update",
+                        &okx_levels,
+                        best_bid,
+                        best_ask,
+                    )
+                    .await?;
                 }
             }
             MessageType::Trade => {

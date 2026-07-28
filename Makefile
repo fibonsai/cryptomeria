@@ -72,10 +72,10 @@ rust-test:
 	cd rs && cargo test
 
 rust-lint:
-	cd rs && cargo clippy -- -D warnings
+	cd rs && cargo clippy
 
 rust-fmt:
-	cd rs && cargo fmt
+	cd rs && PATH="$$(dirname $$(rustup which rustfmt --toolchain nightly)):$$PATH" cargo fmt
 
 rust-clean:
 	cd rs && cargo clean

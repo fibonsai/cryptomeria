@@ -608,6 +608,18 @@ impl BitstampClient {
 
         match msg.message_type() {
             MessageType::L2Snapshot | MessageType::L2Update => {
+                let (best_bid, best_ask) = if let Some(ref data) = msg.data {
+                    if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone()) {
+                        (
+                            ob.bids.first().and_then(|b| b[0].parse::<f64>().ok()),
+                            ob.asks.first().and_then(|a| a[0].parse::<f64>().ok()),
+                        )
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                };
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
                     let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
@@ -624,8 +636,17 @@ impl BitstampClient {
                             )
                         })
                         .collect();
-                    persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &okx_levels)
-                        .await?;
+                    persist_lob(
+                        sender,
+                        cli_inst_id,
+                        exchange,
+                        ts_ms,
+                        "update",
+                        &okx_levels,
+                        best_bid,
+                        best_ask,
+                    )
+                    .await?;
                 }
             }
             MessageType::Trade => {
