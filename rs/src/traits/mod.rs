@@ -6,6 +6,11 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 
+/// Type alias for a single vector of (price, size) levels.
+pub type LevelVec = Vec<(f64, f64)>;
+/// Type alias for the (bids, asks) return type of `levels_within_pct`.
+pub type LevelsWithinPct = (LevelVec, LevelVec);
+
 const INITIAL_BACKOFF_MS: u64 = 1000;
 const MAX_BACKOFF_MS: u64 = 60_000;
 const BACKOFF_MULTIPLIER: f64 = 2.0;
@@ -20,7 +25,7 @@ pub trait OrderBook {
     fn best_bid(&self) -> Option<f64>;
     fn best_ask(&self) -> Option<f64>;
     fn spread(&self) -> Option<f64>;
-    fn levels_within_pct(&self, top_pct: f64) -> (Vec<(f64, f64)>, Vec<(f64, f64)>);
+    fn levels_within_pct(&self, top_pct: f64) -> LevelsWithinPct;
     fn total_bid_size(&self) -> f64;
     fn total_ask_size(&self) -> f64;
     fn display(&self, instrument: &str, top_pct: f64) -> String;
@@ -247,22 +252,22 @@ impl LobMetrics {
                         // Sort depth entries by price: bids descending (highest first), asks ascending (lowest first)
                         for ex_entry in by_exchange.values_mut() {
                             for inst_entry in ex_entry.values_mut() {
-                                if let Some(depth) = inst_entry.get_mut("depth") {
-                                    if let Some(arr) = depth.as_array_mut() {
-                                        arr.sort_by(|a, b| {
-                                            let a_side = a["side"].as_str().unwrap_or("");
-                                            let b_side = b["side"].as_str().unwrap_or("");
-                                            let a_price = a["price"].as_f64().unwrap_or(0.0);
-                                            let b_price = b["price"].as_f64().unwrap_or(0.0);
-                                            match (a_side, b_side) {
-                                                ("bid", "bid") => b_price.partial_cmp(&a_price).unwrap_or(std::cmp::Ordering::Equal),
-                                                ("ask", "ask") => a_price.partial_cmp(&b_price).unwrap_or(std::cmp::Ordering::Equal),
-                                                ("bid", "ask") => std::cmp::Ordering::Less,
-                                                ("ask", "bid") => std::cmp::Ordering::Greater,
-                                                _ => std::cmp::Ordering::Equal,
-                                            }
-                                        });
-                                    }
+                                if let Some(depth) = inst_entry.get_mut("depth")
+                                    && let Some(arr) = depth.as_array_mut()
+                                {
+                                    arr.sort_by(|a, b| {
+                                        let a_side = a["side"].as_str().unwrap_or("");
+                                        let b_side = b["side"].as_str().unwrap_or("");
+                                        let a_price = a["price"].as_f64().unwrap_or(0.0);
+                                        let b_price = b["price"].as_f64().unwrap_or(0.0);
+                                        match (a_side, b_side) {
+                                            ("bid", "bid") => b_price.partial_cmp(&a_price).unwrap_or(std::cmp::Ordering::Equal),
+                                            ("ask", "ask") => a_price.partial_cmp(&b_price).unwrap_or(std::cmp::Ordering::Equal),
+                                            ("bid", "ask") => std::cmp::Ordering::Less,
+                                            ("ask", "bid") => std::cmp::Ordering::Greater,
+                                            _ => std::cmp::Ordering::Equal,
+                                        }
+                                    });
                                 }
                             }
                         }

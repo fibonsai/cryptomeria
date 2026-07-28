@@ -111,7 +111,7 @@ impl KrakenWsMessage {
                 }
                 s
             }
-            _ => format!("{}", inst),
+            _ => inst.to_string(),
         }
     }
 

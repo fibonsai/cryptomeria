@@ -3,6 +3,9 @@ use ordered_float::OrderedFloat;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap};
 
+type LevelVec = Vec<(f64, f64)>;
+type LevelsWithinPct = (LevelVec, LevelVec);
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Side {
     Bid,
@@ -66,7 +69,7 @@ impl OrderBook {
         }
     }
 
-    pub fn levels_within_pct(&self, top_pct: f64) -> (Vec<(f64, f64)>, Vec<(f64, f64)>) {
+    pub fn levels_within_pct(&self, top_pct: f64) -> LevelsWithinPct {
         let bid_threshold = self
             .best_bid()
             .map(|b| b * (1.0 - top_pct / 100.0));
@@ -161,10 +164,7 @@ impl OrderBook {
                     self.rebuild_price_level(side, price);
                 }
             }
-        } else if amount == 0.0 {
-            // Unknown order with zero amount — ignore
-            return;
-        } else {
+        } else if amount > 0.0 {
             // New order
             self.orders.insert(entry.id, OrderInfo { price, size: amount, side });
             self.rebuild_price_level(side, price);
@@ -211,22 +211,20 @@ impl OrderBook {
         self.asks.clear();
 
         for level in ob.bids.iter().take(self.snapshot_depth) {
-            if level.len() >= 2 {
-                if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
-                    if amount > 0.0 {
-                        self.bids.insert(Reverse(OrderedFloat(price)), amount);
-                    }
-                }
+            if level.len() >= 2
+                && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && amount > 0.0
+            {
+                self.bids.insert(Reverse(OrderedFloat(price)), amount);
             }
         }
 
         for level in ob.asks.iter().take(self.snapshot_depth) {
-            if level.len() >= 2 {
-                if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
-                    if amount > 0.0 {
-                        self.asks.insert(OrderedFloat(price), amount);
-                    }
-                }
+            if level.len() >= 2
+                && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && amount > 0.0
+            {
+                self.asks.insert(OrderedFloat(price), amount);
             }
         }
     }
@@ -235,27 +233,27 @@ impl OrderBook {
     /// For each [price, amount] pair: if amount == 0 remove the level, otherwise upsert.
     fn apply_diff(&mut self, ob: &OrderBookData) {
         for level in &ob.bids {
-            if level.len() >= 2 {
-                if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
-                    let price = OrderedFloat(price);
-                    if amount == 0.0 {
-                        self.bids.remove(&Reverse(price));
-                    } else {
-                        self.bids.insert(Reverse(price), amount);
-                    }
+            if level.len() >= 2
+                && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
+            {
+                let price = OrderedFloat(price);
+                if amount == 0.0 {
+                    self.bids.remove(&Reverse(price));
+                } else {
+                    self.bids.insert(Reverse(price), amount);
                 }
             }
         }
 
         for level in &ob.asks {
-            if level.len() >= 2 {
-                if let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>()) {
-                    let price = OrderedFloat(price);
-                    if amount == 0.0 {
-                        self.asks.remove(&price);
-                    } else {
-                        self.asks.insert(price, amount);
-                    }
+            if level.len() >= 2
+                && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
+            {
+                let price = OrderedFloat(price);
+                if amount == 0.0 {
+                    self.asks.remove(&price);
+                } else {
+                    self.asks.insert(price, amount);
                 }
             }
         }
@@ -340,7 +338,7 @@ impl crate::traits::OrderBook for OrderBook {
     fn best_bid(&self) -> Option<f64> { OrderBook::best_bid(self) }
     fn best_ask(&self) -> Option<f64> { OrderBook::best_ask(self) }
     fn spread(&self) -> Option<f64> { OrderBook::spread(self) }
-    fn levels_within_pct(&self, top_pct: f64) -> (Vec<(f64, f64)>, Vec<(f64, f64)>) { OrderBook::levels_within_pct(self, top_pct) }
+    fn levels_within_pct(&self, top_pct: f64) -> LevelsWithinPct { OrderBook::levels_within_pct(self, top_pct) }
     fn total_bid_size(&self) -> f64 { OrderBook::total_bid_size(self) }
     fn total_ask_size(&self) -> f64 { OrderBook::total_ask_size(self) }
     fn display(&self, instrument: &str, top_pct: f64) -> String { OrderBook::display(self, instrument, top_pct) }

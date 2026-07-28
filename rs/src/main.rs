@@ -114,8 +114,8 @@ fn resolve_one_instrument(instrument: &str, exchange: &str) -> (String, String, 
 
         if let Some(found) = available_targets.iter().find(|t| t.to_uppercase() == target) {
             let formatted = format_instrument(&format!("{}-{}", base, found), &effective_exchange);
-            let note = if exchange_override.is_some() {
-                format!("(resolved from {}@{})", symbol, exchange_override.unwrap())
+            let note = if let Some(eo) = exchange_override {
+                format!("(resolved from {}@{})", symbol, eo)
             } else {
                 format!("(resolved from {})", symbol)
             };
@@ -126,8 +126,8 @@ fn resolve_one_instrument(instrument: &str, exchange: &str) -> (String, String, 
         let fallback_target = find_fallback_target(&target, &available_targets);
         if let Some(fallback) = fallback_target {
             let formatted = format_instrument(&format!("{}-{}", base, fallback), &effective_exchange);
-            let note = if exchange_override.is_some() {
-                format!("(fallback {}->{} from {}@{})", target, fallback, symbol, exchange_override.unwrap())
+            let note = if let Some(eo) = exchange_override {
+                format!("(fallback {}->{} from {}@{})", target, fallback, symbol, eo)
             } else {
                 format!("(fallback {}->{})", target, fallback)
             };
@@ -137,10 +137,10 @@ fn resolve_one_instrument(instrument: &str, exchange: &str) -> (String, String, 
     }
 
     let formatted = format_instrument(symbol, &effective_exchange);
-    let note = if exchange_override.is_some() {
-        format!("(raw from {}@{})", symbol, exchange_override.unwrap())
+    let note = if let Some(eo) = exchange_override {
+        format!("(raw from {}@{})", symbol, eo)
     } else {
-        format!("(raw)")
+        "(raw)".to_string()
     };
     eprintln!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note);
     (formatted, effective_exchange, cli_inst_id)
@@ -242,8 +242,12 @@ pub struct CliArgs {
     pub region: String,
 }
 
+type InstrumentEntry<'a> = (&'a str, &'a str, &'a str);
+
 fn print_instrument_table() {
     use std::collections::BTreeMap;
+
+    type Pairs = BTreeMap<(String, String), Vec<InstrumentEntry<'static>>>;
 
     fn normalize_base(base: &str) -> &str {
         match base {
@@ -253,7 +257,7 @@ fn print_instrument_table() {
         }
     }
 
-    let mut pairs: BTreeMap<(String, String), Vec<(&str, &str, &str)>> = BTreeMap::new();
+    let mut pairs: Pairs = BTreeMap::new();
     for (base, target, exchange) in COIN_ALIASES {
         let key = (normalize_base(base).to_string(), target.to_string());
         pairs.entry(key).or_default().push((exchange, base, target));

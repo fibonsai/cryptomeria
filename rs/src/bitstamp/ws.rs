@@ -132,57 +132,55 @@ impl BitstampClient {
     }
 
     fn update_status_active(&self, active: bool, detail: String) {
-        if let Some(ref sh) = self.status_handle {
-            if let Ok(mut map) = sh.write() {
-                let key = format!("{}@{}", self.cli_instrument, self.exchange);
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                map.insert(key, ClientStatus {
-                    active,
-                    ts: now,
-                    last_price: None,
-                    bid_size: 0.0,
-                    ask_size: 0.0,
-                    detail,
-                });
-            }
+        if let Some(ref sh) = self.status_handle
+            && let Ok(mut map) = sh.write()
+        {
+            let key = format!("{}@{}", self.cli_instrument, self.exchange);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            map.insert(key, ClientStatus {
+                active,
+                ts: now,
+                last_price: None,
+                bid_size: 0.0,
+                ask_size: 0.0,
+                detail,
+            });
         }
     }
 
     fn update_last_price(&self, price: f64) {
-        if let Some(ref sh) = self.status_handle {
-            if let Ok(mut map) = sh.write() {
+        if let Some(ref sh) = self.status_handle
+            && let Ok(mut map) = sh.write()
+        {
                 let key = format!("{}@{}", self.cli_instrument, self.exchange);
                 if let Some(status) = map.get_mut(&key) {
-                    status.last_price = Some(price);
-                    status.ts = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-                }
+                status.last_price = Some(price);
+                status.ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
             }
         }
     }
 
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.lob_metrics_override.is_none() {
-            if let Some(port) = self.metrics_port {
-                let lob_metrics = self.lob_metrics.clone();
-                std::thread::spawn(move || {
-                    let system = actix_web::rt::System::new();
-                    if let Err(e) = system.block_on(LobMetrics::start_metrics_server(port, lob_metrics)) {
-                        eprintln!("[METRICS] Server error: {}", e);
-                    }
-                });
-            }
+        if self.lob_metrics_override.is_none() && let Some(port) = self.metrics_port {
+            let lob_metrics = self.lob_metrics.clone();
+            std::thread::spawn(move || {
+                let system = actix_web::rt::System::new();
+                if let Err(e) = system.block_on(LobMetrics::start_metrics_server(port, lob_metrics)) {
+                    eprintln!("[METRICS] Server error: {}", e);
+                }
+            });
         }
 
-        if let Some(hours) = self.retention_window {
-            if let Err(e) = apply_ttl(hours, &self.questdb_conf).await {
-                eprintln!("[DB TTL ERROR] {}", e);
-            }
+        if let Some(hours) = self.retention_window
+            && let Err(e) = apply_ttl(hours, &self.questdb_conf).await
+        {
+            eprintln!("[DB TTL ERROR] {}", e);
         }
 
         let mut attempt = 0u32;
@@ -220,7 +218,7 @@ impl BitstampClient {
             // Subscribe to diff_order_book channel (full depth, not just top 100)
             let orders_channel = format!("diff_order_book_{}", self.channel_instrument);
             let orders_msg = build_subscribe_msg(&orders_channel);
-            if let Err(e) = write.send(Message::Text(orders_msg.into())).await {
+            if let Err(e) = write.send(Message::Text(orders_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
                 eprintln!(
@@ -236,7 +234,7 @@ impl BitstampClient {
             // Subscribe to live_trades channel
             let trades_channel = format!("live_trades_{}", self.channel_instrument);
             let trades_msg = build_subscribe_msg(&trades_channel);
-            if let Err(e) = write.send(Message::Text(trades_msg.into())).await {
+            if let Err(e) = write.send(Message::Text(trades_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
                 eprintln!(
@@ -297,18 +295,18 @@ impl BitstampClient {
                                                         last_trade_count = 0;
                                                         last_trade_time = std::time::Instant::now();
                                                     }
-                                                    if let Some(sender) = self.sender.as_mut() {
-if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await {
-                                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
-                                                        }
+                                                    if let Some(sender) = self.sender.as_mut()
+                                                        && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
+                                                    {
+                                                        eprintln!("[DB ERROR] Failed to persist: {}", e);
                                                     }
                                                     // Update last_price in status
                                                     if let Some(trade) = parsed.data.as_ref().and_then(|d| {
                                                         serde_json::from_value::<TradeData>(d.clone()).ok()
-                                                    }) {
-                                                        if let Ok(px) = trade.price.parse::<f64>() {
-                                                            self.update_last_price(px);
-                                                        }
+                                                    })
+                                                        && let Ok(px) = trade.price.parse::<f64>()
+                                                    {
+                                                        self.update_last_price(px);
                                                     }
                                                 }
                                                 MessageType::Event => {
@@ -339,10 +337,7 @@ if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrume
                                                     Ok(resp) => {
                                                         match resp.json::<OrderBookData>().await {
                                                             Ok(snapshot) => {
-                                                                let snapshot_microtimestamp = match snapshot.microtimestamp.parse::<u64>() {
-                                                                    Ok(ts) => ts,
-                                                                    Err(_) => 0,
-                                                                };
+                                                                let snapshot_microtimestamp: u64 = snapshot.microtimestamp.parse::<u64>().unwrap_or_default();
                                                                 let snapshot_msg = BitstampWsMessage {
                                                                     event: Some("snapshot".to_string()),
                                                                     channel: Some(orders_channel.clone()),
@@ -449,10 +444,10 @@ if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrume
                                                 }
                                             }
 
-if let Some(sender) = self.sender.as_mut() {
-                                                    if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await {
-                                                        eprintln!("[DB ERROR] Failed to persist: {}", e);
-                                                    }
+if let Some(sender) = self.sender.as_mut()
+                                                    && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
+                                                {
+                                                    eprintln!("[DB ERROR] Failed to persist: {}", e);
                                                 }
                                         }
                                     }
@@ -534,17 +529,17 @@ if let Some(sender) = self.sender.as_mut() {
                 .as_millis() as f64,
         );
 
-        if let Some(ref sh) = self.status_handle {
-            if let Ok(mut map) = sh.write() {
-                let key = format!("{}@{}", self.cli_instrument, self.exchange);
-                if let Some(status) = map.get_mut(&key) {
-                    status.bid_size = order_book.total_bid_size();
-                    status.ask_size = order_book.total_ask_size();
-                    status.ts = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-                }
+        if let Some(ref sh) = self.status_handle
+            && let Ok(mut map) = sh.write()
+        {
+            let key = format!("{}@{}", self.cli_instrument, self.exchange);
+            if let Some(status) = map.get_mut(&key) {
+                status.bid_size = order_book.total_bid_size();
+                status.ask_size = order_book.total_ask_size();
+                status.ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
             }
         }
     }
@@ -612,16 +607,16 @@ if let Some(sender) = self.sender.as_mut() {
                         ts_ms,
                     }).await?;
                     // Update last_price in status
-                    if let Some(ref sh) = status_handle {
-                        if let Ok(mut map) = sh.write() {
-                            let key = format!("{}@{}", cli_inst_id, exchange);
-                            if let Some(status) = map.get_mut(&key) {
-                                status.last_price = Some(px);
-                                status.ts = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_millis() as u64;
-                            }
+                    if let Some(ref sh) = status_handle
+                        && let Ok(mut map) = sh.write()
+                    {
+                        let key = format!("{}@{}", cli_inst_id, exchange);
+                        if let Some(status) = map.get_mut(&key) {
+                            status.last_price = Some(px);
+                            status.ts = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64;
                         }
                     }
                 }
