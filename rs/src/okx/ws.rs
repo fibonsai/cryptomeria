@@ -420,15 +420,21 @@ impl OkxClient {
 
         match msg.message_type() {
             MessageType::L2Snapshot => {
+                let snapshot = msg.lob_snapshot();
+                let best_bid = snapshot.as_ref().and_then(|d| d.bids.first()?.price.parse::<f64>().ok());
+                let best_ask = snapshot.as_ref().and_then(|d| d.asks.first()?.price.parse::<f64>().ok());
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
-                    persist_lob(sender, cli_inst_id, exchange, ts_ms, "snapshot", &levels).await?;
+                    persist_lob(sender, cli_inst_id, exchange, ts_ms, "snapshot", &levels, best_bid, best_ask).await?;
                 }
             }
             MessageType::L2Update => {
+                let update = msg.lob_update();
+                let best_bid = update.as_ref().and_then(|d| d.bids.first()?.price.parse::<f64>().ok());
+                let best_ask = update.as_ref().and_then(|d| d.asks.first()?.price.parse::<f64>().ok());
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
-                    persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &levels).await?;
+                    persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &levels, best_bid, best_ask).await?;
                 }
             }
             MessageType::Trade => {
