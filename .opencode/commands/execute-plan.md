@@ -29,7 +29,7 @@ Worktree name template: <tags separated by "-">/<short description replacing spa
 PROJECT_ROOT=$(pwd)
 WORKTREE='<tags separated by "-">/<short description replacing spaces with "-">'
 git fetch --all
-git worktree add $WORKTREE $WORKTREE
+git worktree add -b "$WORKTREE" "$WORKTREE" HEAD
 cd $WORKTREE
 git pull --rebase origin main
 ```
