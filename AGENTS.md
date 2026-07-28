@@ -1,6 +1,17 @@
-# Cryptomeria — OpenCode Agent Guide
+# Cryptomeria — Agent Guide
 
-High-signal OpenCode-specific facts. For full repo conventions, read `CLAUDE.md` — this file covers only what's OpenCode-specific.
+High-signal facts for agents working in this repo. Only includes what's non-obvious from file structure.
+
+---
+
+## Project Identity
+
+**Cryptomeria** — MFT platform for multi-exchange crypto derivatives (OKX, Kraken, Bitstamp; Europe, Fibonsai).
+
+| Language | Role |
+|----------|------|
+| **Rust** (`rs/`) | Production: WS ingest (LOB + trades), normalization, strategy exec, OMS, ML inference |
+| **Python** (`python/`) | Research: analysis, backtesting, prototyping, risk modeling, ML training |
 
 ---
 
@@ -12,20 +23,10 @@ Defined in `.opencode/commands/`. Available in the TUI:
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree in repo directory → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → return to main and remove worktree |
+| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree in repo directory → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → return to main and remove worktree |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
-These are ports of the original `.claude/commands/` equivalents. The `.claude/` versions are legacy and may diverge.
-
-
-**Never commit unless asked** — keep changes in working tree.
-
-**Never auto-execute plan** — only run `/execute-plan` when explicitly asked.
-
----
-
-
-### Usage notes
+Usage notes:
 - All four commands use `gh` (GitHub CLI) — must be authenticated
 - Commands accept `$ARGUMENTS` and shell injection (`!`cmd``) in templates
 - Never commit unless asked — `/commit` stages explicitly, avoids `git add -A`
@@ -45,6 +46,7 @@ These are ports of the original `.claude/commands/` equivalents. The `.claude/` 
 Neither `AGENTS.md` nor `.opencode/` is gitignored — they are trackable.
 
 ---
+
 ## Quick Commands
 
 ```bash
@@ -59,21 +61,11 @@ make quick            # format → lint → test
 make lint             # ruff check + cargo clippy -D warnings
 make test             # pytest python/ + cargo test (rs)
 make format           # ruff format + cargo fmt
-
-# Python specifics
-uv run pytest python/ -v                    # all tests
-uv run pytest python/tests/test_lob.py::test_name -v  # single test
-PYTHONPATH=python uv run python -m cryptomeria.lob in.parquet out.parquet  # LOB CLI
-
-# Rust specifics
-cargo test                    # all (46 unit, 1 ignored integration)
-cargo test <name>             # filter by name substring
-cargo test -- --include-ignored  # run ignored integration test (needs network)
 ```
 
 ---
 
-## Project Structure
+## Architecture Essentials
 
 ```
 python/
@@ -99,7 +91,7 @@ rs/
 
 **Python package** is `cryptomeria` (src layout in `python/`). Tests discovered from `python/`, not inside package.
 
-**Rust crate** is `cryptomeria` (edition 2024). Lib root: `lib.rs` → `pub mod traits`, `pub mod bitstamp`, `pub mod kraken`, `pub mod okx`, `pub mod db`, `pub mod urls`.
+**Rust crate** is `cryptomeria` (edition 2024 in `Cargo.toml`). Lib root: `lib.rs` → `pub mod traits`, `pub mod bitstamp`, `pub mod kraken`, `pub mod okx`, `pub mod db`, `pub mod urls`.
 
 ---
 
@@ -112,12 +104,12 @@ rs/
 | **Progress logging** | Ops >10s must emit progress every 5s (count, remaining, ETA) |
 | **Relative paths only** | Never absolute paths in code/docs/config |
 | **Secrets in `.env.local`** | Never committed (in `.gitignore`) |
-| **CLAUDE.md/AGENTS.md** | Never add brand (claude/openroute, etc) reference |
+| **Never add brand reference** | Never mention claude/openroute/etc in AGENTS.md |
 | **One SQL statement per migration file** | Each `V{N}__*.sql` contains exactly one statement; split multi-statement changes across sequential versions |
-| **Never auto-execute plan** | Plans are executed only via explicit `/execute-plan` — never start execution unasked |
+| **Never auto-execute plan** | Plans executed only via explicit `/execute-plan` — never start unasked |
 | **No destructive git commands** | Never use `git reset`, `git push --force`, `git rebase`, `git commit --amend`, `git rm --cached`, or any command that rewrites history without explicit user approval |
-| **Git worktree only in repo directory** | All changes must be applied via git worktree inside the repository directory — never create external clones or direct branches |
-| **NEVER commit to the main branch** | All changes must be applied via git worktree — never commit directly to the main branch |
+| **Git worktree only in repo directory** | All changes via git worktree inside the repository — never external clones or direct branches |
+| **Never commit to main branch** | All changes via git worktree — never commit directly to main |
 
 ### Python-Specific (enforced by ruff + extra)
 - **Type hints mandatory** — every function; `str \| None` union syntax (3.13)
@@ -139,25 +131,23 @@ rs/
 | **Test tables in plans** | Name each test + what it verifies; "add tests" is insufficient |
 | **`cargo test` / `pytest` must pass** | Before any commit touching logic |
 
-**Python test pattern** (see `python/tests/test_lob.py`): write raw parquet fixtures with `pa.Table.from_pylist()` to temp dirs, read back, assert bid/ask dicts. Covers: snapshot-replaces-all, update-removes-level, cross-row-group continuity, null-price skipping.
-
-**Rust test pattern**: pure helpers (`build_subscribe_msg`, `display_message`, `OrderBook` methods) tested inline in `mod tests`; integration test in `tests/` ignored by default.
-
-### Running Single Tests
 ```bash
 # Python
 uv run pytest python/tests/test_lob.py::test_name -v
-
-# Rust (filter by name substring)
+# Rust
 cargo test test_name
-cargo test -- --include-ignored  # run ignored integration test (needs network)
+cargo test -- --include-ignored  # integration test (needs network)
 ```
+
+**Python test pattern**: write raw parquet fixtures with `pa.Table.from_pylist()` to temp dirs, read back, assert bid/ask dicts.
+
+**Rust test pattern**: pure helpers tested inline in `mod tests`; integration tests in `tests/` marked `#[ignore]`.
 
 ---
 
 ## Key Architectural Decisions (ADRs)
 
-All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibonsai/cryptomeria/wiki/Topic-Index#architecture-decision-records-adrs), organized by category. The wiki is the canonical source — no ADR files are created in `docs/`.
+All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibonsai/cryptomeria/wiki/Topic-Index#architecture-decision-records-adrs), organized by category. The wiki is the canonical source.
 
 See [ADR-029: Apache 2.0 License with Brand Protection](https://github.com/fibonsai/cryptomeria/wiki/ADR-029-20260727-apache-license-brand-protection) for the licensing decision.
 
@@ -196,7 +186,7 @@ See [ADR-030: GitHub Actions CI for Automated Tests and Lint](https://github.com
 
 ## License
 
-Licensed under [Apache 2.0](LICENSE) with additional brand protections for Fibonsai and Cryptomeria.
+Licensed under [Apache 2.0](LICENSE) with additional brand protections for Fibonsai and Cryptomeria ([ADR-029](https://github.com/fibonsai/cryptomeria/wiki/ADR-029-20260727-apache-license-brand-protection)).
 
 ---
 

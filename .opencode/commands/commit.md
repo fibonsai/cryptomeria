@@ -3,6 +3,8 @@ name: commit
 description: Commit all files changed by the last issue resolution.
 ---
 
+> **Tools first**: Before running shell commands, prefer dedicated tools (Read, Write, Edit, Grep, Glob, Bash) or skills over raw shell. Use Write/Read/Edit tools for file operations instead of `cat`/`echo`/`sed`. Only fall back to shell when no tool alternative exists.
+
 # Commit
 
 Commit the work just executed (the last `/execute-plan` task) as a single git commit.
