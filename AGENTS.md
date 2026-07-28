@@ -99,7 +99,7 @@ rs/
 
 | Rule | Details |
 |------|---------|
-| **No comments in code** | Intent via names; decisions in commits/docs |
+| **No comments in code** | Intent via names; decisions in Github Wiki ADRs and commits/docs |
 | **Catch specific errors** | No bare `except Exception` / `catch (_)` |
 | **Progress logging** | Ops >10s must emit progress every 5s (count, remaining, ETA) |
 | **Relative paths only** | Never absolute paths in code/docs/config |
@@ -137,6 +137,8 @@ uv run pytest python/tests/test_lob.py::test_name -v
 # Rust
 cargo test test_name
 cargo test -- --include-ignored  # integration test (needs network)
+# All
+make test
 ```
 
 **Python test pattern**: write raw parquet fixtures with `pa.Table.from_pylist()` to temp dirs, read back, assert bid/ask dicts.
