@@ -2,7 +2,9 @@ use crate::db;
 use crate::db::apply_ttl;
 use crate::kraken::lob::OrderBook;
 use crate::kraken::types::{KrakenWsMessage, MessageType};
-use crate::traits::{self, ClientStatus, ExchangeClientBuilder, LobMetrics, StatusHandle, backoff_delay};
+use crate::traits::{
+    self, ClientStatus, ExchangeClientBuilder, LobMetrics, StatusHandle, backoff_delay,
+};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use questdb::ingress::Sender;
@@ -45,17 +47,38 @@ pub struct KrakenClient {
 }
 
 impl ExchangeClientBuilder for KrakenClient {
-    fn with_sender(self, sender: Sender) -> Self { KrakenClient::with_sender(self, sender) }
-    fn with_retention_window(self, hours: u64) -> Self { KrakenClient::with_retention_window(self, hours) }
-    fn with_metrics_port(self, port: u16) -> Self { KrakenClient::with_metrics_port(self, port) }
-    fn with_data_output(self, enabled: bool) -> Self { KrakenClient::with_data_output(self, enabled) }
-    fn with_cli_instrument(self, inst_id: String) -> Self { KrakenClient::with_cli_instrument(self, inst_id) }
-    fn with_lob_metrics(self, metrics: Arc<LobMetrics>) -> Self { KrakenClient::with_lob_metrics(self, metrics) }
-    fn with_status_handle(self, handle: StatusHandle) -> Self { KrakenClient::with_status_handle(self, handle) }
+    fn with_sender(self, sender: Sender) -> Self {
+        KrakenClient::with_sender(self, sender)
+    }
+    fn with_retention_window(self, hours: u64) -> Self {
+        KrakenClient::with_retention_window(self, hours)
+    }
+    fn with_metrics_port(self, port: u16) -> Self {
+        KrakenClient::with_metrics_port(self, port)
+    }
+    fn with_data_output(self, enabled: bool) -> Self {
+        KrakenClient::with_data_output(self, enabled)
+    }
+    fn with_cli_instrument(self, inst_id: String) -> Self {
+        KrakenClient::with_cli_instrument(self, inst_id)
+    }
+    fn with_lob_metrics(self, metrics: Arc<LobMetrics>) -> Self {
+        KrakenClient::with_lob_metrics(self, metrics)
+    }
+    fn with_status_handle(self, handle: StatusHandle) -> Self {
+        KrakenClient::with_status_handle(self, handle)
+    }
 }
 
 impl KrakenClient {
-    pub fn new(instrument: &str, exchange: &str, region: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
+    pub fn new(
+        instrument: &str,
+        exchange: &str,
+        region: &str,
+        show_top_pct: f64,
+        data_output: bool,
+        questdb_conf: &str,
+    ) -> Self {
         let registry = prometheus::Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         Self {
@@ -112,17 +135,25 @@ impl KrakenClient {
     }
 
     fn metrics(&self) -> &LobMetrics {
-        self.lob_metrics_override.as_ref().unwrap_or(&self.lob_metrics)
+        self.lob_metrics_override
+            .as_ref()
+            .unwrap_or(&self.lob_metrics)
     }
 
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Start metrics server if port is specified (only when not using shared LobMetrics)
-        if self.lob_metrics_override.is_none() && let Some(port) = self.metrics_port {
+        if self.lob_metrics_override.is_none()
+            && let Some(port) = self.metrics_port
+        {
             let lob_metrics = self.lob_metrics.clone();
             let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
             std::thread::spawn(move || {
                 let system = actix_web::rt::System::new();
-                if let Err(e) = system.block_on(LobMetrics::start_http_server(port, lob_metrics, status_handle)) {
+                if let Err(e) = system.block_on(LobMetrics::start_http_server(
+                    port,
+                    lob_metrics,
+                    status_handle,
+                )) {
                     eprintln!("[METRICS] Server error: {}", e);
                 }
             });
@@ -138,9 +169,8 @@ impl KrakenClient {
         let mut shutdown = false;
 
         #[cfg(unix)]
-        let mut sigterm = tokio::signal::unix::signal(
-            tokio::signal::unix::SignalKind::terminate(),
-        )?;
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
         loop {
             let ws_url = crate::urls::websocket_url(&self.region, &self.exchange);
@@ -199,112 +229,112 @@ impl KrakenClient {
 
             loop {
                 tokio::select! {
-                    msg = read.next() => {
-                        let should_break = match msg {
-                            None => true,
-                            Some(Err(e)) => {
-                                eprintln!("[WS ERROR] {}", e);
-                                true
-                            }
-                            Some(Ok(Message::Close(frame))) => {
-                                eprintln!("[CLOSE] {:?}", frame);
-                                true
-                            }
-                            Some(Ok(Message::Text(text))) => {
-                                match KrakenWsMessage::from_json(&text) {
-                                    Ok(parsed) => {
-                                        self.messages_received.fetch_add(1, Ordering::Relaxed);
-                                        match parsed.message_type() {
-                                            MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
-                                                order_book.process_msg(&parsed);
-                                                if self.data_output {
-                                                    let now = parsed.formatted_time();
-                                                    let book_line =
-                                                        order_book.display(&self.instrument, self.show_top_pct);
-                                                    println!("[{} LOB2] {}", now, book_line);
-                                                }
-                                                self.update_lob_metrics(&order_book);
-                                                self.update_depth_metrics(&order_book);
+                                    msg = read.next() => {
+                                        let should_break = match msg {
+                                            None => true,
+                                            Some(Err(e)) => {
+                                                eprintln!("[WS ERROR] {}", e);
+                                                true
                                             }
-                                            MessageType::Trade => {
-                                                if self.data_output {
-                                                    let line = display_message(&parsed);
-                                                    println!("{}", line);
-                                                }
-                                                self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
-                                                last_trade_count += 1;
-                                                let elapsed = last_trade_time.elapsed();
-                                                if elapsed >= std::time::Duration::from_secs(1) {
-                                                    let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                                    self.metrics().trades_per_second
-                                                        .store(f64::to_bits(rate), Ordering::Relaxed);
-                                                    last_trade_count = 0;
-                                                    last_trade_time = std::time::Instant::now();
-                                                }
-                                                // Update last_price in status
-                                                if let Some(trade) = parsed.data.first().and_then(|d| {
-                                                    serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
-                                                }) {
-                                                    self.update_last_price(trade.price);
-                                                }
+                                            Some(Ok(Message::Close(frame))) => {
+                                                eprintln!("[CLOSE] {:?}", frame);
+                                                true
                                             }
-                                            MessageType::Event => {
-                                                if self.data_output {
-                                                    let line = display_message(&parsed);
-                                                    println!("{}", line);
-                                                }
-                                            }
-                                            MessageType::Status => {
-                                                // no-op (skip display)
-                                            }
-                                            MessageType::Heartbeat => {
-                                                // no-op
-                                            }
-                                            MessageType::Unknown => {
-                                                if self.data_output {
-                                                    let line = display_message(&parsed);
-                                                    println!("{}", line);
-                                                }
-                                            }
-                                        }
+                                            Some(Ok(Message::Text(text))) => {
+                                                match KrakenWsMessage::from_json(&text) {
+                                                    Ok(parsed) => {
+                                                        self.messages_received.fetch_add(1, Ordering::Relaxed);
+                                                        match parsed.message_type() {
+                                                            MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
+                                                                order_book.process_msg(&parsed);
+                                                                if self.data_output {
+                                                                    let now = parsed.formatted_time();
+                                                                    let book_line =
+                                                                        order_book.display(&self.instrument, self.show_top_pct);
+                                                                    println!("[{} LOB2] {}", now, book_line);
+                                                                }
+                                                                self.update_lob_metrics(&order_book);
+                                                                self.update_depth_metrics(&order_book);
+                                                            }
+                                                            MessageType::Trade => {
+                                                                if self.data_output {
+                                                                    let line = display_message(&parsed);
+                                                                    println!("{}", line);
+                                                                }
+                                                                self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
+                                                                last_trade_count += 1;
+                                                                let elapsed = last_trade_time.elapsed();
+                                                                if elapsed >= std::time::Duration::from_secs(1) {
+                                                                    let rate = last_trade_count as f64 / elapsed.as_secs_f64();
+                                                                    self.metrics().trades_per_second
+                                                                        .store(f64::to_bits(rate), Ordering::Relaxed);
+                                                                    last_trade_count = 0;
+                                                                    last_trade_time = std::time::Instant::now();
+                                                                }
+                                                                // Update last_price in status
+                                                                if let Some(trade) = parsed.data.first().and_then(|d| {
+                                                                    serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
+                                                                }) {
+                                                                    self.update_last_price(trade.price);
+                                                                }
+                                                            }
+                                                            MessageType::Event => {
+                                                                if self.data_output {
+                                                                    let line = display_message(&parsed);
+                                                                    println!("{}", line);
+                                                                }
+                                                            }
+                                                            MessageType::Status => {
+                                                                // no-op (skip display)
+                                                            }
+                                                            MessageType::Heartbeat => {
+                                                                // no-op
+                                                            }
+                                                            MessageType::Unknown => {
+                                                                if self.data_output {
+                                                                    let line = display_message(&parsed);
+                                                                    println!("{}", line);
+                                                                }
+                                                            }
+                                                        }
 
-if let Some(sender) = self.sender.as_mut()
-                                            && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await
-                                        {
-                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
+                if let Some(sender) = self.sender.as_mut()
+                                                            && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await
+                                                        {
+                                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!(
+                                                            "[PARSE ERROR] {} — raw: {}",
+                                                            e,
+                                                            &text[..text.len().min(200)]
+                                                        );
+                                                    }
+                                                }
+                                                false
+                                            }
+                                            Some(Ok(Message::Ping(data))) => {
+                                                eprintln!("[PING] {} bytes", data.len());
+                                                false
+                                            }
+                                            Some(Ok(Message::Pong(_))) => false,
+                                            Some(Ok(Message::Binary(_))) => {
+                                                eprintln!("[BINARY] received (unexpected)");
+                                                false
+                                            }
+                                            Some(Ok(Message::Frame(_))) => false,
+                                        };
+                                        if should_break {
+                                            break;
                                         }
                                     }
-                                    Err(e) => {
-                                        eprintln!(
-                                            "[PARSE ERROR] {} — raw: {}",
-                                            e,
-                                            &text[..text.len().min(200)]
-                                        );
-                                    }
+                                    _ = tokio::signal::ctrl_c() => {
+                                        eprintln!("[SHUTDOWN] received SIGINT");
+                                        shutdown = true;
+                                        break;
+                                    },
                                 }
-                                false
-                            }
-                            Some(Ok(Message::Ping(data))) => {
-                                eprintln!("[PING] {} bytes", data.len());
-                                false
-                            }
-                            Some(Ok(Message::Pong(_))) => false,
-                            Some(Ok(Message::Binary(_))) => {
-                                eprintln!("[BINARY] received (unexpected)");
-                                false
-                            }
-                            Some(Ok(Message::Frame(_))) => false,
-                        };
-                        if should_break {
-                            break;
-                        }
-                    }
-                    _ = tokio::signal::ctrl_c() => {
-                        eprintln!("[SHUTDOWN] received SIGINT");
-                        shutdown = true;
-                        break;
-                    },
-                }
                 if shutdown {
                     break;
                 }
@@ -352,7 +382,7 @@ if let Some(sender) = self.sender.as_mut()
                 .as_millis() as f64,
         );
 
-if let Some(ref sh) = self.status_handle
+        if let Some(ref sh) = self.status_handle
             && let Ok(mut map) = sh.write()
         {
             let key = format!("{}@{}", self.cli_instrument, self.exchange);
@@ -395,14 +425,17 @@ if let Some(ref sh) = self.status_handle
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64;
-            map.insert(key, ClientStatus {
-                active,
-                ts: now,
-                last_price: None,
-                bid_size: 0.0,
-                ask_size: 0.0,
-                detail,
-            });
+            map.insert(
+                key,
+                ClientStatus {
+                    active,
+                    ts: now,
+                    last_price: None,
+                    bid_size: 0.0,
+                    ask_size: 0.0,
+                    detail,
+                },
+            );
         }
     }
 
@@ -432,8 +465,12 @@ if let Some(ref sh) = self.status_handle
         match msg.message_type() {
             MessageType::L2Snapshot => {
                 let snapshot = msg.lob_snapshot();
-                let best_bid = snapshot.as_ref().and_then(|d| d.bids.first().map(|l| l.price));
-                let best_ask = snapshot.as_ref().and_then(|d| d.asks.first().map(|l| l.price));
+                let best_bid = snapshot
+                    .as_ref()
+                    .and_then(|d| d.bids.first().map(|l| l.price));
+                let best_ask = snapshot
+                    .as_ref()
+                    .and_then(|d| d.asks.first().map(|l| l.price));
                 let levels = msg.lob_levels();
                 let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
                     .into_iter()
@@ -448,13 +485,27 @@ if let Some(ref sh) = self.status_handle
                     })
                     .collect();
                 if !okx_levels.is_empty() {
-                    db::persist_lob(sender, cli_inst_id, exchange, ts_ms, "snapshot", &okx_levels, best_bid, best_ask).await?;
+                    db::persist_lob(
+                        sender,
+                        cli_inst_id,
+                        exchange,
+                        ts_ms,
+                        "snapshot",
+                        &okx_levels,
+                        best_bid,
+                        best_ask,
+                    )
+                    .await?;
                 }
             }
             MessageType::L2Update => {
                 let update = msg.lob_update();
-                let best_bid = update.as_ref().and_then(|d| d.bids.first().map(|l| l.price));
-                let best_ask = update.as_ref().and_then(|d| d.asks.first().map(|l| l.price));
+                let best_bid = update
+                    .as_ref()
+                    .and_then(|d| d.bids.first().map(|l| l.price));
+                let best_ask = update
+                    .as_ref()
+                    .and_then(|d| d.asks.first().map(|l| l.price));
                 let levels = msg.lob_levels();
                 let okx_levels: Vec<(String, crate::okx::types::LobLevel)> = levels
                     .into_iter()
@@ -469,22 +520,36 @@ if let Some(ref sh) = self.status_handle
                     })
                     .collect();
                 if !okx_levels.is_empty() {
-                    db::persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &okx_levels, best_bid, best_ask).await?;
+                    db::persist_lob(
+                        sender,
+                        cli_inst_id,
+                        exchange,
+                        ts_ms,
+                        "update",
+                        &okx_levels,
+                        best_bid,
+                        best_ask,
+                    )
+                    .await?;
                 }
             }
-MessageType::Trade => {
+            MessageType::Trade => {
                 if let Some(trade) = msg.data.first().and_then(|d| {
                     serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
                 }) {
-                    db::persist_trade(sender, db::TradeData {
-                        inst_id: cli_inst_id.to_string(),
-                        exchange: exchange.to_string(),
-                        trade_id: trade.trade_id,
-                        px: trade.price,
-                        sz: trade.qty,
-                        side: trade.side,
-                        ts_ms,
-                    }).await?;
+                    db::persist_trade(
+                        sender,
+                        db::TradeData {
+                            inst_id: cli_inst_id.to_string(),
+                            exchange: exchange.to_string(),
+                            trade_id: trade.trade_id,
+                            px: trade.price,
+                            sz: trade.qty,
+                            side: trade.side,
+                            ts_ms,
+                        },
+                    )
+                    .await?;
                 }
             }
             _ => {}
@@ -540,7 +605,14 @@ mod tests {
 
     #[test]
     fn test_client_new_sets_instrument() {
-        let client = KrakenClient::new("XBT/USD", "kraken", "europe", 0.1, false, "http::addr=localhost:9000;");
+        let client = KrakenClient::new(
+            "XBT/USD",
+            "kraken",
+            "europe",
+            0.1,
+            false,
+            "http::addr=localhost:9000;",
+        );
         assert_eq!(client.instrument, "XBT/USD");
         assert_eq!(client.exchange, "kraken");
         assert_eq!(client.region, "europe");
@@ -609,14 +681,28 @@ mod tests {
 
     #[test]
     fn test_client_retention_window() {
-        let client = KrakenClient::new("XBT/USD", "kraken", "europe", 0.1, false, "http::addr=localhost:9000;")
-            .with_retention_window(60);
+        let client = KrakenClient::new(
+            "XBT/USD",
+            "kraken",
+            "europe",
+            0.1,
+            false,
+            "http::addr=localhost:9000;",
+        )
+        .with_retention_window(60);
         assert_eq!(client.retention_window, Some(60));
     }
 
     #[test]
     fn test_client_default_no_retention() {
-        let client = KrakenClient::new("XBT/USD", "kraken", "europe", 0.1, false, "http::addr=localhost:9000;");
+        let client = KrakenClient::new(
+            "XBT/USD",
+            "kraken",
+            "europe",
+            0.1,
+            false,
+            "http::addr=localhost:9000;",
+        );
         assert_eq!(client.retention_window, None);
     }
 }
