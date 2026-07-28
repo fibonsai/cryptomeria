@@ -1,6 +1,6 @@
 use crate::bitstamp::lob::OrderBook;
 use crate::bitstamp::types::{display_message, BitstampWsMessage, MessageType, OrderBookData, TradeData};
-use crate::db::{persist_lob, persist_trade};
+use crate::db::{persist_lob, persist_trade, TradeData as DbTradeData};
 use crate::db::apply_ttl;
 use crate::traits::{self, ExchangeClientBuilder, ClientStatus, LobMetrics, StatusHandle, backoff_delay};
 use futures_util::SinkExt;
@@ -602,8 +602,15 @@ if let Some(sender) = self.sender.as_mut() {
                     let px = trade.price.parse().unwrap_or(0.0);
                     let sz = trade.amount.parse().unwrap_or(0.0);
                     let side = if trade.trade_type == 0 { "buy" } else { "sell" };
-                    persist_trade(sender, cli_inst_id, exchange, &trade.id.to_string(), px, sz, side, ts_ms)
-                        .await?;
+                    persist_trade(sender, DbTradeData {
+                        inst_id: cli_inst_id.to_string(),
+                        exchange: exchange.to_string(),
+                        trade_id: trade.id.to_string(),
+                        px,
+                        sz,
+                        side: side.to_string(),
+                        ts_ms,
+                    }).await?;
                     // Update last_price in status
                     if let Some(ref sh) = status_handle {
                         if let Ok(mut map) = sh.write() {

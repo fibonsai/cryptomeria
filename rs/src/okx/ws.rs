@@ -1,7 +1,7 @@
-use crate::db::{persist_lob, persist_trade};
+use crate::db::{persist_lob, persist_trade, TradeData};
 use crate::db::apply_ttl;
 use crate::okx::lob::OrderBook;
-use crate::okx::types::{MessageType, OkxWsMessage, TradeData};
+use crate::okx::types::{MessageType, OkxWsMessage, TradeData as OkxTradeData};
 use crate::traits::{self, ExchangeClientBuilder, ClientStatus, LobMetrics, StatusHandle, backoff_delay};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
@@ -141,24 +141,22 @@ impl OkxClient {
     /// cleanly.
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Start metrics server if port is specified (only when not using shared LobMetrics)
-        if self.lob_metrics_override.is_none() {
-            if let Some(port) = self.metrics_port {
-                let lob_metrics = self.lob_metrics.clone();
-                let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
-                std::thread::spawn(move || {
-                    let system = actix_web::rt::System::new();
-                    if let Err(e) = system.block_on(LobMetrics::start_http_server(port, lob_metrics, status_handle)) {
-                        eprintln!("[METRICS] Server error: {}", e);
-                    }
-                });
-            }
+        if let Some(port) = self.metrics_port.filter(|_| self.lob_metrics_override.is_none()) {
+            let lob_metrics = self.lob_metrics.clone();
+            let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
+            std::thread::spawn(move || {
+                let system = actix_web::rt::System::new();
+                if let Err(e) = system.block_on(LobMetrics::start_http_server(port, lob_metrics, status_handle)) {
+                    eprintln!("[METRICS] Server error: {}", e);
+                }
+            });
         }
 
         // Set TTL once at startup (one-time table config, not per-message)
-        if let Some(hours) = self.retention_window {
-            if let Err(e) = apply_ttl(hours, &self.questdb_conf).await {
-                eprintln!("[DB TTL ERROR] {}", e);
-            }
+        if let Some(hours) = self.retention_window
+            && let Err(e) = apply_ttl(hours, &self.questdb_conf).await
+        {
+            eprintln!("[DB TTL ERROR] {}", e);
         }
 
         let mut attempt = 0u32;
@@ -176,7 +174,7 @@ impl OkxClient {
                 Ok((stream, _)) => {
                     attempt = 0;
                     eprintln!("[CONNECTED] {}", ws_url);
-                    self.update_status_active(true, format!("connected"));
+                    self.update_status_active(true, "connected".to_string());
                     stream
                 }
                 Err(e) => {
@@ -195,7 +193,7 @@ impl OkxClient {
 
             // Subscribe to books channel
             let books_msg = build_subscribe_msg("books", &self.instrument);
-            if let Err(e) = write.send(Message::Text(books_msg.into())).await {
+            if let Err(e) = write.send(Message::Text(books_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
                 eprintln!(
@@ -210,7 +208,7 @@ impl OkxClient {
 
             // Subscribe to trades channel
             let trades_msg = build_subscribe_msg("trades", &self.instrument);
-            if let Err(e) = write.send(Message::Text(trades_msg.into())).await {
+            if let Err(e) = write.send(Message::Text(trades_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
                 eprintln!(
@@ -267,7 +265,7 @@ impl OkxClient {
 
 // Update trades metrics
                                                 if let Some(trade) = parsed.data.first().and_then(|d| {
-                                                    serde_json::from_value::<TradeData>(d.clone()).ok()
+                                                    serde_json::from_value::<OkxTradeData>(d.clone()).ok()
                                                 }) {
                                                     self.metrics()
                                                         .trades_total
@@ -290,11 +288,11 @@ impl OkxClient {
                                             }
                                         }
 
-                                        // Persist to QuestDB if sender is configured
-                                        if let Some(sender) = self.sender.as_mut() {
-                                            if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await {
-                                                eprintln!("[DB ERROR] Failed to persist: {}", e);
-                                            }
+// Persist to QuestDB if sender is configured
+                                        if let Some(sender) = self.sender.as_mut()
+                                            && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
+                                        {
+                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
                                         }
                                     }
                                     Err(e) => {
@@ -376,17 +374,17 @@ impl OkxClient {
         );
 
         // Update status handle with bid/ask sizes
-        if let Some(ref sh) = self.status_handle {
-            if let Ok(mut map) = sh.write() {
-                let key = format!("{}@{}", self.cli_instrument, self.exchange);
-                if let Some(status) = map.get_mut(&key) {
-                    status.bid_size = order_book.total_bid_size();
-                    status.ask_size = order_book.total_ask_size();
-                    status.ts = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-                }
+        if let Some(ref sh) = self.status_handle
+            && let Ok(mut map) = sh.write()
+        {
+            let key = format!("{}@{}", self.cli_instrument, self.exchange);
+            if let Some(status) = map.get_mut(&key) {
+                status.bid_size = order_book.total_bid_size();
+                status.ask_size = order_book.total_ask_size();
+                status.ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
             }
         }
     }
@@ -435,23 +433,29 @@ impl OkxClient {
             }
             MessageType::Trade => {
                 if let Some(trade) = msg.data.first().and_then(|d| {
-                    serde_json::from_value::<TradeData>(d.clone()).ok()
+                    serde_json::from_value::<OkxTradeData>(d.clone()).ok()
                 }) {
                     let px = trade.px.parse().unwrap_or(0.0);
                     let sz = trade.sz.parse().unwrap_or(0.0);
-                    persist_trade(sender, cli_inst_id, exchange, &trade.trade_id, px, sz, &trade.side, ts_ms)
+                    persist_trade(sender, TradeData {
+                        inst_id: cli_inst_id.to_string(),
+                        exchange: exchange.to_string(),
+                        trade_id: trade.trade_id.clone(),
+                        px,
+                        sz,
+                        side: trade.side.clone(),
+                        ts_ms,
+                    })
                         .await?;
                     // Update last_price in status
-                    if let Some(ref sh) = status_handle {
-                        if let Ok(mut map) = sh.write() {
-                            let key = format!("{}@{}", cli_inst_id, exchange);
-                            if let Some(status) = map.get_mut(&key) {
-                                status.last_price = Some(px);
-                                status.ts = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_millis() as u64;
-                            }
+                    if let Ok(mut map) = status_handle.as_ref().map(|sh| sh.write()).transpose() {
+                        let key = format!("{}@{}", cli_inst_id, exchange);
+                        if let Some(status) = map.as_mut().and_then(|map| map.get_mut(&key)) {
+                            status.last_price = Some(px);
+                            status.ts = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64;
                         }
                     }
                 }
@@ -462,36 +466,36 @@ impl OkxClient {
     }
 
     fn update_status_active(&self, active: bool, detail: String) {
-        if let Some(ref sh) = self.status_handle {
-            if let Ok(mut map) = sh.write() {
-                let key = format!("{}@{}", self.cli_instrument, self.exchange);
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                map.insert(key, ClientStatus {
-                    active,
-                    ts: now,
-                    last_price: None,
-                    bid_size: 0.0,
-                    ask_size: 0.0,
-                    detail,
-                });
-            }
+        if let Some(ref sh) = self.status_handle
+            && let Ok(mut map) = sh.write()
+        {
+            let key = format!("{}@{}", self.cli_instrument, self.exchange);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            map.insert(key, ClientStatus {
+                active,
+                ts: now,
+                last_price: None,
+                bid_size: 0.0,
+                ask_size: 0.0,
+                detail,
+            });
         }
     }
 
     fn update_last_price(&self, price: f64) {
-        if let Some(ref sh) = self.status_handle {
-            if let Ok(mut map) = sh.write() {
-                let key = format!("{}@{}", self.cli_instrument, self.exchange);
-                if let Some(status) = map.get_mut(&key) {
-                    status.last_price = Some(price);
-                    status.ts = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-                }
+        if let Some(ref sh) = self.status_handle
+            && let Ok(mut map) = sh.write()
+        {
+            let key = format!("{}@{}", self.cli_instrument, self.exchange);
+            if let Some(status) = map.get_mut(&key) {
+                status.last_price = Some(price);
+                status.ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
             }
         }
     }

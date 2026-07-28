@@ -25,11 +25,11 @@ pub fn resolve_questdb_conf(cli_conf: Option<&str>) -> String {
 /// Extract HTTP address from QDB_CLIENT_CONF string
 fn extract_http_addr(conf_str: &str) -> String {
     for part in conf_str.split(';') {
-        if part.starts_with("http::addr=") {
-            return part["http::addr=".len()..].to_string();
+        if let Some(stripped) = part.strip_prefix("http::addr=") {
+            return stripped.to_string();
         }
-        if part.starts_with("https::addr=") {
-            return part["https::addr=".len()..].to_string();
+        if let Some(stripped) = part.strip_prefix("https::addr=") {
+            return stripped.to_string();
         }
     }
     "localhost:9000".to_string()
@@ -150,26 +150,31 @@ pub async fn apply_ttl(
     Ok(())
 }
 
+/// Trade data for persistence
+pub struct TradeData {
+    pub inst_id: String,
+    pub exchange: String,
+    pub trade_id: String,
+    pub px: f64,
+    pub sz: f64,
+    pub side: String,
+    pub ts_ms: u64,
+}
+
 pub async fn persist_trade(
     sender: &mut Sender,
-    inst_id: &str,
-    exchange: &str,
-    trade_id: &str,
-    px: f64,
-    sz: f64,
-    side: &str,
-    ts_ms: u64,
+    trade: TradeData,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut buffer = sender.new_buffer();
-    let timestamp_nanos = (ts_ms as i64) * 1_000_000;
+    let timestamp_nanos = (trade.ts_ms as i64) * 1_000_000;
     buffer
         .table("trades")?
-        .symbol("inst_id", inst_id)?
-        .symbol("exchange", exchange)?
-        .symbol("trade_id", trade_id)?
-        .symbol("side", side)?
-        .column_f64("px", px)?
-        .column_f64("sz", sz)?
+        .symbol("inst_id", trade.inst_id)?
+        .symbol("exchange", trade.exchange)?
+        .symbol("trade_id", trade.trade_id)?
+        .symbol("side", trade.side)?
+        .column_f64("px", trade.px)?
+        .column_f64("sz", trade.sz)?
         .at(TimestampNanos::new(timestamp_nanos))?;
     sender.flush(&mut buffer)?;
     Ok(())

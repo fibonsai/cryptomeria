@@ -98,9 +98,9 @@ impl OkxWsMessage {
                 }
             }
             "EVENT" => {
-                format!("{}", self.event.as_deref().unwrap_or("?"))
+                self.event.as_deref().unwrap_or("?").to_string()
             }
-            _ => format!("{}", inst),
+            _ => inst.to_string(),
         }
     }
 
@@ -246,10 +246,10 @@ fn format_top_levels(data: &serde_json::Value, key: &str) -> String {
         .map(|arr| {
             arr.iter()
                 .take(2)
-                .filter_map(|l| {
+                .map(|l| {
                     let p = l.get(0).and_then(|v| v.as_str()).unwrap_or("?");
                     let s = l.get(1).and_then(|v| v.as_str()).unwrap_or("?");
-                    Some(format!("{} ({})", p, s))
+                    format!("{} ({})", p, s)
                 })
                 .collect::<Vec<_>>()
                 .join(", ")

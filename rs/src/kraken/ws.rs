@@ -117,23 +117,21 @@ impl KrakenClient {
 
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Start metrics server if port is specified (only when not using shared LobMetrics)
-        if self.lob_metrics_override.is_none() {
-            if let Some(port) = self.metrics_port {
-                let lob_metrics = self.lob_metrics.clone();
-                let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
-                std::thread::spawn(move || {
-                    let system = actix_web::rt::System::new();
-                    if let Err(e) = system.block_on(LobMetrics::start_http_server(port, lob_metrics, status_handle)) {
-                        eprintln!("[METRICS] Server error: {}", e);
-                    }
-                });
-            }
+        if self.lob_metrics_override.is_none() && let Some(port) = self.metrics_port {
+            let lob_metrics = self.lob_metrics.clone();
+            let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
+            std::thread::spawn(move || {
+                let system = actix_web::rt::System::new();
+                if let Err(e) = system.block_on(LobMetrics::start_http_server(port, lob_metrics, status_handle)) {
+                    eprintln!("[METRICS] Server error: {}", e);
+                }
+            });
         }
 
-        if let Some(hours) = self.retention_window {
-            if let Err(e) = apply_ttl(hours, &self.questdb_conf).await {
-                eprintln!("[DB TTL ERROR] {}", e);
-            }
+        if let Some(hours) = self.retention_window
+            && let Err(e) = apply_ttl(hours, &self.questdb_conf).await
+        {
+            eprintln!("[DB TTL ERROR] {}", e);
         }
 
         let mut attempt = 0u32;
@@ -169,7 +167,7 @@ impl KrakenClient {
             let (mut write, mut read) = ws_stream.split();
 
             let books_msg = build_subscribe_msg("book", &self.instrument);
-            if let Err(e) = write.send(Message::Text(books_msg.into())).await {
+            if let Err(e) = write.send(Message::Text(books_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
                 eprintln!(
@@ -183,7 +181,7 @@ impl KrakenClient {
             self.update_status_active(true, format!("subscribed to book {}", self.instrument));
 
             let trades_msg = build_subscribe_msg("trade", &self.instrument);
-            if let Err(e) = write.send(Message::Text(trades_msg.into())).await {
+            if let Err(e) = write.send(Message::Text(trades_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
                 eprintln!(
@@ -270,10 +268,10 @@ impl KrakenClient {
                                             }
                                         }
 
-                                        if let Some(sender) = self.sender.as_mut() {
-                                            if let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await {
-                                                eprintln!("[DB ERROR] Failed to persist: {}", e);
-                                            }
+if let Some(sender) = self.sender.as_mut()
+                                            && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await
+                                        {
+                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
                                         }
                                     }
                                     Err(e) => {
@@ -354,17 +352,17 @@ impl KrakenClient {
                 .as_millis() as f64,
         );
 
-        if let Some(ref sh) = self.status_handle {
-            if let Ok(mut map) = sh.write() {
-                let key = format!("{}@{}", self.cli_instrument, self.exchange);
-                if let Some(status) = map.get_mut(&key) {
-                    status.bid_size = order_book.total_bid_size();
-                    status.ask_size = order_book.total_ask_size();
-                    status.ts = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-                }
+if let Some(ref sh) = self.status_handle
+            && let Ok(mut map) = sh.write()
+        {
+            let key = format!("{}@{}", self.cli_instrument, self.exchange);
+            if let Some(status) = map.get_mut(&key) {
+                status.bid_size = order_book.total_bid_size();
+                status.ask_size = order_book.total_ask_size();
+                status.ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
             }
         }
     }
@@ -389,36 +387,36 @@ impl KrakenClient {
     }
 
     fn update_status_active(&self, active: bool, detail: String) {
-        if let Some(ref sh) = self.status_handle {
-            if let Ok(mut map) = sh.write() {
-                let key = format!("{}@{}", self.cli_instrument, self.exchange);
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                map.insert(key, ClientStatus {
-                    active,
-                    ts: now,
-                    last_price: None,
-                    bid_size: 0.0,
-                    ask_size: 0.0,
-                    detail,
-                });
-            }
+        if let Some(ref sh) = self.status_handle
+            && let Ok(mut map) = sh.write()
+        {
+            let key = format!("{}@{}", self.cli_instrument, self.exchange);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            map.insert(key, ClientStatus {
+                active,
+                ts: now,
+                last_price: None,
+                bid_size: 0.0,
+                ask_size: 0.0,
+                detail,
+            });
         }
     }
 
     fn update_last_price(&self, price: f64) {
-        if let Some(ref sh) = self.status_handle {
-            if let Ok(mut map) = sh.write() {
-                let key = format!("{}@{}", self.cli_instrument, self.exchange);
-                if let Some(status) = map.get_mut(&key) {
-                    status.last_price = Some(price);
-                    status.ts = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-                }
+        if let Some(ref sh) = self.status_handle
+            && let Ok(mut map) = sh.write()
+        {
+            let key = format!("{}@{}", self.cli_instrument, self.exchange);
+            if let Some(status) = map.get_mut(&key) {
+                status.last_price = Some(price);
+                status.ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
             }
         }
     }
@@ -468,14 +466,19 @@ impl KrakenClient {
                     db::persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &okx_levels).await?;
                 }
             }
-            MessageType::Trade => {
-                if let Some(_symbol) = msg.data.first().and_then(|d| d.get("symbol").and_then(|s| s.as_str())) {
-                    if let Some(trade) = msg.data.first().and_then(|d| {
-                        serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
-                    }) {
-                        db::persist_trade(sender, cli_inst_id, exchange, &trade.trade_id, trade.price, trade.qty, &trade.side, ts_ms)
-                            .await?;
-                    }
+MessageType::Trade => {
+                if let Some(trade) = msg.data.first().and_then(|d| {
+                    serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
+                }) {
+                    db::persist_trade(sender, db::TradeData {
+                        inst_id: cli_inst_id.to_string(),
+                        exchange: exchange.to_string(),
+                        trade_id: trade.trade_id,
+                        px: trade.price,
+                        sz: trade.qty,
+                        side: trade.side,
+                        ts_ms,
+                    }).await?;
                 }
             }
             _ => {}
