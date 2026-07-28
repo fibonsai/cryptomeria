@@ -6,14 +6,12 @@ High-signal facts for agents working in this repo. Only includes what's non-obvi
 
 ## Project Identity
 
-**Cryptomeria** — MFT platform for multi-exchange crypto derivatives (OKX, Kraken, Bitstamp; Europe, Fibonsai).
+**Cryptomeria** — Multi-exchange crypto derivatives platform (OKX, Kraken, Bitstamp; Europe, Fibonsai).
 
 | Language | Role |
 |----------|------|
 | **Rust** (`rs/`) | Production: WS ingest (LOB + trades), normalization, strategy exec, OMS, ML inference |
 | **Python** (`python/`) | Research: analysis, backtesting, prototyping, risk modeling, ML training |
-
----
 
 ## Custom Commands (Slash Commands)
 
@@ -23,7 +21,7 @@ Defined in `.opencode/commands/`. Available in the TUI:
 |---------|--------|
 | `/add-task "<desc>"` | Create a GitHub issue |
 | `/create-plan` | Read last open issue → write `docs/PLAN.md` with sub-steps → store in issue |
-| `/execute-plan` | Execute PLAN.md stepwise — check if in main branch → fetch remote main and create worktree in repo directory → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md → post changelog → update issue body/comments → delete PLAN.md → create ADR and upload to wiki → create PR → return to main and remove worktree |
+| `/execute-plan` | Execute PLAN.md via worktree from main, apply changes, post changelog, create ADR + PR, clean up |
 | `/commit` | Stage task-related files only, commit with project-style message (no push) |
 
 Usage notes:
@@ -32,8 +30,6 @@ Usage notes:
 - Never commit unless asked — `/commit` stages explicitly, avoids `git add -A`
 - Never auto-execute plan — only run `/execute-plan` when explicitly asked
 - Output only the code change, no commentary
-
----
 
 ## Config & Structure
 
@@ -44,8 +40,6 @@ Usage notes:
 | `.opencode/skills/` | Not yet populated (path configured in `opencode.json`) |
 
 Neither `AGENTS.md` nor `.opencode/` is gitignored — they are trackable.
-
----
 
 ## Quick Commands
 
@@ -63,8 +57,6 @@ make test             # pytest python/ + cargo test (rs)
 make format           # ruff format + cargo fmt
 ```
 
----
-
 ## Architecture Essentials
 
 ```
@@ -72,28 +64,17 @@ python/
 ├── cryptomeria/lob.py        # LOB parquet stream reader + LOB2 CLI (17 tests)
 ├── tests/test_lob.py         # Fixtures via pa.Table.from_pylist() → temp dirs
 rs/
-├── src/main.rs               # CLI entry (clap args, --exchange/--region flags, okx/kraken/bitstamp dispatch)
+├── src/main.rs               # CLI entry (clap args, exchange/region dispatch)
 ├── src/traits/               # Shared traits + utilities (OrderBook, LobMetrics, backoff, signal)
-├── src/okx/types.rs          # OKX WS message types + JSON parsing + display
 ├── src/okx/ws.rs             # OKX WS client + pure helpers
 ├── src/okx/lob.rs            # OKX OrderBook: BTreeMap<OrderedFloat> for LOB2 state
-├── src/kraken/types.rs       # Kraken WS message types + JSON parsing + display
 ├── src/kraken/ws.rs          # Kraken WS client (heartbeat handling, exponential backoff)
 ├── src/kraken/lob.rs         # Kraken OrderBook: BTreeMap<OrderedFloat> for LOB2 state
-├── src/bitstamp/types.rs     # Bitstamp WS message types + JSON parsing + display
 ├── src/bitstamp/ws.rs        # Bitstamp WS client (diff_order_book + REST snapshot reconciliation)
 ├── src/bitstamp/lob.rs       # Bitstamp OrderBook: apply_snapshot (REST) + apply_diff (WS diff_order_book)
-├── src/urls.rs               # EXCHANGE_URL dict: region->exchange->{websocket,rest}
 ├── tests/okx_integration.rs  # #[ignore] E2E test (needs network)
 ├── tests/kraken_integration.rs # #[ignore] E2E test (needs network)
 └── tests/bitstamp_integration.rs # #[ignore] E2E test (needs network)
-```
-
-**Python package** is `cryptomeria` (src layout in `python/`). Tests discovered from `python/`, not inside package.
-
-**Rust crate** is `cryptomeria` (edition 2024 in `Cargo.toml`). Lib root: `lib.rs` → `pub mod traits`, `pub mod bitstamp`, `pub mod kraken`, `pub mod okx`, `pub mod db`, `pub mod urls`.
-
----
 
 ## Critical Conventions (Non-Negotiable)
 
@@ -104,12 +85,13 @@ rs/
 | **Progress logging** | Ops >10s must emit progress every 5s (count, remaining, ETA) |
 | **Relative paths only** | Never absolute paths in code/docs/config |
 | **Secrets in `.env.local`** | Never committed (in `.gitignore`) |
-| **Never add brand reference** | Never mention claude/openroute/etc in AGENTS.md |
+| **Never add brand reference** | No third-party tool names (claude, openroute, etc.) in AGENTS.md |
 | **One SQL statement per migration file** | Each `V{N}__*.sql` contains exactly one statement; split multi-statement changes across sequential versions |
 | **Never auto-execute plan** | Plans executed only via explicit `/execute-plan` — never start unasked |
 | **No destructive git commands** | Never use `git reset`, `git push --force`, `git rebase`, `git commit --amend`, `git rm --cached`, or any command that rewrites history without explicit user approval |
 | **Git worktree only in repo directory** | All changes via git worktree inside the repository — never external clones or direct branches |
 | **Never commit to main branch** | All changes via git worktree — never commit directly to main |
+| **Objective/pragmatic AGENTS.md edits** | Changes to this file must be objective, pragmatic, and free of redundant or unnecessary text |
 
 ### Python-Specific (enforced by ruff + extra)
 - **Type hints mandatory** — every function; `str \| None` union syntax (3.13)
@@ -117,8 +99,6 @@ rs/
 - **`is`/`is not` for `None`, `True`, `False`**
 - **`pathlib.Path` for I/O** — `Path.read_bytes()` / `Path.write_bytes()`
 - **No mutable defaults** — use `None` and assign inside
-
----
 
 ## Testing (Mandatory for Every Change)
 
@@ -145,15 +125,9 @@ make test
 
 **Rust test pattern**: pure helpers tested inline in `mod tests`; integration tests in `tests/` marked `#[ignore]`.
 
----
-
 ## Key Architectural Decisions (ADRs)
 
-All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibonsai/cryptomeria/wiki/Topic-Index#architecture-decision-records-adrs), organized by category. The wiki is the canonical source.
-
-See [ADR-029: Apache 2.0 License with Brand Protection](https://github.com/fibonsai/cryptomeria/wiki/ADR-029-20260727-apache-license-brand-protection) for the licensing decision.
-
-See [ADR-030: GitHub Actions CI for Automated Tests and Lint](https://github.com/fibonsai/cryptomeria/wiki/ADR-030-20260727-github-actions-ci) for the CI pipeline decision.
+All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibonsai/cryptomeria/wiki/Topic-Index#architecture-decision-records-adrs), organized by category. Key ones: [ADR-029 (License + Brand Protection)](https://github.com/fibonsai/cryptomeria/wiki/ADR-029-20260727-apache-license-brand-protection), [ADR-030 (GitHub Actions CI)](https://github.com/fibonsai/cryptomeria/wiki/ADR-030-20260727-github-actions-ci).
 
 ---
 
@@ -183,8 +157,6 @@ See [ADR-030: GitHub Actions CI for Automated Tests and Lint](https://github.com
 - `.env.local` only for secrets (in `.gitignore`)
 - No API keys, tokens, or credentials in repo
 - See [SECURITY.md](SECURITY.md) for reporting vulnerabilities
-
----
 
 ## License
 
@@ -217,11 +189,8 @@ Licensed under [Apache 2.0](LICENSE) with additional brand protections for Fibon
 | Full check | `make check` |
 | CLI Reference | See all CLI params and use cases in the [wiki](https://github.com/fibonsai/cryptomeria/wiki/CLI-Reference) |
 
----
-
 ## Rust-Specific Notes
 
-- **Entry point**: `rs/src/main.rs` parses CLI via `clap` with `--exchange` (okx/kraken/bitstamp), `--instruments` (multi-instrument format), `--region` (europe/global), `--show-top-pct`, `--questdb-conf`, `--retention-window`, `--metrics-port`, `--data-output`, `--list-instruments` flags
 - **Multi-instrument**: `--instruments` accepts formats `symbol@exchange1,symbol@exchange2`, `symbol@exchange1,@exchange2`, `symbol1,symbol2`, or hybrids. Each pair runs as its own `tokio::spawn` task with independent WS connection and LOB state.
 - **/status endpoint**: Returns JSON `{ "symbol@exchange": { "active": bool, "ts": u64, "last_price": f64|null, "bid_size": f64, "ask_size": f64, "detail": String } }`. Health check for all active connections.
 - **WS clients**: All three exchange clients share the same architecture via shared traits/utilities (ADR-017): exponential backoff with jitter reconnection (ADR-012), graceful shutdown on SIGINT/SIGTERM (ADR-014), heartbeat handling (Kraken), diff_order_book + REST snapshot reconciliation (Bitstamp, ADR-018)
