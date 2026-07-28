@@ -29,7 +29,7 @@ pub struct OrderEntry {
     #[serde(default)]
     pub id: u64,
 
-#[serde(default)]
+    #[serde(default)]
     pub id_str: String,
 
     #[serde(default, deserialize_with = "deserialize_number_or_string")]
@@ -39,7 +39,11 @@ pub struct OrderEntry {
     pub amount: String,
 
     /// 0 = bid, 1 = ask
-    #[serde(default, rename = "type", deserialize_with = "deserialize_number_or_zero")]
+    #[serde(
+        default,
+        rename = "type",
+        deserialize_with = "deserialize_number_or_zero"
+    )]
     pub order_type: i64,
 
     #[serde(default)]
@@ -59,7 +63,11 @@ pub struct TradeData {
     pub amount: String,
 
     /// 0 = buy, 1 = sell
-    #[serde(default, rename = "type", deserialize_with = "deserialize_number_or_zero")]
+    #[serde(
+        default,
+        rename = "type",
+        deserialize_with = "deserialize_number_or_zero"
+    )]
     pub trade_type: i64,
 
     #[serde(default)]
@@ -109,14 +117,18 @@ impl BitstampWsMessage {
             Some("data") => {
                 // order_book channel sends "data" events with bids/asks arrays
                 if let Some(ref channel) = self.channel
-                    && (channel.starts_with("order_book_") || channel.starts_with("diff_order_book_") || channel.starts_with("live_orders_"))
+                    && (channel.starts_with("order_book_")
+                        || channel.starts_with("diff_order_book_")
+                        || channel.starts_with("live_orders_"))
                 {
                     return MessageType::L2Update;
                 }
                 MessageType::Unknown
             }
             Some("trade" | "live_trades") => MessageType::Trade,
-            Some("bts:subscription_succeeded" | "bts:unsubscription_succeeded") => MessageType::Event,
+            Some("bts:subscription_succeeded" | "bts:unsubscription_succeeded") => {
+                MessageType::Event
+            }
             Some(_) => {
                 if let Some(ref channel) = self.channel {
                     if channel.starts_with("live_orders_") {
@@ -152,7 +164,10 @@ impl BitstampWsMessage {
                     if let Some(ref data) = self.data {
                         if let Ok(entry) = serde_json::from_value::<OrderEntry>(data.clone()) {
                             let side = if entry.order_type == 0 { "bid" } else { "ask" };
-                            format!("{} {} {} {}@{}", event_label, channel, side, entry.amount, entry.price)
+                            format!(
+                                "{} {} {} {}@{}",
+                                event_label, channel, side, entry.amount, entry.price
+                            )
                         } else {
                             format!("{} {} (raw)", event_label, channel)
                         }
@@ -164,23 +179,25 @@ impl BitstampWsMessage {
                 }
             }
             MessageType::Trade => {
-                if let Some(trade) = self.data.as_ref().and_then(|d| {
-                    serde_json::from_value::<TradeData>(d.clone()).ok()
-                }) {
+                if let Some(trade) = self
+                    .data
+                    .as_ref()
+                    .and_then(|d| serde_json::from_value::<TradeData>(d.clone()).ok())
+                {
                     let side = if trade.trade_type == 0 { "buy" } else { "sell" };
-                    format!("{} @ {} sz={} side={}",
+                    format!(
+                        "{} @ {} sz={} side={}",
                         self.channel.as_deref().unwrap_or("?"),
-                        trade.price, trade.amount, side)
+                        trade.price,
+                        trade.amount,
+                        side
+                    )
                 } else {
                     format!("{} (raw)", self.channel.as_deref().unwrap_or("?"))
                 }
             }
-            MessageType::Event => {
-                self.event.as_deref().unwrap_or("?").to_string()
-            }
-            MessageType::Unknown => {
-                self.channel.as_deref().unwrap_or("?").to_string()
-            }
+            MessageType::Event => self.event.as_deref().unwrap_or("?").to_string(),
+            MessageType::Unknown => self.channel.as_deref().unwrap_or("?").to_string(),
         }
     }
 
@@ -257,25 +274,40 @@ impl BitstampWsMessage {
             if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone())
                 && (!ob.bids.is_empty() || !ob.asks.is_empty())
             {
-                    for level in ob.bids {
-                        if level.len() >= 2 {
-                            result.push(("bid".to_string(), LobLevel { price: level[0].clone(), size: level[1].clone() }));
-                        }
+                for level in ob.bids {
+                    if level.len() >= 2 {
+                        result.push((
+                            "bid".to_string(),
+                            LobLevel {
+                                price: level[0].clone(),
+                                size: level[1].clone(),
+                            },
+                        ));
                     }
-                    for level in ob.asks {
-                        if level.len() >= 2 {
-                            result.push(("ask".to_string(), LobLevel { price: level[0].clone(), size: level[1].clone() }));
-                        }
-                    }
-                    return result;
                 }
+                for level in ob.asks {
+                    if level.len() >= 2 {
+                        result.push((
+                            "ask".to_string(),
+                            LobLevel {
+                                price: level[0].clone(),
+                                size: level[1].clone(),
+                            },
+                        ));
+                    }
+                }
+                return result;
+            }
             // Try live_orders format (single order entry)
             if let Ok(entry) = serde_json::from_value::<OrderEntry>(data.clone()) {
                 let side = if entry.order_type == 0 { "bid" } else { "ask" };
-                result.push((side.to_string(), LobLevel {
-                    price: entry.price.clone(),
-                    size: entry.amount.clone(),
-                }));
+                result.push((
+                    side.to_string(),
+                    LobLevel {
+                        price: entry.price.clone(),
+                        size: entry.amount.clone(),
+                    },
+                ));
             }
         }
         result

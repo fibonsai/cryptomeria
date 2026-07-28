@@ -86,9 +86,11 @@ impl KrakenWsMessage {
                 format!("{} {}", inst, top.unwrap_or_default())
             }
             "TRADE" => {
-                if let Some(trade) = self.data.first().and_then(|d| {
-                    serde_json::from_value::<TradeData>(d.clone()).ok()
-                }) {
+                if let Some(trade) = self
+                    .data
+                    .first()
+                    .and_then(|d| serde_json::from_value::<TradeData>(d.clone()).ok())
+                {
                     format!(
                         "{} @ {:.4} sz={:.4} side={}",
                         inst, trade.price, trade.qty, trade.side
@@ -186,7 +188,11 @@ pub struct TradeData {
     pub price: f64,
     #[serde(default)]
     pub qty: f64,
-    #[serde(default, rename = "trade_id", deserialize_with = "deserialize_number_or_string")]
+    #[serde(
+        default,
+        rename = "trade_id",
+        deserialize_with = "deserialize_number_or_string"
+    )]
     pub trade_id: String,
     #[serde(default)]
     pub timestamp: String,
@@ -222,7 +228,9 @@ impl KrakenWsMessage {
         if self.channel.as_deref() != Some("book") {
             return None;
         }
-        self.data.first().and_then(|d| serde_json::from_value(d.clone()).ok())
+        self.data
+            .first()
+            .and_then(|d| serde_json::from_value(d.clone()).ok())
     }
 
     pub fn lob_update(&self) -> Option<LobData> {
@@ -232,7 +240,9 @@ impl KrakenWsMessage {
         if self.channel.as_deref() != Some("book") {
             return None;
         }
-        self.data.first().and_then(|d| serde_json::from_value(d.clone()).ok())
+        self.data
+            .first()
+            .and_then(|d| serde_json::from_value(d.clone()).ok())
     }
 
     pub fn lob_levels(&self) -> Vec<(String, LobLevel)> {
@@ -263,8 +273,14 @@ fn format_top_levels(data: &serde_json::Value, key: &str) -> String {
             arr.iter()
                 .take(2)
                 .filter_map(|l| {
-                    let p = l.get("price").and_then(|v| v.as_f64()).map(|v| format!("{:.2}", v));
-                    let s = l.get("qty").and_then(|v| v.as_f64()).map(|v| format!("{:.4}", v));
+                    let p = l
+                        .get("price")
+                        .and_then(|v| v.as_f64())
+                        .map(|v| format!("{:.2}", v));
+                    let s = l
+                        .get("qty")
+                        .and_then(|v| v.as_f64())
+                        .map(|v| format!("{:.4}", v));
                     match (p, s) {
                         (Some(ref p), Some(ref s)) => Some(format!("{} ({})", p, s)),
                         _ => None,

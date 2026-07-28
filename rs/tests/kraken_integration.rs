@@ -8,7 +8,14 @@ use std::sync::atomic::Ordering;
 #[tokio::test]
 #[ignore]
 async fn test_connect_to_kraken_and_subscribe() {
-    let mut client = KrakenClient::new("XBT/USD", "kraken", "europe", 0.1, false, "http::addr=localhost:9000;");
+    let mut client = KrakenClient::new(
+        "XBT/USD",
+        "kraken",
+        "europe",
+        0.1,
+        false,
+        "http::addr=localhost:9000;",
+    );
     let msg_count = client.messages_received.clone();
 
     tokio::select! {

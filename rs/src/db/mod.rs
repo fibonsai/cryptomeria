@@ -37,16 +37,20 @@ fn extract_http_addr(conf_str: &str) -> String {
 
 /// Create a QuestDB Sender from a QDB_CLIENT_CONF formatted string.
 pub async fn connect(conf_str: &str) -> Result<Sender, Box<dyn std::error::Error + Send + Sync>> {
-    let conf = if conf_str.is_empty() { DEFAULT_QDB_CONF } else { conf_str };
+    let conf = if conf_str.is_empty() {
+        DEFAULT_QDB_CONF
+    } else {
+        conf_str
+    };
     Ok(Sender::from_conf(conf)?)
 }
 
 /// Run embedded SQL migrations against QuestDB using its HTTP API.
-pub async fn run_migrations(conf_str: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn run_migrations(
+    conf_str: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let http_addr = extract_http_addr(conf_str);
-    let client = Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
 
     let runner = migrations::runner();
     for migration in runner.get_migrations() {
@@ -64,12 +68,13 @@ async fn execute_sql(
     http_addr: &str,
     sql: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let url = format!("http://{}/exec?query={}", http_addr, urlencoding::encode(sql));
+    let url = format!(
+        "http://{}/exec?query={}",
+        http_addr,
+        urlencoding::encode(sql)
+    );
 
-    let response = client
-        .get(&url)
-        .send()
-        .await?;
+    let response = client.get(&url).send().await?;
 
     if !response.status().is_success() {
         let text = response.text().await?;
@@ -80,10 +85,13 @@ async fn execute_sql(
 }
 
 /// Connect to QuestDB and return a Sender for ILP ingestion.
-pub async fn connect_sender(conf_str: &str) -> Result<Sender, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn connect_sender(
+    conf_str: &str,
+) -> Result<Sender, Box<dyn std::error::Error + Send + Sync>> {
     connect(conf_str).await
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_lob_level(
     buffer: &mut Buffer,
     inst_id: &str,
@@ -117,6 +125,7 @@ fn write_lob_level(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn persist_lob(
     sender: &mut Sender,
     inst_id: &str,
@@ -129,7 +138,17 @@ pub async fn persist_lob(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut buffer = sender.new_buffer();
     for (side, level) in levels {
-        write_lob_level(&mut buffer, inst_id, exchange, ts_ms, action, side, level, best_bid, best_ask)?;
+        write_lob_level(
+            &mut buffer,
+            inst_id,
+            exchange,
+            ts_ms,
+            action,
+            side,
+            level,
+            best_bid,
+            best_ask,
+        )?;
     }
     sender.flush(&mut buffer)?;
     Ok(())
@@ -144,15 +163,10 @@ pub async fn apply_ttl(
     questdb_conf: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let http_addr = extract_http_addr(questdb_conf);
-    let client = Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
+    let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
 
     for table in &["lob_levels", "trades"] {
-        let sql = format!(
-            "ALTER TABLE {} SET TTL {} HOURS",
-            table, ttl_hours
-        );
+        let sql = format!("ALTER TABLE {} SET TTL {} HOURS", table, ttl_hours);
         if let Err(e) = execute_sql(&client, &http_addr, &sql).await {
             eprintln!("[DB TTL] {}: {}", table, e);
         }
@@ -196,14 +210,20 @@ mod tests {
 
     #[test]
     fn test_default_conf() {
-        assert_eq!(DEFAULT_QDB_CONF, "http::addr=localhost:9000;username=admin;password=quest;");
+        assert_eq!(
+            DEFAULT_QDB_CONF,
+            "http::addr=localhost:9000;username=admin;password=quest;"
+        );
     }
 
     #[test]
     fn test_extract_http_addr() {
         assert_eq!(extract_http_addr("http::addr=custom:9000;"), "custom:9000");
         assert_eq!(extract_http_addr("https::addr=secure:9000;"), "secure:9000");
-        assert_eq!(extract_http_addr("username=admin;password=quest;"), "localhost:9000");
+        assert_eq!(
+            extract_http_addr("username=admin;password=quest;"),
+            "localhost:9000"
+        );
     }
 
     #[test]

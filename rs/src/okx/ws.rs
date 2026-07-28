@@ -1,8 +1,10 @@
-use crate::db::{persist_lob, persist_trade, TradeData};
 use crate::db::apply_ttl;
+use crate::db::{TradeData, persist_lob, persist_trade};
 use crate::okx::lob::OrderBook;
 use crate::okx::types::{MessageType, OkxWsMessage, TradeData as OkxTradeData};
-use crate::traits::{self, ExchangeClientBuilder, ClientStatus, LobMetrics, StatusHandle, backoff_delay};
+use crate::traits::{
+    self, ClientStatus, ExchangeClientBuilder, LobMetrics, StatusHandle, backoff_delay,
+};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use prometheus::Registry;
@@ -50,17 +52,38 @@ pub struct OkxClient {
 }
 
 impl ExchangeClientBuilder for OkxClient {
-    fn with_sender(self, sender: Sender) -> Self { OkxClient::with_sender(self, sender) }
-    fn with_retention_window(self, hours: u64) -> Self { OkxClient::with_retention_window(self, hours) }
-    fn with_metrics_port(self, port: u16) -> Self { OkxClient::with_metrics_port(self, port) }
-    fn with_data_output(self, enabled: bool) -> Self { OkxClient::with_data_output(self, enabled) }
-    fn with_cli_instrument(self, inst_id: String) -> Self { OkxClient::with_cli_instrument(self, inst_id) }
-    fn with_lob_metrics(self, metrics: Arc<LobMetrics>) -> Self { OkxClient::with_lob_metrics(self, metrics) }
-    fn with_status_handle(self, handle: StatusHandle) -> Self { OkxClient::with_status_handle(self, handle) }
+    fn with_sender(self, sender: Sender) -> Self {
+        OkxClient::with_sender(self, sender)
+    }
+    fn with_retention_window(self, hours: u64) -> Self {
+        OkxClient::with_retention_window(self, hours)
+    }
+    fn with_metrics_port(self, port: u16) -> Self {
+        OkxClient::with_metrics_port(self, port)
+    }
+    fn with_data_output(self, enabled: bool) -> Self {
+        OkxClient::with_data_output(self, enabled)
+    }
+    fn with_cli_instrument(self, inst_id: String) -> Self {
+        OkxClient::with_cli_instrument(self, inst_id)
+    }
+    fn with_lob_metrics(self, metrics: Arc<LobMetrics>) -> Self {
+        OkxClient::with_lob_metrics(self, metrics)
+    }
+    fn with_status_handle(self, handle: StatusHandle) -> Self {
+        OkxClient::with_status_handle(self, handle)
+    }
 }
 
 impl OkxClient {
-    pub fn new(instrument: &str, exchange: &str, region: &str, show_top_pct: f64, data_output: bool, questdb_conf: &str) -> Self {
+    pub fn new(
+        instrument: &str,
+        exchange: &str,
+        region: &str,
+        show_top_pct: f64,
+        data_output: bool,
+        questdb_conf: &str,
+    ) -> Self {
         let registry = Registry::new();
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         Self {
@@ -125,7 +148,9 @@ impl OkxClient {
 
     /// Get the LobMetrics instance to use (shared override or local).
     fn metrics(&self) -> &LobMetrics {
-        self.lob_metrics_override.as_ref().unwrap_or(&self.lob_metrics)
+        self.lob_metrics_override
+            .as_ref()
+            .unwrap_or(&self.lob_metrics)
     }
 
     /// Connect, subscribe, run the event loop, and reconnect indefinitely on
@@ -141,12 +166,19 @@ impl OkxClient {
     /// cleanly.
     pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Start metrics server if port is specified (only when not using shared LobMetrics)
-        if let Some(port) = self.metrics_port.filter(|_| self.lob_metrics_override.is_none()) {
+        if let Some(port) = self
+            .metrics_port
+            .filter(|_| self.lob_metrics_override.is_none())
+        {
             let lob_metrics = self.lob_metrics.clone();
             let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
             std::thread::spawn(move || {
                 let system = actix_web::rt::System::new();
-                if let Err(e) = system.block_on(LobMetrics::start_http_server(port, lob_metrics, status_handle)) {
+                if let Err(e) = system.block_on(LobMetrics::start_http_server(
+                    port,
+                    lob_metrics,
+                    status_handle,
+                )) {
                     eprintln!("[METRICS] Server error: {}", e);
                 }
             });
@@ -163,9 +195,8 @@ impl OkxClient {
         let mut shutdown = false;
 
         #[cfg(unix)]
-        let mut sigterm = tokio::signal::unix::signal(
-            tokio::signal::unix::SignalKind::terminate(),
-        )?;
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
         loop {
             // Attempt connection
@@ -228,104 +259,104 @@ impl OkxClient {
             // Read loop with signal detection
             loop {
                 tokio::select! {
-                    msg = read.next() => {
-                        let should_break = match msg {
-                            None => true,
-                            Some(Err(e)) => {
-                                eprintln!("[WS ERROR] {}", e);
-                                true
-                            }
-                            Some(Ok(Message::Close(frame))) => {
-                                eprintln!("[CLOSE] {:?}", frame);
-                                true
-                            }
-                            Some(Ok(Message::Text(text))) => {
-                                match OkxWsMessage::from_json(&text) {
-                                    Ok(parsed) => {
-                                        self.messages_received.fetch_add(1, Ordering::Relaxed);
-                                        match parsed.message_type() {
-                                            MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
-                                                order_book.process_msg(&parsed);
-                                                if self.data_output {
-                                                    let now = parsed.formatted_time();
-                                                    let book_line =
-                                                        order_book.display(&self.instrument, self.show_top_pct);
-                                                    println!("[{} LOB2] {}", now, book_line);
-                                                }
-
-                                                // Update Prometheus metrics
-                                                self.update_lob_metrics(&order_book);
-                                                self.update_depth_metrics(&order_book);
+                                    msg = read.next() => {
+                                        let should_break = match msg {
+                                            None => true,
+                                            Some(Err(e)) => {
+                                                eprintln!("[WS ERROR] {}", e);
+                                                true
                                             }
-                                            MessageType::Trade | MessageType::Event | MessageType::Unknown => {
-                                                if self.data_output {
-                                                    let line = display_message(&parsed);
-                                                    println!("{}", line);
-                                                }
-
-// Update trades metrics
-                                                if let Some(trade) = parsed.data.first().and_then(|d| {
-                                                    serde_json::from_value::<OkxTradeData>(d.clone()).ok()
-                                                }) {
-                                                    self.metrics()
-                                                        .trades_total
-                                                        .with_label_values(&[&self.exchange, &self.cli_instrument])
-                                                        .inc();
-                                                    last_trade_count += 1;
-                                                    let elapsed = last_trade_time.elapsed();
-                                                    if elapsed >= std::time::Duration::from_secs(1) {
-                                                        let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                                        self.metrics().trades_per_second
-                                                            .store(f64::to_bits(rate), Ordering::Relaxed);
-                                                        last_trade_count = 0;
-                                                        last_trade_time = std::time::Instant::now();
-                                                    }
-                                                    // Update last_price in status
-                                                    if let Ok(px) = trade.px.parse::<f64>() {
-                                                        self.update_last_price(px);
-                                                    }
-                                                }
+                                            Some(Ok(Message::Close(frame))) => {
+                                                eprintln!("[CLOSE] {:?}", frame);
+                                                true
                                             }
-                                        }
+                                            Some(Ok(Message::Text(text))) => {
+                                                match OkxWsMessage::from_json(&text) {
+                                                    Ok(parsed) => {
+                                                        self.messages_received.fetch_add(1, Ordering::Relaxed);
+                                                        match parsed.message_type() {
+                                                            MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
+                                                                order_book.process_msg(&parsed);
+                                                                if self.data_output {
+                                                                    let now = parsed.formatted_time();
+                                                                    let book_line =
+                                                                        order_book.display(&self.instrument, self.show_top_pct);
+                                                                    println!("[{} LOB2] {}", now, book_line);
+                                                                }
 
-// Persist to QuestDB if sender is configured
-                                        if let Some(sender) = self.sender.as_mut()
-                                            && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
-                                        {
-                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                                // Update Prometheus metrics
+                                                                self.update_lob_metrics(&order_book);
+                                                                self.update_depth_metrics(&order_book);
+                                                            }
+                                                            MessageType::Trade | MessageType::Event | MessageType::Unknown => {
+                                                                if self.data_output {
+                                                                    let line = display_message(&parsed);
+                                                                    println!("{}", line);
+                                                                }
+
+                // Update trades metrics
+                                                                if let Some(trade) = parsed.data.first().and_then(|d| {
+                                                                    serde_json::from_value::<OkxTradeData>(d.clone()).ok()
+                                                                }) {
+                                                                    self.metrics()
+                                                                        .trades_total
+                                                                        .with_label_values(&[&self.exchange, &self.cli_instrument])
+                                                                        .inc();
+                                                                    last_trade_count += 1;
+                                                                    let elapsed = last_trade_time.elapsed();
+                                                                    if elapsed >= std::time::Duration::from_secs(1) {
+                                                                        let rate = last_trade_count as f64 / elapsed.as_secs_f64();
+                                                                        self.metrics().trades_per_second
+                                                                            .store(f64::to_bits(rate), Ordering::Relaxed);
+                                                                        last_trade_count = 0;
+                                                                        last_trade_time = std::time::Instant::now();
+                                                                    }
+                                                                    // Update last_price in status
+                                                                    if let Ok(px) = trade.px.parse::<f64>() {
+                                                                        self.update_last_price(px);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+
+                // Persist to QuestDB if sender is configured
+                                                        if let Some(sender) = self.sender.as_mut()
+                                                            && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
+                                                        {
+                                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!(
+                                                            "[PARSE ERROR] {} — raw: {}",
+                                                            e,
+                                                            &text[..text.len().min(200)]
+                                                        );
+                                                    }
+                                                }
+                                                false
+                                            }
+                                            Some(Ok(Message::Ping(data))) => {
+                                                eprintln!("[PING] {} bytes", data.len());
+                                                false
+                                            }
+                                            Some(Ok(Message::Pong(_))) => false,
+                                            Some(Ok(Message::Binary(_))) => {
+                                                eprintln!("[BINARY] received (unexpected)");
+                                                false
+                                            }
+                                            Some(Ok(Message::Frame(_))) => false,
+                                        };
+                                        if should_break {
+                                            break;
                                         }
                                     }
-                                    Err(e) => {
-                                        eprintln!(
-                                            "[PARSE ERROR] {} — raw: {}",
-                                            e,
-                                            &text[..text.len().min(200)]
-                                        );
-                                    }
+                                    _ = tokio::signal::ctrl_c() => {
+                                        eprintln!("[SHUTDOWN] received SIGINT");
+                                        shutdown = true;
+                                        break;
+                                    },
                                 }
-                                false
-                            }
-                            Some(Ok(Message::Ping(data))) => {
-                                eprintln!("[PING] {} bytes", data.len());
-                                false
-                            }
-                            Some(Ok(Message::Pong(_))) => false,
-                            Some(Ok(Message::Binary(_))) => {
-                                eprintln!("[BINARY] received (unexpected)");
-                                false
-                            }
-                            Some(Ok(Message::Frame(_))) => false,
-                        };
-                        if should_break {
-                            break;
-                        }
-                    }
-                    _ = tokio::signal::ctrl_c() => {
-                        eprintln!("[SHUTDOWN] received SIGINT");
-                        shutdown = true;
-                        break;
-                    },
-                }
                 if shutdown {
                     break;
                 }
@@ -421,38 +452,71 @@ impl OkxClient {
         match msg.message_type() {
             MessageType::L2Snapshot => {
                 let snapshot = msg.lob_snapshot();
-                let best_bid = snapshot.as_ref().and_then(|d| d.bids.first()?.price.parse::<f64>().ok());
-                let best_ask = snapshot.as_ref().and_then(|d| d.asks.first()?.price.parse::<f64>().ok());
+                let best_bid = snapshot
+                    .as_ref()
+                    .and_then(|d| d.bids.first()?.price.parse::<f64>().ok());
+                let best_ask = snapshot
+                    .as_ref()
+                    .and_then(|d| d.asks.first()?.price.parse::<f64>().ok());
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
-                    persist_lob(sender, cli_inst_id, exchange, ts_ms, "snapshot", &levels, best_bid, best_ask).await?;
+                    persist_lob(
+                        sender,
+                        cli_inst_id,
+                        exchange,
+                        ts_ms,
+                        "snapshot",
+                        &levels,
+                        best_bid,
+                        best_ask,
+                    )
+                    .await?;
                 }
             }
             MessageType::L2Update => {
                 let update = msg.lob_update();
-                let best_bid = update.as_ref().and_then(|d| d.bids.first()?.price.parse::<f64>().ok());
-                let best_ask = update.as_ref().and_then(|d| d.asks.first()?.price.parse::<f64>().ok());
+                let best_bid = update
+                    .as_ref()
+                    .and_then(|d| d.bids.first()?.price.parse::<f64>().ok());
+                let best_ask = update
+                    .as_ref()
+                    .and_then(|d| d.asks.first()?.price.parse::<f64>().ok());
                 let levels = msg.lob_levels();
                 if !levels.is_empty() {
-                    persist_lob(sender, cli_inst_id, exchange, ts_ms, "update", &levels, best_bid, best_ask).await?;
+                    persist_lob(
+                        sender,
+                        cli_inst_id,
+                        exchange,
+                        ts_ms,
+                        "update",
+                        &levels,
+                        best_bid,
+                        best_ask,
+                    )
+                    .await?;
                 }
             }
             MessageType::Trade => {
-                if let Some(trade) = msg.data.first().and_then(|d| {
-                    serde_json::from_value::<OkxTradeData>(d.clone()).ok()
-                }) {
+                if let Some(trade) = msg
+                    .data
+                    .first()
+                    .and_then(|d| serde_json::from_value::<OkxTradeData>(d.clone()).ok())
+                {
                     let px = trade.px.parse().unwrap_or(0.0);
                     let sz = trade.sz.parse().unwrap_or(0.0);
-                    persist_trade(sender, TradeData {
-                        inst_id: cli_inst_id.to_string(),
-                        exchange: exchange.to_string(),
-                        trade_id: trade.trade_id.clone(),
-                        px,
-                        sz,
-                        side: trade.side.clone(),
-                        ts_ms,
-                    })
-                        .await?;
+                    persist_trade(
+                        sender,
+                        TradeData {
+                            inst_id: cli_inst_id.to_string(),
+                            exchange: exchange.to_string(),
+                            trade_id: trade.trade_id.clone(),
+                            px,
+                            sz,
+                            side: trade.side.clone(),
+                            ts_ms,
+                        },
+                    )
+                    .await?;
                     // Update last_price in status
                     if let Ok(mut map) = status_handle.as_ref().map(|sh| sh.write()).transpose() {
                         let key = format!("{}@{}", cli_inst_id, exchange);
@@ -480,14 +544,17 @@ impl OkxClient {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64;
-            map.insert(key, ClientStatus {
-                active,
-                ts: now,
-                last_price: None,
-                bid_size: 0.0,
-                ask_size: 0.0,
-                detail,
-            });
+            map.insert(
+                key,
+                ClientStatus {
+                    active,
+                    ts: now,
+                    last_price: None,
+                    bid_size: 0.0,
+                    ask_size: 0.0,
+                    detail,
+                },
+            );
         }
     }
 
@@ -505,16 +572,15 @@ impl OkxClient {
             }
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traits::StatusHandle;
     use prometheus::Registry;
     use std::collections::HashMap;
     use std::sync::{Arc, RwLock};
-    use crate::traits::StatusHandle;
 
     #[test]
     fn test_build_subscribe_msg() {
@@ -568,7 +634,14 @@ mod tests {
 
     #[test]
     fn test_client_new_sets_instrument() {
-        let client = OkxClient::new("ETH-USDT", "okx", "europe", 0.1, false, "http::addr=localhost:9000;");
+        let client = OkxClient::new(
+            "ETH-USDT",
+            "okx",
+            "europe",
+            0.1,
+            false,
+            "http::addr=localhost:9000;",
+        );
         assert_eq!(client.instrument, "ETH-USDT");
         assert_eq!(client.exchange, "okx");
         assert_eq!(client.region, "europe");
@@ -625,32 +698,68 @@ mod tests {
 
     #[test]
     fn test_client_retention_window() {
-        let client = OkxClient::new("BTC-USDT", "okx", "europe", 0.1, false, "http::addr=localhost:9000;").with_retention_window(60);
+        let client = OkxClient::new(
+            "BTC-USDT",
+            "okx",
+            "europe",
+            0.1,
+            false,
+            "http::addr=localhost:9000;",
+        )
+        .with_retention_window(60);
         assert_eq!(client.retention_window, Some(60));
     }
 
     #[test]
     fn test_client_default_no_retention() {
-        let client = OkxClient::new("BTC-USDT", "okx", "europe", 0.1, false, "http::addr=localhost:9000;");
+        let client = OkxClient::new(
+            "BTC-USDT",
+            "okx",
+            "europe",
+            0.1,
+            false,
+            "http::addr=localhost:9000;",
+        );
         assert_eq!(client.retention_window, None);
     }
 
     #[test]
     fn test_client_data_output_default_is_false() {
-        let client = OkxClient::new("BTC-USDT", "okx", "europe", 0.1, false, "http::addr=localhost:9000;");
+        let client = OkxClient::new(
+            "BTC-USDT",
+            "okx",
+            "europe",
+            0.1,
+            false,
+            "http::addr=localhost:9000;",
+        );
         assert!(!client.data_output);
     }
 
     #[test]
     fn test_client_data_output_true() {
-        let client = OkxClient::new("BTC-USDT", "okx", "europe", 0.1, true, "http::addr=localhost:9000;");
+        let client = OkxClient::new(
+            "BTC-USDT",
+            "okx",
+            "europe",
+            0.1,
+            true,
+            "http::addr=localhost:9000;",
+        );
         assert!(client.data_output);
     }
 
     #[test]
     fn test_client_with_data_output_builder() {
-        let client = OkxClient::new("BTC-USDT", "okx", "europe", 0.1, false, "http::addr=localhost:9000;")
-            .with_data_output(true);
+        let client = OkxClient::new(
+            "BTC-USDT",
+            "okx",
+            "europe",
+            0.1,
+            false,
+            "http::addr=localhost:9000;",
+        )
+        .with_data_output(true);
         assert!(client.data_output);
     }
 
@@ -660,21 +769,44 @@ mod tests {
         let lob_metrics = Arc::new(LobMetrics::new(&registry).unwrap());
         // Set some sample values so they appear in /metrics output
         // Using cli_instrument format (lowercase, no separators) to match database inst_id format per ADR-026
-        lob_metrics.best_bid.with_label_values(&["okx", "btcusdt"]).set(50000.0);
-        lob_metrics.best_ask.with_label_values(&["okx", "btcusdt"]).set(50100.0);
-        lob_metrics.spread.with_label_values(&["okx", "btcusdt"]).set(100.0);
-        lob_metrics.last_update.with_label_values(&["okx", "btcusdt"]).set(1234567890.0);
-        lob_metrics.trades_total.with_label_values(&["okx", "btcusdt"]).inc();
-        lob_metrics.lob_depth_bid.with_label_values(&["okx", "btcusdt", "50000.00"]).set(1.5);
-        lob_metrics.lob_depth_ask.with_label_values(&["okx", "btcusdt", "50100.00"]).set(2.0);
+        lob_metrics
+            .best_bid
+            .with_label_values(&["okx", "btcusdt"])
+            .set(50000.0);
+        lob_metrics
+            .best_ask
+            .with_label_values(&["okx", "btcusdt"])
+            .set(50100.0);
+        lob_metrics
+            .spread
+            .with_label_values(&["okx", "btcusdt"])
+            .set(100.0);
+        lob_metrics
+            .last_update
+            .with_label_values(&["okx", "btcusdt"])
+            .set(1234567890.0);
+        lob_metrics
+            .trades_total
+            .with_label_values(&["okx", "btcusdt"])
+            .inc();
+        lob_metrics
+            .lob_depth_bid
+            .with_label_values(&["okx", "btcusdt", "50000.00"])
+            .set(1.5);
+        lob_metrics
+            .lob_depth_ask
+            .with_label_values(&["okx", "btcusdt", "50100.00"])
+            .set(2.0);
         let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
         let port = 19092;
 
         std::thread::spawn(move || {
             let system = actix_web::rt::System::new();
-            if let Err(e) =
-                system.block_on(LobMetrics::start_http_server(port, lob_metrics, status_handle))
-            {
+            if let Err(e) = system.block_on(LobMetrics::start_http_server(
+                port,
+                lob_metrics,
+                status_handle,
+            )) {
                 eprintln!("[METRICS TEST] Server error: {}", e);
             }
         });
@@ -685,32 +817,60 @@ mod tests {
         let url = format!("http://127.0.0.1:{}/metrics", port);
         match reqwest::blocking::get(&url) {
             Ok(resp) => {
-                assert!(resp.status().is_success(), "Expected 200 OK, got {}", resp.status());
-                let content_type = resp.headers().get("content-type")
+                assert!(
+                    resp.status().is_success(),
+                    "Expected 200 OK, got {}",
+                    resp.status()
+                );
+                let content_type = resp
+                    .headers()
+                    .get("content-type")
                     .and_then(|v| v.to_str().ok())
                     .unwrap_or("");
-                assert!(content_type.contains("application/json"),
-                    "Expected application/json, got {}", content_type);
+                assert!(
+                    content_type.contains("application/json"),
+                    "Expected application/json, got {}",
+                    content_type
+                );
                 let body: String = resp.text().unwrap_or_default();
-                let parsed: serde_json::Value = serde_json::from_str(&body)
-                    .expect("Response should be valid JSON");
-                let obj = parsed.as_object().expect("Response should be a JSON object");
+                let parsed: serde_json::Value =
+                    serde_json::from_str(&body).expect("Response should be valid JSON");
+                let obj = parsed
+                    .as_object()
+                    .expect("Response should be a JSON object");
                 // Response is grouped by exchange -> instrument
-                let okx_inst = obj.get("okx")
+                let okx_inst = obj
+                    .get("okx")
                     .and_then(|v| v.as_object())
                     .and_then(|v| v.get("btcusdt"))
                     .and_then(|v| v.as_object())
                     .expect("Should contain okx -> btcusdt");
-                assert!(okx_inst.contains_key("best_bid"), "Should contain best_bid, got keys: {:?}", okx_inst.keys());
+                assert!(
+                    okx_inst.contains_key("best_bid"),
+                    "Should contain best_bid, got keys: {:?}",
+                    okx_inst.keys()
+                );
                 assert!(okx_inst.contains_key("best_ask"), "Should contain best_ask");
                 assert!(okx_inst.contains_key("spread"), "Should contain spread");
-                assert!(okx_inst.contains_key("last_update_ts"), "Should contain last_update_ts");
-                assert!(okx_inst.contains_key("trades_total"), "Should contain trades_total");
+                assert!(
+                    okx_inst.contains_key("last_update_ts"),
+                    "Should contain last_update_ts"
+                );
+                assert!(
+                    okx_inst.contains_key("trades_total"),
+                    "Should contain trades_total"
+                );
                 assert!(okx_inst.contains_key("depth"), "Should contain depth");
-                let depth = okx_inst.get("depth").and_then(|v| v.as_array()).expect("depth should be an array");
+                let depth = okx_inst
+                    .get("depth")
+                    .and_then(|v| v.as_array())
+                    .expect("depth should be an array");
                 if !depth.is_empty() {
                     assert!(depth[0].get("price").is_some(), "depth entry missing price");
-                    assert!(depth[0].get("volume").is_some(), "depth entry missing volume");
+                    assert!(
+                        depth[0].get("volume").is_some(),
+                        "depth entry missing volume"
+                    );
                     assert!(depth[0].get("side").is_some(), "depth entry missing side");
                 }
             }

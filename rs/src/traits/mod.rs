@@ -40,7 +40,9 @@ pub trait ExchangeClientBuilder: Sized {
     fn with_cli_instrument(self, inst_id: String) -> Self;
     fn with_lob_metrics(self, metrics: Arc<LobMetrics>) -> Self;
     fn with_status_handle(self, handle: StatusHandle) -> Self;
-    fn with_snapshot_depth(self, _depth: usize) -> Self { self }
+    fn with_snapshot_depth(self, _depth: usize) -> Self {
+        self
+    }
 }
 
 /// Per-task connection status exposed by /status endpoint.
@@ -126,7 +128,10 @@ impl LobMetrics {
             &["exchange", "instrument"],
         )?;
         let last_update = GaugeVec::new(
-            Opts::new("lob_last_update_timestamp", "Last update timestamp in milliseconds"),
+            Opts::new(
+                "lob_last_update_timestamp",
+                "Last update timestamp in milliseconds",
+            ),
             &["exchange", "instrument"],
         )?;
         let trades_total = IntGaugeVec::new(
@@ -172,7 +177,8 @@ impl LobMetrics {
         port: u16,
         lob_metrics: Arc<LobMetrics>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let status_handle: StatusHandle = Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let status_handle: StatusHandle =
+            Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
         Self::start_http_server(port, lob_metrics, status_handle).await
     }
 
@@ -182,7 +188,7 @@ impl LobMetrics {
         lob_metrics: Arc<LobMetrics>,
         status_handle: StatusHandle,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use actix_web::{web, App, HttpResponse, HttpServer};
+        use actix_web::{App, HttpResponse, HttpServer, web};
         use std::net::TcpListener;
 
         let bind_addr = format!("0.0.0.0:{}", port);
@@ -194,89 +200,121 @@ impl LobMetrics {
             let sh = status_handle.clone();
 
             App::new()
-                .route("/metrics", web::get().to(move || {
-                    let lm = lm.clone();
-                    async move {
-                        let families = lm.gather();
-                        let mut by_exchange: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+                .route(
+                    "/metrics",
+                    web::get().to(move || {
+                        let lm = lm.clone();
+                        async move {
+                            let families = lm.gather();
+                            let mut by_exchange: HashMap<
+                                String,
+                                HashMap<String, serde_json::Value>,
+                            > = HashMap::new();
 
-                        for mf in &families {
-                            let name = mf.get_name();
-                            for m in mf.get_metric() {
-                                let gauge = m.get_gauge();
-                                let value = gauge.get_value();
+                            for mf in &families {
+                                let name = mf.get_name();
+                                for m in mf.get_metric() {
+                                    let gauge = m.get_gauge();
+                                    let value = gauge.get_value();
 
-                                let labels: HashMap<&str, &str> = m.get_label().iter()
-                                    .map(|l| (l.get_name(), l.get_value()))
-                                    .collect();
-                                let exchange = labels.get("exchange").copied().unwrap_or("");
-                                let instrument = labels.get("instrument").copied().unwrap_or("");
+                                    let labels: HashMap<&str, &str> = m
+                                        .get_label()
+                                        .iter()
+                                        .map(|l| (l.get_name(), l.get_value()))
+                                        .collect();
+                                    let exchange = labels.get("exchange").copied().unwrap_or("");
+                                    let instrument =
+                                        labels.get("instrument").copied().unwrap_or("");
 
-                                if exchange.is_empty() || instrument.is_empty() {
-                                    continue;
-                                }
-
-                                let entry = by_exchange
-                                    .entry(exchange.to_string())
-                                    .or_default()
-                                    .entry(instrument.to_string())
-                                    .or_insert_with(|| serde_json::json!({}));
-
-                                match name {
-                                    "lob_best_bid" => { entry["best_bid"] = serde_json::json!(value); }
-                                    "lob_best_ask" => { entry["best_ask"] = serde_json::json!(value); }
-                                    "lob_spread" => { entry["spread"] = serde_json::json!(value); }
-                                    "lob_last_update_timestamp" => { entry["last_update_ts"] = serde_json::json!(value as u64); }
-                                    "trades_total" => { entry["trades_total"] = serde_json::json!(value as i64); }
-                                    "lob_depth_bid" | "lob_depth_ask" => {
-                                        let side = if name == "lob_depth_bid" { "bid" } else { "ask" };
-                                        let price: f64 = labels.get("price")
-                                            .and_then(|p| p.parse().ok())
-                                            .unwrap_or(0.0);
-                                        if entry.get("depth").is_none() {
-                                            entry["depth"] = serde_json::json!([]);
-                                        }
-                                        if let Some(depth_arr) = entry.get_mut("depth").and_then(|v| v.as_array_mut()) {
-                                            depth_arr.push(serde_json::json!({
-                                                "price": price,
-                                                "volume": value,
-                                                "side": side,
-                                            }));
-                                        }
+                                    if exchange.is_empty() || instrument.is_empty() {
+                                        continue;
                                     }
-                                    _ => {}
-                                }
-                            }
-                        }
 
-                        // Sort depth entries by price: bids descending (highest first), asks ascending (lowest first)
-                        for ex_entry in by_exchange.values_mut() {
-                            for inst_entry in ex_entry.values_mut() {
-                                if let Some(depth) = inst_entry.get_mut("depth")
-                                    && let Some(arr) = depth.as_array_mut()
-                                {
-                                    arr.sort_by(|a, b| {
-                                        let a_side = a["side"].as_str().unwrap_or("");
-                                        let b_side = b["side"].as_str().unwrap_or("");
-                                        let a_price = a["price"].as_f64().unwrap_or(0.0);
-                                        let b_price = b["price"].as_f64().unwrap_or(0.0);
-                                        match (a_side, b_side) {
-                                            ("bid", "bid") => b_price.partial_cmp(&a_price).unwrap_or(std::cmp::Ordering::Equal),
-                                            ("ask", "ask") => a_price.partial_cmp(&b_price).unwrap_or(std::cmp::Ordering::Equal),
-                                            ("bid", "ask") => std::cmp::Ordering::Less,
-                                            ("ask", "bid") => std::cmp::Ordering::Greater,
-                                            _ => std::cmp::Ordering::Equal,
+                                    let entry = by_exchange
+                                        .entry(exchange.to_string())
+                                        .or_default()
+                                        .entry(instrument.to_string())
+                                        .or_insert_with(|| serde_json::json!({}));
+
+                                    match name {
+                                        "lob_best_bid" => {
+                                            entry["best_bid"] = serde_json::json!(value);
                                         }
-                                    });
+                                        "lob_best_ask" => {
+                                            entry["best_ask"] = serde_json::json!(value);
+                                        }
+                                        "lob_spread" => {
+                                            entry["spread"] = serde_json::json!(value);
+                                        }
+                                        "lob_last_update_timestamp" => {
+                                            entry["last_update_ts"] =
+                                                serde_json::json!(value as u64);
+                                        }
+                                        "trades_total" => {
+                                            entry["trades_total"] = serde_json::json!(value as i64);
+                                        }
+                                        "lob_depth_bid" | "lob_depth_ask" => {
+                                            let side = if name == "lob_depth_bid" {
+                                                "bid"
+                                            } else {
+                                                "ask"
+                                            };
+                                            let price: f64 = labels
+                                                .get("price")
+                                                .and_then(|p| p.parse().ok())
+                                                .unwrap_or(0.0);
+                                            if entry.get("depth").is_none() {
+                                                entry["depth"] = serde_json::json!([]);
+                                            }
+                                            if let Some(depth_arr) = entry
+                                                .get_mut("depth")
+                                                .and_then(|v| v.as_array_mut())
+                                            {
+                                                depth_arr.push(serde_json::json!({
+                                                    "price": price,
+                                                    "volume": value,
+                                                    "side": side,
+                                                }));
+                                            }
+                                        }
+                                        _ => {}
+                                    }
                                 }
                             }
-                        }
 
-                        HttpResponse::Ok()
-                            .content_type("application/json")
-                            .body(serde_json::to_string(&by_exchange).unwrap())
-                    }
-                }))
+                            // Sort depth entries by price: bids descending (highest first), asks ascending (lowest first)
+                            for ex_entry in by_exchange.values_mut() {
+                                for inst_entry in ex_entry.values_mut() {
+                                    if let Some(depth) = inst_entry.get_mut("depth")
+                                        && let Some(arr) = depth.as_array_mut()
+                                    {
+                                        arr.sort_by(|a, b| {
+                                            let a_side = a["side"].as_str().unwrap_or("");
+                                            let b_side = b["side"].as_str().unwrap_or("");
+                                            let a_price = a["price"].as_f64().unwrap_or(0.0);
+                                            let b_price = b["price"].as_f64().unwrap_or(0.0);
+                                            match (a_side, b_side) {
+                                                ("bid", "bid") => b_price
+                                                    .partial_cmp(&a_price)
+                                                    .unwrap_or(std::cmp::Ordering::Equal),
+                                                ("ask", "ask") => a_price
+                                                    .partial_cmp(&b_price)
+                                                    .unwrap_or(std::cmp::Ordering::Equal),
+                                                ("bid", "ask") => std::cmp::Ordering::Less,
+                                                ("ask", "bid") => std::cmp::Ordering::Greater,
+                                                _ => std::cmp::Ordering::Equal,
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+
+                            HttpResponse::Ok()
+                                .content_type("application/json")
+                                .body(serde_json::to_string(&by_exchange).unwrap())
+                        }
+                    }),
+                )
                 .route("/status", {
                     let sh = sh.clone();
                     web::get().to(move || {

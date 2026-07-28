@@ -1,9 +1,9 @@
 use clap::Parser;
-use cryptomeria::traits::{LobMetrics, StatusHandle, ClientStatus};
-use cryptomeria::db::{connect_sender, run_migrations};
 use cryptomeria::bitstamp::ws::BitstampClient;
+use cryptomeria::db::{connect_sender, run_migrations};
 use cryptomeria::kraken::ws::KrakenClient;
 use cryptomeria::okx::ws::OkxClient;
+use cryptomeria::traits::{ClientStatus, LobMetrics, StatusHandle};
 use prettytable::{Row, Table, cell};
 use prometheus::Registry;
 use std::collections::HashMap;
@@ -60,9 +60,10 @@ fn parse_instruments_list(input: &str, default_exchange: &str) -> Vec<(String, S
             if pos == 0 {
                 // Format 2/4: "@exchange" — reuses symbol from previous pair
                 let exchange = trimmed[1..].to_string();
-                if let Some(ref last_symbol) = implied_exchange.as_ref().and_then(|_| {
-                    results.last().map(|(s, _)| s.clone())
-                }) {
+                if let Some(ref last_symbol) = implied_exchange
+                    .as_ref()
+                    .and_then(|_| results.last().map(|(s, _)| s.clone()))
+                {
                     results.push((last_symbol.to_string(), exchange));
                 }
             } else {
@@ -112,26 +113,36 @@ fn resolve_one_instrument(instrument: &str, exchange: &str) -> (String, String, 
             .map(|(_, at, _)| *at)
             .collect();
 
-        if let Some(found) = available_targets.iter().find(|t| t.to_uppercase() == target) {
+        if let Some(found) = available_targets
+            .iter()
+            .find(|t| t.to_uppercase() == target)
+        {
             let formatted = format_instrument(&format!("{}-{}", base, found), &effective_exchange);
             let note = if let Some(eo) = exchange_override {
                 format!("(resolved from {}@{})", symbol, eo)
             } else {
                 format!("(resolved from {})", symbol)
             };
-            eprintln!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note);
+            eprintln!(
+                "[ARGS] exchange={} instrument={} {}",
+                effective_exchange, formatted, note
+            );
             return (formatted, effective_exchange, cli_inst_id);
         }
 
         let fallback_target = find_fallback_target(&target, &available_targets);
         if let Some(fallback) = fallback_target {
-            let formatted = format_instrument(&format!("{}-{}", base, fallback), &effective_exchange);
+            let formatted =
+                format_instrument(&format!("{}-{}", base, fallback), &effective_exchange);
             let note = if let Some(eo) = exchange_override {
                 format!("(fallback {}->{} from {}@{})", target, fallback, symbol, eo)
             } else {
                 format!("(fallback {}->{})", target, fallback)
             };
-            eprintln!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note);
+            eprintln!(
+                "[ARGS] exchange={} instrument={} {}",
+                effective_exchange, formatted, note
+            );
             return (formatted, effective_exchange, cli_inst_id);
         }
     }
@@ -142,7 +153,10 @@ fn resolve_one_instrument(instrument: &str, exchange: &str) -> (String, String, 
     } else {
         "(raw)".to_string()
     };
-    eprintln!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note);
+    eprintln!(
+        "[ARGS] exchange={} instrument={} {}",
+        effective_exchange, formatted, note
+    );
     (formatted, effective_exchange, cli_inst_id)
 }
 
@@ -296,14 +310,21 @@ fn print_instrument_table() {
                         if kraken_note.is_empty() {
                             kraken_note = format!("kraken uses {} for {}", orig_base, base_norm);
                         } else {
-                            kraken_note = format!("{}; kraken uses {} for {}", kraken_note, orig_base, base_norm);
+                            kraken_note = format!(
+                                "{}; kraken uses {} for {}",
+                                kraken_note, orig_base, base_norm
+                            );
                         }
                     }
                     "bitstamp" => {
                         if bitstamp_note.is_empty() {
-                            bitstamp_note = format!("bitstamp uses {} for {}", orig_base, base_norm);
+                            bitstamp_note =
+                                format!("bitstamp uses {} for {}", orig_base, base_norm);
                         } else {
-                            bitstamp_note = format!("{}; bitstamp uses {} for {}", bitstamp_note, orig_base, base_norm);
+                            bitstamp_note = format!(
+                                "{}; bitstamp uses {} for {}",
+                                bitstamp_note, orig_base, base_norm
+                            );
                         }
                     }
                     _ => {}
@@ -311,7 +332,10 @@ fn print_instrument_table() {
             }
         }
 
-        let check_fallback = |exchange: &str, desired_target: &str, val: &mut String, note: &mut String| {
+        let check_fallback = |exchange: &str,
+                              desired_target: &str,
+                              val: &mut String,
+                              note: &mut String| {
             let mut available_targets: Vec<&str> = Vec::new();
             let mut has_exact_match = false;
 
@@ -326,12 +350,16 @@ fn print_instrument_table() {
             }
 
             if !has_exact_match {
-                if let Some(fallback_target) = find_fallback_target(desired_target, &available_targets) {
-                    let fallback_formatted = format_instrument(&format!("{}-{}", base_norm, fallback_target), exchange);
+                if let Some(fallback_target) =
+                    find_fallback_target(desired_target, &available_targets)
+                {
+                    let fallback_formatted =
+                        format_instrument(&format!("{}-{}", base_norm, fallback_target), exchange);
                     *val = fallback_formatted;
                     *note = format!("{}->{}&", desired_target, fallback_target);
                 } else if val == "not supported" {
-                    *val = format_instrument(&format!("{}-{}", base_norm, desired_target), exchange);
+                    *val =
+                        format_instrument(&format!("{}-{}", base_norm, desired_target), exchange);
                     *note = "raw format (not in aliases)".to_string();
                 }
             }
@@ -403,7 +431,10 @@ async fn main() {
             Some(s)
         }
         Err(e) => {
-            eprintln!("[DB] QuestDB not available — running without persistence: {}", e);
+            eprintln!(
+                "[DB] QuestDB not available — running without persistence: {}",
+                e
+            );
             None
         }
     };
@@ -411,17 +442,24 @@ async fn main() {
     // Determine which instruments to run
     let resolved: Vec<ResolvedInstrument> = if let Some(inst_str) = &cli.instruments {
         let pairs = parse_instruments_list(inst_str, &cli.exchange);
-        pairs.iter().map(|(instr, exchange)| {
-            let (symbol, effective_exchange, cli_inst_id) = resolve_one_instrument(instr, exchange);
-            ResolvedInstrument {
-                symbol,
-                exchange: effective_exchange,
-                cli_inst_id,
-                region: cli.region.clone(),
-            }
-        }).collect()
+        pairs
+            .iter()
+            .map(|(instr, exchange)| {
+                let (symbol, effective_exchange, cli_inst_id) =
+                    resolve_one_instrument(instr, exchange);
+                ResolvedInstrument {
+                    symbol,
+                    exchange: effective_exchange,
+                    cli_inst_id,
+                    region: cli.region.clone(),
+                }
+            })
+            .collect()
     } else {
-        let cli_inst_id = parse_exchange_override(&cli.instrument).0.to_lowercase().replace(['/', '-'], "");
+        let cli_inst_id = parse_exchange_override(&cli.instrument)
+            .0
+            .to_lowercase()
+            .replace(['/', '-'], "");
         let (symbol, exchange, _) = resolve_one_instrument(&cli.instrument, &cli.exchange);
         vec![ResolvedInstrument {
             symbol,
@@ -438,7 +476,8 @@ async fn main() {
 
     // Create shared registry, metrics, and status handle
     let shared_registry = Registry::new();
-    let shared_metrics = Arc::new(LobMetrics::new(&shared_registry).expect("Failed to create LobMetrics"));
+    let shared_metrics =
+        Arc::new(LobMetrics::new(&shared_registry).expect("Failed to create LobMetrics"));
     let status_handle: StatusHandle = Arc::new(RwLock::new(HashMap::new()));
 
     // Spawn one task per resolved instrument
@@ -457,21 +496,27 @@ async fn main() {
         {
             let mut status_map = status_handle.write().unwrap();
             let key = format!("{}@{}", cli_inst_id, exchange);
-            status_map.insert(key, ClientStatus {
-                active: false,
-                ts: 0,
-                last_price: None,
-                bid_size: 0.0,
-                ask_size: 0.0,
-                detail: "starting".to_string(),
-            });
+            status_map.insert(
+                key,
+                ClientStatus {
+                    active: false,
+                    ts: 0,
+                    last_price: None,
+                    bid_size: 0.0,
+                    ask_size: 0.0,
+                    detail: "starting".to_string(),
+                },
+            );
         }
 
         let sender_opt = if sender.is_some() {
             match connect_sender(&qc).await {
                 Ok(s) => Some(s),
                 Err(e) => {
-                    eprintln!("[DB] Failed to connect sender for {}@{}: {}", symbol, exchange, e);
+                    eprintln!(
+                        "[DB] Failed to connect sender for {}@{}: {}",
+                        symbol, exchange, e
+                    );
                     None
                 }
             }
@@ -485,10 +530,17 @@ async fn main() {
 
             match exchange.as_str() {
                 "kraken" => {
-                    let mut client = KrakenClient::new(&symbol, &exchange, &region, show_top_pct, data_output, &qc)
-                        .with_cli_instrument(cli_inst_id)
-                        .with_lob_metrics(lm)
-                        .with_status_handle(sh);
+                    let mut client = KrakenClient::new(
+                        &symbol,
+                        &exchange,
+                        &region,
+                        show_top_pct,
+                        data_output,
+                        &qc,
+                    )
+                    .with_cli_instrument(cli_inst_id)
+                    .with_lob_metrics(lm)
+                    .with_status_handle(sh);
                     if let Some(s) = sender_opt {
                         client = client.with_sender(s);
                     }
@@ -500,11 +552,18 @@ async fn main() {
                     }
                 }
                 "bitstamp" => {
-                    let mut client = BitstampClient::new(&symbol, &exchange, &region, show_top_pct, data_output, &qc)
-                        .with_cli_instrument(cli_inst_id)
-                        .with_lob_metrics(lm)
-                        .with_status_handle(sh)
-                        .with_snapshot_depth(cli.bitstamp_snapshot_depth);
+                    let mut client = BitstampClient::new(
+                        &symbol,
+                        &exchange,
+                        &region,
+                        show_top_pct,
+                        data_output,
+                        &qc,
+                    )
+                    .with_cli_instrument(cli_inst_id)
+                    .with_lob_metrics(lm)
+                    .with_status_handle(sh)
+                    .with_snapshot_depth(cli.bitstamp_snapshot_depth);
                     if let Some(s) = sender_opt {
                         client = client.with_sender(s);
                     }
@@ -516,10 +575,11 @@ async fn main() {
                     }
                 }
                 _ => {
-                    let mut client = OkxClient::new(&symbol, &exchange, &region, show_top_pct, data_output, &qc)
-                        .with_cli_instrument(cli_inst_id)
-                        .with_lob_metrics(lm)
-                        .with_status_handle(sh);
+                    let mut client =
+                        OkxClient::new(&symbol, &exchange, &region, show_top_pct, data_output, &qc)
+                            .with_cli_instrument(cli_inst_id)
+                            .with_lob_metrics(lm)
+                            .with_status_handle(sh);
                     if let Some(s) = sender_opt {
                         client = client.with_sender(s);
                     }
@@ -544,7 +604,11 @@ async fn main() {
         let http_status = status_handle.clone();
         std::thread::spawn(move || {
             let system = actix_web::rt::System::new();
-            if let Err(e) = system.block_on(LobMetrics::start_http_server(port, http_metrics, http_status)) {
+            if let Err(e) = system.block_on(LobMetrics::start_http_server(
+                port,
+                http_metrics,
+                http_status,
+            )) {
                 eprintln!("[HTTP] Server error: {}", e);
             }
         });
@@ -783,19 +847,30 @@ mod tests {
 
     #[test]
     fn test_parse_args_instruments_flag() {
-        let cli = CliArgs::try_parse_from(&["cryptomeria", "--instruments", "BTC-USDT@okx,ETH-USD@kraken"]).unwrap();
-        assert_eq!(cli.instruments.as_deref(), Some("BTC-USDT@okx,ETH-USD@kraken"));
+        let cli = CliArgs::try_parse_from(&[
+            "cryptomeria",
+            "--instruments",
+            "BTC-USDT@okx,ETH-USD@kraken",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.instruments.as_deref(),
+            Some("BTC-USDT@okx,ETH-USD@kraken")
+        );
     }
 
     #[test]
     fn test_parse_args_instruments_format2() {
-        let cli = CliArgs::try_parse_from(&["cryptomeria", "--instruments", "BTC-USDT@okx,@kraken"]).unwrap();
+        let cli =
+            CliArgs::try_parse_from(&["cryptomeria", "--instruments", "BTC-USDT@okx,@kraken"])
+                .unwrap();
         assert_eq!(cli.instruments.as_deref(), Some("BTC-USDT@okx,@kraken"));
     }
 
     #[test]
     fn test_parse_args_instruments_format3() {
-        let cli = CliArgs::try_parse_from(&["cryptomeria", "--instruments", "BTC-USDT,ETH-USDT"]).unwrap();
+        let cli = CliArgs::try_parse_from(&["cryptomeria", "--instruments", "BTC-USDT,ETH-USDT"])
+            .unwrap();
         assert_eq!(cli.instruments.as_deref(), Some("BTC-USDT,ETH-USDT"));
     }
 
@@ -807,7 +882,14 @@ mod tests {
 
     #[test]
     fn test_parse_args_show_top_pct() {
-        let cli = CliArgs::try_parse_from(&["cryptomeria", "--show-top-pct", "0.5", "--instrument", "ETH-USDT"]).unwrap();
+        let cli = CliArgs::try_parse_from(&[
+            "cryptomeria",
+            "--show-top-pct",
+            "0.5",
+            "--instrument",
+            "ETH-USDT",
+        ])
+        .unwrap();
         assert_eq!(cli.instrument, "ETH-USDT");
         assert!((cli.show_top_pct - 0.5).abs() < f64::EPSILON);
     }
@@ -820,7 +902,8 @@ mod tests {
 
     #[test]
     fn test_parse_args_instrument_flag_with_at() {
-        let cli = CliArgs::try_parse_from(&["cryptomeria", "--instrument", "ETH/USDT@kraken"]).unwrap();
+        let cli =
+            CliArgs::try_parse_from(&["cryptomeria", "--instrument", "ETH/USDT@kraken"]).unwrap();
         assert_eq!(cli.instrument, "ETH/USDT@kraken");
     }
 
@@ -850,7 +933,9 @@ mod tests {
 
     #[test]
     fn test_parse_args_questdb_conf() {
-        let cli = CliArgs::try_parse_from(&["cryptomeria", "--questdb-conf", "http::addr=custom:9000;"]).unwrap();
+        let cli =
+            CliArgs::try_parse_from(&["cryptomeria", "--questdb-conf", "http::addr=custom:9000;"])
+                .unwrap();
         assert_eq!(cli.questdb_conf.as_deref(), Some("http::addr=custom:9000;"));
     }
 

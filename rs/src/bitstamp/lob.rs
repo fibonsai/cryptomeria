@@ -55,7 +55,7 @@ impl OrderBook {
     }
 
     pub fn best_bid(&self) -> Option<f64> {
-        self.bids.first_key_value().map(|(k, _)| k.0 .0)
+        self.bids.first_key_value().map(|(k, _)| k.0.0)
     }
 
     pub fn best_ask(&self) -> Option<f64> {
@@ -70,21 +70,17 @@ impl OrderBook {
     }
 
     pub fn levels_within_pct(&self, top_pct: f64) -> LevelsWithinPct {
-        let bid_threshold = self
-            .best_bid()
-            .map(|b| b * (1.0 - top_pct / 100.0));
-        let ask_threshold = self
-            .best_ask()
-            .map(|a| a * (1.0 + top_pct / 100.0));
+        let bid_threshold = self.best_bid().map(|b| b * (1.0 - top_pct / 100.0));
+        let ask_threshold = self.best_ask().map(|a| a * (1.0 + top_pct / 100.0));
 
         let bids: Vec<(f64, f64)> = self
             .bids
             .iter()
             .filter(|(k, _)| match bid_threshold {
-                Some(t) => k.0 .0 >= t,
+                Some(t) => k.0.0 >= t,
                 None => true,
             })
-            .map(|(k, v)| (k.0 .0, *v))
+            .map(|(k, v)| (k.0.0, *v))
             .collect();
 
         let asks: Vec<(f64, f64)> = self
@@ -102,20 +98,30 @@ impl OrderBook {
 
     /// Update price-level aggregates from individual order tracking.
     fn rebuild_price_level(&mut self, side: Side, price: OrderedFloat<f64>) {
-        let total: f64 = self.orders.values()
+        let total: f64 = self
+            .orders
+            .values()
             .filter(|o| o.side == side && o.price == price)
             .map(|o| o.size)
             .sum();
 
         if total == 0.0 {
             match side {
-                Side::Bid => { self.bids.remove(&Reverse(price)); }
-                Side::Ask => { self.asks.remove(&price); }
+                Side::Bid => {
+                    self.bids.remove(&Reverse(price));
+                }
+                Side::Ask => {
+                    self.asks.remove(&price);
+                }
             }
         } else {
             match side {
-                Side::Bid => { self.bids.insert(Reverse(price), total); }
-                Side::Ask => { self.asks.insert(price, total); }
+                Side::Bid => {
+                    self.bids.insert(Reverse(price), total);
+                }
+                Side::Ask => {
+                    self.asks.insert(price, total);
+                }
             }
         }
     }
@@ -139,7 +145,11 @@ impl OrderBook {
                 return;
             }
         };
-        let side = if entry.order_type == 0 { Side::Bid } else { Side::Ask };
+        let side = if entry.order_type == 0 {
+            Side::Bid
+        } else {
+            Side::Ask
+        };
 
         if let Some(existing) = self.orders.get(&entry.id) {
             // Old price might differ from new price (order amended)
@@ -155,18 +165,39 @@ impl OrderBook {
                 // Update: old size subtracted, new size added
                 // If price or side changed, rebuild old and new
                 if old_price != price || old_side != side {
-                    self.orders.insert(entry.id, OrderInfo { price, size: amount, side });
+                    self.orders.insert(
+                        entry.id,
+                        OrderInfo {
+                            price,
+                            size: amount,
+                            side,
+                        },
+                    );
                     self.rebuild_price_level(old_side, old_price);
                     self.rebuild_price_level(side, price);
                 } else {
                     // Same price, same side — just update
-                    self.orders.insert(entry.id, OrderInfo { price, size: amount, side });
+                    self.orders.insert(
+                        entry.id,
+                        OrderInfo {
+                            price,
+                            size: amount,
+                            side,
+                        },
+                    );
                     self.rebuild_price_level(side, price);
                 }
             }
         } else if amount > 0.0 {
             // New order
-            self.orders.insert(entry.id, OrderInfo { price, size: amount, side });
+            self.orders.insert(
+                entry.id,
+                OrderInfo {
+                    price,
+                    size: amount,
+                    side,
+                },
+            );
             self.rebuild_price_level(side, price);
         }
     }
@@ -279,15 +310,12 @@ impl OrderBook {
         };
 
         let bids_str = self.format_side(
-            self.bids.iter().map(|(k, v)| (k.0 .0, *v)),
+            self.bids.iter().map(|(k, v)| (k.0.0, *v)),
             top_pct,
             Side::Bid,
         );
-        let asks_str = self.format_side(
-            self.asks.iter().map(|(k, v)| (k.0, *v)),
-            top_pct,
-            Side::Ask,
-        );
+        let asks_str =
+            self.format_side(self.asks.iter().map(|(k, v)| (k.0, *v)), top_pct, Side::Ask);
 
         format!(
             "{}  bids={}  asks={}  spread={}  bids: [ {} ] | asks: [ {} ]",
@@ -331,17 +359,39 @@ impl Default for OrderBook {
 }
 
 impl crate::traits::OrderBook for OrderBook {
-    fn new() -> Self { OrderBook::new() }
-    fn with_snapshot_depth(depth: usize) -> Self { OrderBook::with_snapshot_depth(depth) }
-    fn num_bids(&self) -> usize { OrderBook::num_bids(self) }
-    fn num_asks(&self) -> usize { OrderBook::num_asks(self) }
-    fn best_bid(&self) -> Option<f64> { OrderBook::best_bid(self) }
-    fn best_ask(&self) -> Option<f64> { OrderBook::best_ask(self) }
-    fn spread(&self) -> Option<f64> { OrderBook::spread(self) }
-    fn levels_within_pct(&self, top_pct: f64) -> LevelsWithinPct { OrderBook::levels_within_pct(self, top_pct) }
-    fn total_bid_size(&self) -> f64 { OrderBook::total_bid_size(self) }
-    fn total_ask_size(&self) -> f64 { OrderBook::total_ask_size(self) }
-    fn display(&self, instrument: &str, top_pct: f64) -> String { OrderBook::display(self, instrument, top_pct) }
+    fn new() -> Self {
+        OrderBook::new()
+    }
+    fn with_snapshot_depth(depth: usize) -> Self {
+        OrderBook::with_snapshot_depth(depth)
+    }
+    fn num_bids(&self) -> usize {
+        OrderBook::num_bids(self)
+    }
+    fn num_asks(&self) -> usize {
+        OrderBook::num_asks(self)
+    }
+    fn best_bid(&self) -> Option<f64> {
+        OrderBook::best_bid(self)
+    }
+    fn best_ask(&self) -> Option<f64> {
+        OrderBook::best_ask(self)
+    }
+    fn spread(&self) -> Option<f64> {
+        OrderBook::spread(self)
+    }
+    fn levels_within_pct(&self, top_pct: f64) -> LevelsWithinPct {
+        OrderBook::levels_within_pct(self, top_pct)
+    }
+    fn total_bid_size(&self) -> f64 {
+        OrderBook::total_bid_size(self)
+    }
+    fn total_ask_size(&self) -> f64 {
+        OrderBook::total_ask_size(self)
+    }
+    fn display(&self, instrument: &str, top_pct: f64) -> String {
+        OrderBook::display(self, instrument, top_pct)
+    }
 }
 
 #[cfg(test)]
@@ -391,10 +441,7 @@ mod tests {
         book.apply_order(&entry("100.0", "1.0", 0, 1));
         book.apply_order(&entry("100.0", "2.0", 0, 2));
         assert_eq!(book.num_bids(), 1);
-        assert_eq!(
-            *book.bids.get(&Reverse(OrderedFloat(100.0))).unwrap(),
-            3.0
-        );
+        assert_eq!(*book.bids.get(&Reverse(OrderedFloat(100.0))).unwrap(), 3.0);
     }
 
     #[test]
@@ -403,10 +450,7 @@ mod tests {
         book.apply_order(&entry("100.0", "1.0", 0, 1));
         book.apply_order(&entry("100.0", "2.0", 0, 2));
         book.apply_order(&entry("100.0", "0.0", 0, 1));
-        assert_eq!(
-            *book.bids.get(&Reverse(OrderedFloat(100.0))).unwrap(),
-            2.0
-        );
+        assert_eq!(*book.bids.get(&Reverse(OrderedFloat(100.0))).unwrap(), 2.0);
     }
 
     #[test]
@@ -477,8 +521,14 @@ mod tests {
 
     fn ob_data(bids: &[[&str; 2]], asks: &[[&str; 2]]) -> OrderBookData {
         OrderBookData {
-            bids: bids.iter().map(|[p, s]| [p.to_string(), s.to_string()]).collect(),
-            asks: asks.iter().map(|[p, s]| [p.to_string(), s.to_string()]).collect(),
+            bids: bids
+                .iter()
+                .map(|[p, s]| [p.to_string(), s.to_string()])
+                .collect(),
+            asks: asks
+                .iter()
+                .map(|[p, s]| [p.to_string(), s.to_string()])
+                .collect(),
             timestamp: "0".to_string(),
             microtimestamp: "0".to_string(),
         }
