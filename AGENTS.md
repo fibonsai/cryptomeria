@@ -245,4 +245,4 @@ Licensed under [Apache 2.0](LICENSE) with additional brand protections for Fibon
 - **RTK (Rust Token Killer)**: Active proxy for FS reads & git ops (transparent)
 - **graphify** (`~/.config/opencode/skills/graphify/SKILL.md`): Knowledge graph generator — `/graphify` builds navigable graphs from repo contents into `graphify-out/`
 - **graphify-out/**: Generated knowledge graph outputs (graph.html, GRAPH_REPORT.md, graph.json) — regenerated with `/graphify`
-- **No CI/CD configs**: No Cursor, Copilot, or GitHub Actions in this repo
+- **CI/CD configs**: GitHub Actions workflows in .github/
