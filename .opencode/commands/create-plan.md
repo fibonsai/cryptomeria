@@ -3,6 +3,8 @@ name: create-plan
 description: Read the last open GitHub issue and write a PLAN.md with implementation sub-steps, then store it in the issue body (if empty) or as a new comment
 ---
 
+> **Tools first**: Before running shell commands, prefer dedicated tools (Read, Write, Edit, Grep, Glob, Bash) or skills over raw shell. Use Write/Read/Edit tools for file operations instead of `cat`/`echo`/`sed`. Only fall back to shell when no tool alternative exists.
+
 # Create PLAN.md from the last open GitHub issue
 
 The plan is stored in the **issue body** (if previously empty) or as a **new comment** (if body already has content or plan is being updated). `docs/PLAN.md` is a local working copy.

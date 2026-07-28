@@ -3,6 +3,8 @@ name: add-task
 description: Add a task to a GitHub issue with corrected grammar and formatting
 ---
 
+> **Tools first**: Before running shell commands, prefer dedicated tools (Read, Write, Edit, Grep, Glob, Bash) or skills over raw shell. Use Write/Read/Edit tools for file operations instead of `cat`/`echo`/`sed`. Only fall back to shell when no tool alternative exists.
+
 # Add Task
 
 Create a GitHub issue from the text provided after the `/add-task` slash command.

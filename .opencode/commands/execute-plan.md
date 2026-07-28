@@ -3,6 +3,8 @@ name: execute-plan
 description: Execute the plan stored in the GitHub issue body, step by step, then post a changelog comment. If there is more than one open issue, STOP and ask the user how the open issue can be executed. In this case, read only the open issue indicated by the user, ignoring the others.
 ---
 
+> **Tools first**: Before running shell commands, prefer dedicated tools (Read, Write, Edit, Grep, Glob, Bash) or skills over raw shell. Use Write/Read/Edit tools for file operations instead of `cat`/`echo`/`sed`. Only fall back to shell when no tool alternative exists.
+
 # Execute PLAN
 
 The plan lives in the **GitHub Issue** (not `docs/PLAN.md`). The issue is the single source of truth.
@@ -80,9 +82,9 @@ For each section:
 - Do not continue to subsequent steps
 - Do not close the issue
 
-### 6. Update `README.md`, `AGENTS.md`, and `CLAUDE.md`
+### 6. Update `README.md` and `AGENTS.md`
 
-If the execution changed architecture, CLI flags, added/removed commands, or changed behavior, update `README.md`, `AGENTS.md`, and `CLAUDE.md` to reflect it. Use GitHub Wiki links (not `docs/` paths) for all documentation and ADR references.
+If the execution changed architecture, CLI flags, added/removed commands, or changed behavior, update `README.md` and `AGENTS.md` to reflect it. Use GitHub Wiki links (not `docs/` paths) for all documentation and ADR references.
 
 ### 7. Post the changelog as an issue comment
 
@@ -261,5 +263,5 @@ git worktree remove $WORKTREE
 ## Full workflow
 
 ```
-check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md + CLAUDE.md → post changelog → update issue body/comments → delete PLAN.md → upload ADR to wiki → upload companion docs to wiki → verify sidebar links → create PR → close issue → return to main and remove worktree
+check if in main branch → fetch remote main and create worktree → read issue → find latest plan → review plan → execute plan → update README + AGENTS.md → post changelog → update issue body/comments → delete PLAN.md → upload ADR to wiki → upload companion docs to wiki → verify sidebar links → create PR → close issue → return to main and remove worktree
 ```
