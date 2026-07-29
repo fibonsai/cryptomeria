@@ -197,7 +197,7 @@ Licensed under [Apache 2.0](LICENSE) with additional brand protections for Fibon
 - **WS clients**: All three exchange clients share the same architecture via shared traits/utilities (ADR-017): exponential backoff with jitter reconnection (ADR-012), graceful shutdown on SIGINT/SIGTERM (ADR-014), heartbeat handling (Kraken), diff_order_book + REST snapshot reconciliation (Bitstamp, ADR-018)
 - **Instrument resolution**: `resolve_instrument()` in `main.rs` implements a currency fallback chain (USDC→USDT→USD) (ADR-021). `cli_inst_id` (lowercase, no separator) is threaded through `ExchangeClientBuilder` for consistent DB persistence.
 - **LOB state**: OKX and Kraken use `BTreeMap<OrderedFloat<f64>, f64>` (ADR-002); Bitstamp uses `BTreeMap` aggregation with `apply_snapshot()` (REST) + `apply_diff()` (WS diff_order_book, ADR-018)
-- **Persistence**: QuestDB via ILP sender on port 9000 for ingestion; migrations via `tokio-postgres` + `refinery::Runner::run_async()` on port 8812 (PG wire protocol); TTL set at startup (ADR-010); dual-protocol strategy documented in (ADR-032)
+- **Persistence**: QuestDB via ILP sender on port 9000 for ingestion; migrations via `QuestDbMigrator` over HTTP on port 9000; TTL set at startup (ADR-010); HTTP-only migration strategy documented in (ADR-033)
 - **Metrics**: Prometheus registry served as JSON on `/metrics` for Grafana Infinity (ADR-011, ADR-013)
 - **Tests**: Unit tests in `mod tests` in each module; integration tests in `rs/tests/` marked `#[ignore]`
 
