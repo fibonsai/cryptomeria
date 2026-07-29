@@ -3,7 +3,7 @@
 
 .PHONY: help \
         python-install python-test python-lint python-format python-build python-clean \
-        rust-build rust-build-release rust-test rust-lint rust-fmt rust-clean \
+        rust-build rust-build-release rust-test rust-test-integration rust-lint rust-fmt rust-clean \
         build build-release test lint format clean
 
 # Default target
@@ -69,7 +69,14 @@ rust-build-release:
 	cd rs && cargo build --release
 
 rust-test:
-	cd rs && cargo test
+	cd rs && \
+	RET=0; \
+	cargo test || RET=$$?; \
+	cargo test -- --ignored || RET=$$?; \
+	if [ $$RET -ne 0 ] && [ $$RET -ne 5 ]; then exit $$RET; else exit 0; fi
+
+rust-test-integration:
+	cd rs && cargo test -- --ignored
 
 rust-lint:
 	cd rs && cargo clippy
