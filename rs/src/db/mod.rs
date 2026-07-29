@@ -1,12 +1,27 @@
+use crate::migrate::{Migration, QuestDbMigrator};
 use crate::okx::types::LobLevel;
 use questdb::ingress::{Buffer, Sender, TimestampNanos};
-use refinery::embed_migrations;
 use reqwest::Client;
-use tokio_postgres::NoTls;
 use std::env;
 use std::time::Duration;
 
-embed_migrations!("src/db/migrations");
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "create_trades",
+        sql: include_str!("migrations/V1__create_trades.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "create_lob_levels",
+        sql: include_str!("migrations/V2__create_lob_levels.sql"),
+    },
+    Migration {
+        version: 3,
+        name: "add_best_diff_to_lob_levels",
+        sql: include_str!("migrations/V3__add_best_diff_to_lob_levels.sql"),
+    },
+];
 
 /// Default QuestDB configuration string (QDB_CLIENT_CONF format)
 pub const DEFAULT_QDB_CONF: &str = "http::addr=localhost:9000;username=admin;password=quest;";
@@ -36,42 +51,7 @@ fn extract_http_addr(conf_str: &str) -> String {
     "localhost:9000".to_string()
 }
 
-/// Derive PostgreSQL connection string from QDB_CLIENT_CONF format.
-///
-/// QuestDB exposes PostgreSQL wire protocol on port 8812 by default.
-/// The resulting string is compatible with `tokio_postgres::connect()`.
-fn extract_pg_conf(conf_str: &str) -> String {
-    let mut host = "localhost".to_string();
-    let mut user = "admin".to_string();
-    let mut password = String::new();
-    for part in conf_str.split(';') {
-        if let Some(stripped) = part.strip_prefix("http::addr=") {
-            if let Some((h, _)) = stripped.split_once(':') {
-                host = h.to_string();
-            } else {
-                host = stripped.to_string();
-            }
-        }
-        if let Some(stripped) = part.strip_prefix("https::addr=") {
-            if let Some((h, _)) = stripped.split_once(':') {
-                host = h.to_string();
-            } else {
-                host = stripped.to_string();
-            }
-        }
-        if let Some(stripped) = part.strip_prefix("username=") {
-            user = stripped.to_string();
-        }
-        if let Some(stripped) = part.strip_prefix("password=") {
-            password = stripped.to_string();
-        }
-    }
-    let mut conn = format!("host={host} port=8812 user={user} dbname=qdb");
-    if !password.is_empty() {
-        conn.push_str(&format!(" password={password}"));
-    }
-    conn
-}
+
 
 /// Create a QuestDB Sender from a QDB_CLIENT_CONF formatted string.
 pub async fn connect(conf_str: &str) -> Result<Sender, Box<dyn std::error::Error + Send + Sync>> {
@@ -83,40 +63,13 @@ pub async fn connect(conf_str: &str) -> Result<Sender, Box<dyn std::error::Error
     Ok(Sender::from_conf(conf)?)
 }
 
-/// QuestDB-compatible DDL for refinery's tracking table.
-///
-/// Refinery's default `ASSERT_MIGRATIONS_TABLE_QUERY` uses PostgreSQL-specific
-/// types (`INT4 PRIMARY KEY`, `VARCHAR(255)`) that QuestDB does not support via
-/// PG wire. This table is pre-created via HTTP using native QuestDB types so
-/// that refinery's `CREATE TABLE IF NOT EXISTS` finds it already exists and
-/// skips the incompatible DDL.
-pub const REFINERY_SCHEMA_HISTORY_DDL: &str =
-    "CREATE TABLE IF NOT EXISTS refinery_schema_history (version INT, name STRING, applied_on STRING, checksum STRING)";
-
-/// Run embedded SQL migrations against QuestDB using its PostgreSQL wire protocol.
-///
-/// Connects on port 8812 (QuestDB's PG wire protocol) and uses
-/// `refinery::Runner::run_async()` for automatic migration tracking.
-/// Falls back gracefully on connection error to allow running without persistence.
+/// Run embedded SQL migrations against QuestDB via its HTTP REST API.
 pub async fn run_migrations(
     conf_str: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let http_addr = extract_http_addr(conf_str);
-    let http_client = Client::builder().timeout(Duration::from_secs(10)).build()?;
-    execute_sql(&http_client, &http_addr, REFINERY_SCHEMA_HISTORY_DDL).await?;
-
-    let pg_conf = extract_pg_conf(conf_str);
-    let (mut client, connection) = tokio_postgres::connect(&pg_conf, NoTls).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("[DB] PG wire connection error: {e}");
-        }
-    });
-
-    let runner = migrations::runner();
-    runner.run_async(&mut client).await?;
-
+    let migrator = QuestDbMigrator::new(&http_addr);
+    migrator.run_migrations(MIGRATIONS).await?;
     Ok(())
 }
 
@@ -283,31 +236,6 @@ mod tests {
             "localhost:9000"
         );
     }
-
-    #[test]
-    fn test_extract_pg_conf_full() {
-        let conf = extract_pg_conf("http::addr=localhost:9000;username=admin;password=quest;");
-        assert_eq!(conf, "host=localhost port=8812 user=admin dbname=qdb password=quest");
-    }
-
-    #[test]
-    fn test_extract_pg_conf_no_password() {
-        let conf = extract_pg_conf("http::addr=localhost:9000;username=admin;");
-        assert_eq!(conf, "host=localhost port=8812 user=admin dbname=qdb");
-    }
-
-    #[test]
-    fn test_extract_pg_conf_default() {
-        let conf = extract_pg_conf("");
-        assert_eq!(conf, "host=localhost port=8812 user=admin dbname=qdb");
-    }
-
-    #[test]
-    fn test_extract_pg_conf_custom_host() {
-        let conf = extract_pg_conf("http::addr=questdb.internal:9000;username=admin;password=secret;");
-        assert_eq!(conf, "host=questdb.internal port=8812 user=admin dbname=qdb password=secret");
-    }
-
 
 
     #[test]

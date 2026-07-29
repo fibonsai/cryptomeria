@@ -61,6 +61,7 @@ Cryptomeria is organized as a dual-language monorepo with Python for data analys
 | `rs/src/okx/` | OKX WebSocket client: types, LOB state, WS connection |
 | `rs/src/kraken/` | Kraken WebSocket client: types, LOB state, WS connection |
 | `rs/src/bitstamp/` | Bitstamp WebSocket client: types, LOB state, WS connection |
-| `rs/src/db/` | QuestDB persistence — ILP sender, refinery migrations, TTL cleanup |
+| `rs/src/db/` | QuestDB persistence — ILP sender, QuestDbMigrator, TTL cleanup |
+| `rs/src/migrate.rs` | Standalone HTTP-based versioned migration runner for QuestDB |
 | `rs/src/urls.rs` | Exchange URL configuration by region |
 | `rs/tests/` | Integration tests (network-dependent, `#[ignore]` by default) |
