@@ -5,6 +5,7 @@ use crate::kraken::types::{KrakenWsMessage, MessageType};
 use crate::logging;
 use crate::traits::{
     self, ClientStatus, ExchangeClientBuilder, LobFilter, LobMetrics, StatusHandle, backoff_delay,
+    wait_for_shutdown_signal,
 };
 use futures_util::SinkExt;
 use futures_util::StreamExt;
@@ -237,108 +238,108 @@ impl KrakenClient {
 
             loop {
                 tokio::select! {
-                                    msg = read.next() => {
-                                        let should_break = match msg {
-                                            None => true,
-                                            Some(Err(e)) => {
-                                                logging::error(self.cli_instrument.as_str(), &format!("WS ERROR: {}", e));
-                                                true
-                                            }
-                                            Some(Ok(Message::Close(frame))) => {
-                                                logging::debug(self.cli_instrument.as_str(), &format!("CLOSE: {:?}", frame));
-                                                true
-                                            }
-                                            Some(Ok(Message::Text(text))) => {
-                                                match KrakenWsMessage::from_json(&text) {
-                                                    Ok(parsed) => {
-                                                        self.messages_received.fetch_add(1, Ordering::Relaxed);
-                                                        match parsed.message_type() {
-                                                            MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
-                                                                order_book.process_msg(&parsed, lob_filter.as_ref());
-                                                                if self.data_output {
-                                                                    let now = parsed.formatted_time();
-                                                                    let book_line =
-                                                                        order_book.display(&self.instrument, self.max_level_pct);
-                                                                    println!("[{} LOB2] {}", now, book_line);
-                                                                }
-                                                                self.update_lob_metrics(&order_book);
-                                                                self.update_depth_metrics(&order_book);
-                                                            }
-                                                            MessageType::Trade => {
-                                                                if self.data_output {
-                                                                    let line = display_message(&parsed);
-                                                                    println!("{}", line);
-                                                                }
-                                                                self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
-                                                                last_trade_count += 1;
-                                                                let elapsed = last_trade_time.elapsed();
-                                                                if elapsed >= std::time::Duration::from_secs(1) {
-                                                                    let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                                                    self.metrics().trades_per_second
-                                                                        .store(f64::to_bits(rate), Ordering::Relaxed);
-                                                                    last_trade_count = 0;
-                                                                    last_trade_time = std::time::Instant::now();
-                                                                }
-                                                                // Update last_price in status
-                                                                if let Some(trade) = parsed.data.first().and_then(|d| {
-                                                                    serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
-                                                                }) {
-                                                                    self.update_last_price(trade.price);
-                                                                }
-                                                            }
-                                                            MessageType::Event => {
-                                                                if self.data_output {
-                                                                    let line = display_message(&parsed);
-                                                                    println!("{}", line);
-                                                                }
-                                                            }
-                                                            MessageType::Status => {
-                                                                // no-op (skip display)
-                                                            }
-                                                            MessageType::Heartbeat => {
-                                                                // no-op
-                                                            }
-                                                            MessageType::Unknown => {
-                                                                if self.data_output {
-                                                                    let line = display_message(&parsed);
-                                                                    println!("{}", line);
-                                                                }
-                                                            }
-                                                        }
-
-                if let Some(sender) = self.sender.as_mut()
-                                                            && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await
-                                                        {
-                                                            logging::error(self.cli_instrument.as_str(), &format!("Failed to persist: {}", e));
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        logging::error(self.cli_instrument.as_str(), &format!("PARSE ERROR: {} — raw: {}", e, &text[..text.len().min(200)]));
-                                                    }
+                    msg = read.next() => {
+                        let should_break = match msg {
+                            None => true,
+                            Some(Err(e)) => {
+                                logging::error(self.cli_instrument.as_str(), &format!("WS ERROR: {}", e));
+                                true
+                            }
+                            Some(Ok(Message::Close(frame))) => {
+                                logging::debug(self.cli_instrument.as_str(), &format!("CLOSE: {:?}", frame));
+                                true
+                            }
+                            Some(Ok(Message::Text(text))) => {
+                                match KrakenWsMessage::from_json(&text) {
+                                    Ok(parsed) => {
+                                        self.messages_received.fetch_add(1, Ordering::Relaxed);
+                                        match parsed.message_type() {
+                                            MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
+                                                order_book.process_msg(&parsed, lob_filter.as_ref());
+                                                if self.data_output {
+                                                    let now = parsed.formatted_time();
+                                                    let book_line =
+                                                        order_book.display(&self.instrument, self.max_level_pct);
+                                                    println!("[{} LOB2] {}", now, book_line);
                                                 }
-                                                false
+                                                self.update_lob_metrics(&order_book);
+                                                self.update_depth_metrics(&order_book);
                                             }
-                                            Some(Ok(Message::Ping(data))) => {
-                                                logging::debug(self.cli_instrument.as_str(), &format!("PING: {} bytes", data.len()));
-                                                false
+                                            MessageType::Trade => {
+                                                if self.data_output {
+                                                    let line = display_message(&parsed);
+                                                    println!("{}", line);
+                                                }
+                                                self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
+                                                last_trade_count += 1;
+                                                let elapsed = last_trade_time.elapsed();
+                                                if elapsed >= std::time::Duration::from_secs(1) {
+                                                    let rate = last_trade_count as f64 / elapsed.as_secs_f64();
+                                                    self.metrics().trades_per_second
+                                                        .store(f64::to_bits(rate), Ordering::Relaxed);
+                                                    last_trade_count = 0;
+                                                    last_trade_time = std::time::Instant::now();
+                                                }
+                                                // Update last_price in status
+                                                if let Some(trade) = parsed.data.first().and_then(|d| {
+                                                    serde_json::from_value::<crate::kraken::types::TradeData>(d.clone()).ok()
+                                                }) {
+                                                    self.update_last_price(trade.price);
+                                                }
                                             }
-                                            Some(Ok(Message::Pong(_))) => false,
-                                            Some(Ok(Message::Binary(_))) => {
-                                                logging::debug(self.cli_instrument.as_str(), "BINARY received (unexpected)");
-                                                false
+                                            MessageType::Event => {
+                                                if self.data_output {
+                                                    let line = display_message(&parsed);
+                                                    println!("{}", line);
+                                                }
                                             }
-                                            Some(Ok(Message::Frame(_))) => false,
-                                        };
-                                        if should_break {
-                                            break;
+                                            MessageType::Status => {
+                                                // no-op (skip display)
+                                            }
+                                            MessageType::Heartbeat => {
+                                                // no-op
+                                            }
+                                            MessageType::Unknown => {
+                                                if self.data_output {
+                                                    let line = display_message(&parsed);
+                                                    println!("{}", line);
+                                                }
+                                            }
+                                        }
+
+                                        if let Some(sender) = self.sender.as_mut()
+                                            && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await
+                                        {
+                                            logging::error(self.cli_instrument.as_str(), &format!("Failed to persist: {}", e));
                                         }
                                     }
-_ = tokio::signal::ctrl_c() => {
-                                                logging::info(self.cli_instrument.as_str(), "SHUTDOWN received SIGINT");
-                                                shutdown = true;
-                                                break;
-                                            },
+                                    Err(e) => {
+                                        logging::error(self.cli_instrument.as_str(), &format!("PARSE ERROR: {} — raw: {}", e, &text[..text.len().min(200)]));
+                                    }
                                 }
+                                false
+                            }
+                            Some(Ok(Message::Ping(data))) => {
+                                logging::debug(self.cli_instrument.as_str(), &format!("PING: {} bytes", data.len()));
+                                false
+                            }
+                            Some(Ok(Message::Pong(_))) => false,
+                            Some(Ok(Message::Binary(_))) => {
+                                logging::debug(self.cli_instrument.as_str(), "BINARY received (unexpected)");
+                                false
+                            }
+                            Some(Ok(Message::Frame(_))) => false,
+                        };
+                        if should_break {
+                            break;
+                        }
+                    }
+                    _ = wait_for_shutdown_signal() => {
+                        logging::info(self.cli_instrument.as_str(), "SHUTDOWN received signal");
+                        shutdown = true;
+                        break;
+                    },
+                }
                 if shutdown {
                     break;
                 }
