@@ -48,3 +48,6 @@ Thumbs.db
 
 graphify-out/**
 .testcontainers.properties
+
+# Never commit the temp PLAN file
+docs/PLAN.md
