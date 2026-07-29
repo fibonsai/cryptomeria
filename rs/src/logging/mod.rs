@@ -1,5 +1,5 @@
 use log::LevelFilter;
-use rasant::{Level, Logger};
+use rasant::{Level, Logger, sink::stdout::StdoutConfig};
 use std::env;
 use std::sync::{Mutex, OnceLock};
 
@@ -21,7 +21,11 @@ fn init_logger() -> &'static Mutex<Logger> {
             })
             .unwrap_or(Level::Info);
         logger.set_level(level);
-        logger.add_sink(rasant::sink::stdout::default());
+        let stdout_config = StdoutConfig {
+            flush_on_write: true,
+            ..Default::default()
+        };
+        logger.add_sink(rasant::sink::stdout::new(stdout_config));
         Mutex::new(logger)
     })
 }
