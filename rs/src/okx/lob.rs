@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 type LevelVec = Vec<(f64, f64)>;
 type LevelsWithinPct = (LevelVec, LevelVec);
 
+use crate::traits::LobFilter;
+
 /// Direction of a price level.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Side {
@@ -157,8 +159,8 @@ impl OrderBook {
     }
 
     /// Process an OKX WebSocket message: extract bids/asks from `data[0]`
-    /// and apply snapshot or update logic.
-    pub fn process_msg(&mut self, msg: &OkxWsMessage) {
+    /// and apply snapshot or update logic with optional pre-filtering.
+    pub fn process_msg(&mut self, msg: &OkxWsMessage, filter: Option<&LobFilter>) {
         let data = match msg.data.first() {
             Some(d) => d,
             None => return,
@@ -168,6 +170,17 @@ impl OrderBook {
 
         for (key, side) in [("bids", Side::Bid), ("asks", Side::Ask)] {
             let levels = parse_levels(data, key);
+            if levels.is_empty() {
+                continue;
+            }
+            let levels = match action {
+                "snapshot" if filter.is_some() => {
+                    let best_price = Self::find_best_price(&levels, side);
+                    self.filter_snapshot_levels(&levels, side, filter.unwrap(), best_price)
+                }
+                _ if let Some(f) = filter => self.filter_levels(&levels, side, f),
+                _ => levels,
+            };
             if !levels.is_empty() {
                 match action {
                     "snapshot" => self.apply_snapshot(&levels, side),
@@ -176,6 +189,101 @@ impl OrderBook {
                 }
             }
         }
+    }
+
+    /// Find the best (closest to market) price from a batch of levels.
+    fn find_best_price(levels: &[PriceLevel], side: Side) -> Option<f64> {
+        let mut best: Option<f64> = None;
+        for level in levels {
+            if let Some((price, _)) = parse_level(level) {
+                match side {
+                    Side::Bid if best.is_none_or(|b| price > b) => best = Some(price),
+                    Side::Ask if best.is_none_or(|b| price < b) => best = Some(price),
+                    _ => {}
+                }
+            }
+        }
+        best
+    }
+
+    /// Filter levels for a snapshot using the best price from the batch itself.
+    fn filter_snapshot_levels(
+        &self,
+        levels: &[PriceLevel],
+        side: Side,
+        filter: &LobFilter,
+        batch_best: Option<f64>,
+    ) -> Vec<PriceLevel> {
+        match filter {
+            LobFilter::MaxLevelPct(_pct) => {
+                let best_bid = if side == Side::Bid { batch_best } else { self.best_bid() };
+                let best_ask = if side == Side::Ask { batch_best } else { self.best_ask() };
+                levels
+                    .iter()
+                    .filter(|level| {
+                        if let Some((price, amount)) = parse_level(level) {
+                            filter.should_include(best_bid, best_ask, price, amount, side == Side::Bid, 0, false)
+                        } else {
+                            true
+                        }
+                    })
+                    .cloned()
+                    .collect()
+            }
+            LobFilter::MaxLevel(max) => {
+                let mut parsed: Vec<(f64, f64, PriceLevel)> = levels
+                    .iter()
+                    .filter_map(|level| {
+                        parse_level(level).map(|(p, a)| (p, a, level.clone()))
+                    })
+                    .collect();
+                match side {
+                    Side::Bid => parsed.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)),
+                    Side::Ask => parsed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)),
+                }
+                parsed.truncate(*max);
+                parsed.into_iter().map(|(_, _, level)| level).collect()
+            }
+        }
+    }
+
+    /// Filter a batch of price levels using the given LobFilter.
+    fn filter_levels(
+        &self,
+        levels: &[PriceLevel],
+        side: Side,
+        filter: &LobFilter,
+    ) -> Vec<PriceLevel> {
+        levels
+            .iter()
+            .filter(|level| {
+                if let Some((price, amount)) = parse_level(level) {
+                    let best_bid = self.best_bid();
+                    let best_ask = self.best_ask();
+                    let side_is_bid = side == Side::Bid;
+                    let current_count = match side {
+                        Side::Bid => self.num_bids(),
+                        Side::Ask => self.num_asks(),
+                    };
+                    let price_exists = match side {
+                        Side::Bid => self.bids.contains_key(&Reverse(OrderedFloat(price))),
+                        Side::Ask => self.asks.contains_key(&OrderedFloat(price)),
+                    };
+                    filter.should_include(
+                        best_bid,
+                        best_ask,
+                        price,
+                        amount,
+                        side_is_bid,
+                        current_count,
+                        price_exists,
+                    )
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect()
     }
 
     /// Total size across all bid levels.
@@ -190,11 +298,11 @@ impl OrderBook {
 
     /// Format the order book for terminal display.
     ///
-    /// `top_pct` is a percentage (e.g. `0.1` = 0.1%). Only price levels within
-    /// that percentage of the best price on each side are included.
+    /// The LOB is already pre-filtered, so all levels are shown. No post-filtering
+    /// is applied.
     ///
     /// Output: `BTC-USDT  bids=143  asks=137  spread=0.10  bids: [ px (sz), ... ] | asks: [ px (sz), ... ]`
-    pub fn display(&self, instrument: &str, top_pct: f64) -> String {
+    pub fn display(&self, instrument: &str, _top_pct: f64) -> String {
         let num_bids = self.num_bids();
         let num_asks = self.num_asks();
         let spread_str = match self.spread() {
@@ -202,13 +310,8 @@ impl OrderBook {
             None => "?".to_string(),
         };
 
-        let bids_str = self.format_side(
-            self.bids.iter().map(|(k, v)| (k.0.0, *v)),
-            top_pct,
-            Side::Bid,
-        );
-        let asks_str =
-            self.format_side(self.asks.iter().map(|(k, v)| (k.0, *v)), top_pct, Side::Ask);
+        let bids_str = self.format_side(self.bids.iter().map(|(k, v)| (k.0.0, *v)));
+        let asks_str = self.format_side(self.asks.iter().map(|(k, v)| (k.0, *v)));
 
         format!(
             "{}  bids={}  asks={}  spread={}  bids: [ {} ] | asks: [ {} ]",
@@ -216,33 +319,14 @@ impl OrderBook {
         )
     }
 
-    /// Format one side of the book, filtering by `top_pct` from the best price.
-    fn format_side(
-        &self,
-        levels: impl Iterator<Item = (f64, f64)>,
-        top_pct: f64,
-        side: Side,
-    ) -> String {
-        let best = match side {
-            Side::Ask => self.best_ask(),
-            Side::Bid => self.best_bid(),
-        };
-
-        let threshold = best.map(|b| match side {
-            Side::Ask => b * (1.0 + top_pct / 100.0),
-            Side::Bid => b * (1.0 - top_pct / 100.0),
-        });
-
-        let filtered: Vec<String> = levels
-            .filter(|(price, _)| match threshold {
-                Some(t) if side == Side::Ask => *price <= t,
-                Some(t) => *price >= t,
-                None => true,
-            })
+    /// Format one side of the book.
+    /// No post-filtering is applied since the LOB is already pre-filtered.
+    fn format_side(&self, levels: impl Iterator<Item = (f64, f64)>) -> String {
+        let formatted: Vec<String> = levels
             .map(|(price, amount)| format!("{:.2} ({})", price, amount))
             .collect();
 
-        filtered.join(", ")
+        formatted.join(", ")
     }
 }
 
@@ -447,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn test_display_pct_filter_bids() {
+    fn test_display_shows_all_levels() {
         let mut book = OrderBook::new();
         book.apply_snapshot(
             &[
@@ -458,49 +542,11 @@ mod tests {
             ],
             Side::Bid,
         );
-        // top_pct=0.5 → only show bids >= 100.0 * (1 - 0.5/100) = 99.5
         let out = book.display("X", 0.5);
         assert!(out.contains("100.00"), "out = {}", out);
         assert!(out.contains("99.50"), "out = {}", out);
-        assert!(!out.contains("99.00"), "out = {}", out);
-        assert!(!out.contains("98.00"), "out = {}", out);
-    }
-
-    #[test]
-    fn test_display_pct_filter_asks() {
-        let mut book = OrderBook::new();
-        book.apply_snapshot(
-            &[
-                price_level("101.0", "1.0"),
-                price_level("101.5", "2.0"),
-                price_level("102.0", "3.0"),
-                price_level("110.0", "4.0"),
-            ],
-            Side::Ask,
-        );
-        // top_pct=0.5 → only show asks <= 101.0 * (1 + 0.5/100) = 101.505
-        let out = book.display("X", 0.5);
-        assert!(out.contains("101.00"), "out = {}", out);
-        assert!(out.contains("101.50"), "out = {}", out);
-        assert!(!out.contains("102.00"), "out = {}", out);
-        assert!(!out.contains("110.00"), "out = {}", out);
-    }
-
-    #[test]
-    fn test_display_pct_100_shows_all() {
-        let mut book = OrderBook::new();
-        book.apply_snapshot(
-            &[
-                price_level("100.0", "1.0"),
-                price_level("50.0", "2.0"),
-                price_level("10.0", "3.0"),
-            ],
-            Side::Bid,
-        );
-        let out = book.display("X", 100.0);
-        assert!(out.contains("100.00"), "out = {}", out);
-        assert!(out.contains("50.00"), "out = {}", out);
-        assert!(out.contains("10.00"), "out = {}", out);
+        assert!(out.contains("99.00"), "out = {}", out);
+        assert!(out.contains("98.00"), "out = {}", out);
     }
 
     #[test]
@@ -531,7 +577,7 @@ mod tests {
         }"#;
         let msg = OkxWsMessage::from_json(json).unwrap();
         let mut book = OrderBook::new();
-        book.process_msg(&msg);
+        book.process_msg(&msg, None);
         assert_eq!(book.num_bids(), 2);
         assert_eq!(book.num_asks(), 2);
         assert!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON);
@@ -551,11 +597,11 @@ mod tests {
             "data": [{"asks":[["101.0","0","0","0"]],"bids":[["100.0","5.0","0","0"]],"ts":"1","checksum":0}]
         }"#;
         let mut book = OrderBook::new();
-        book.process_msg(&OkxWsMessage::from_json(json_snap).unwrap());
+        book.process_msg(&OkxWsMessage::from_json(json_snap).unwrap(), None);
         assert_eq!(book.num_bids(), 1);
         assert_eq!(book.num_asks(), 1);
 
-        book.process_msg(&OkxWsMessage::from_json(json_upd).unwrap());
+        book.process_msg(&OkxWsMessage::from_json(json_upd).unwrap(), None);
         assert_eq!(book.num_asks(), 0); // removed
         assert_eq!(*book.bids.get(&Reverse(OrderedFloat(100.0))).unwrap(), 5.0); // upserted
     }
@@ -697,6 +743,92 @@ mod tests {
         let (price, amount) = result.unwrap();
         assert!((price - 100.0).abs() < f64::EPSILON);
         assert!((amount - 0.0).abs() < f64::EPSILON);
+    }
+
+    // --- Pre-filter tests ---
+
+    #[test]
+    fn test_pre_filter_include_within_pct() {
+        let mut book = OrderBook::new();
+        book.apply_snapshot(&[price_level("100.0", "1.0")], Side::Bid);
+        book.apply_snapshot(&[price_level("101.0", "1.0")], Side::Ask);
+
+        let filter = LobFilter::MaxLevelPct(0.5);
+        // Bid at 99.6 is within 0.5% of 100.0 (threshold=99.5)
+        assert!(filter.should_include(Some(100.0), Some(101.0), 99.6, 2.0, true, 1, false));
+        // Bid at 99.0 is outside 0.5% of 100.0
+        assert!(!filter.should_include(Some(100.0), Some(101.0), 99.0, 2.0, true, 1, false));
+        // Ask at 101.4 is within 0.5% of 101.0 (threshold=101.505)
+        assert!(filter.should_include(Some(100.0), Some(101.0), 101.4, 2.0, false, 1, false));
+        // Ask at 102.0 is outside
+        assert!(!filter.should_include(Some(100.0), Some(101.0), 102.0, 2.0, false, 1, false));
+    }
+
+    #[test]
+    fn test_pre_filter_size_zero_always_included() {
+        let filter = LobFilter::MaxLevelPct(0.5);
+        // Should be included even though price is very far from best
+        assert!(filter.should_include(Some(100.0), Some(101.0), 50.0, 0.0, true, 1, false));
+        assert!(filter.should_include(Some(100.0), Some(101.0), 200.0, 0.0, false, 1, false));
+
+        let filter2 = LobFilter::MaxLevel(3);
+        assert!(filter2.should_include(Some(100.0), Some(101.0), 50.0, 0.0, true, 5, false));
+        assert!(filter2.should_include(Some(100.0), Some(101.0), 200.0, 0.0, false, 5, false));
+    }
+
+    #[test]
+    fn test_pre_filter_empty_book_allows_all() {
+        let filter_pct = LobFilter::MaxLevelPct(0.5);
+        assert!(filter_pct.should_include(None, None, 100.0, 1.0, true, 0, false));
+        assert!(filter_pct.should_include(None, None, 100.0, 1.0, false, 0, false));
+
+        let filter_level = LobFilter::MaxLevel(3);
+        assert!(filter_level.should_include(None, None, 100.0, 1.0, true, 0, false));
+    }
+
+    #[test]
+    fn test_pre_filter_max_level_count() {
+        let filter = LobFilter::MaxLevel(2);
+        // First two levels are included
+        assert!(filter.should_include(Some(100.0), Some(101.0), 100.0, 1.0, true, 0, false));
+        assert!(filter.should_include(Some(100.0), Some(101.0), 99.0, 1.0, true, 1, false));
+        // Third level is excluded (already at max_level=2)
+        assert!(!filter.should_include(Some(100.0), Some(101.0), 98.0, 1.0, true, 2, false));
+        // But if price exists, it's allowed (update to existing level)
+        assert!(filter.should_include(Some(100.0), Some(101.0), 100.0, 1.0, true, 2, true));
+    }
+
+    #[test]
+    fn test_pre_filter_pct_applied_via_process_msg() {
+        let mut book = OrderBook::new();
+        let snap_json = r#"{
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "snapshot",
+            "data": [{"asks":[["101.0","1.0","0","0"],["102.0","1.0","0","0"],["105.0","1.0","0","0"]],"bids":[["100.0","1.0","0","0"],["99.0","1.0","0","0"],["95.0","1.0","0","0"]],"ts":"0","checksum":0}]
+        }"#;
+        let msg = OkxWsMessage::from_json(snap_json).unwrap();
+        let filter = LobFilter::MaxLevelPct(1.0);
+        book.process_msg(&msg, Some(&filter));
+        // With 1% pct: bid threshold = 99.0, ask threshold = 102.01
+        // Bids >= 99.0: 100.0, 99.0 (2)
+        // Asks <= 102.01: 101.0, 102.0 (2)
+        assert_eq!(book.num_bids(), 2, "only bids within 1% of best bid");
+        assert_eq!(book.num_asks(), 2, "only asks within 1% of best ask");
+    }
+
+    #[test]
+    fn test_pre_filter_max_level_applied_via_process_msg() {
+        let mut book = OrderBook::new();
+        let snap_json = r#"{
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "snapshot",
+            "data": [{"asks":[["101.0","1.0","0","0"],["102.0","1.0","0","0"],["103.0","1.0","0","0"]],"bids":[["100.0","1.0","0","0"],["99.0","1.0","0","0"],["98.0","1.0","0","0"]],"ts":"0","checksum":0}]
+        }"#;
+        let msg = OkxWsMessage::from_json(snap_json).unwrap();
+        let filter = LobFilter::MaxLevel(2);
+        book.process_msg(&msg, Some(&filter));
+        assert_eq!(book.num_bids(), 2, "only 2 best bids");
+        assert_eq!(book.num_asks(), 2, "only 2 best asks");
     }
 
     #[test]

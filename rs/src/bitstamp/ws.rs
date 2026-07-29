@@ -5,7 +5,7 @@ use crate::bitstamp::types::{
 use crate::db::apply_ttl;
 use crate::db::{TradeData as DbTradeData, persist_lob, persist_trade};
 use crate::traits::{
-    self, ClientStatus, ExchangeClientBuilder, LobMetrics, StatusHandle, backoff_delay,
+    self, ClientStatus, ExchangeClientBuilder, LobFilter, LobMetrics, StatusHandle, backoff_delay,
 };
 use futures_util::SinkExt;
 use futures_util::StreamExt;
@@ -44,7 +44,8 @@ pub struct BitstampClient {
     pub exchange: String,
     pub region: String,
     pub cli_instrument: String,
-    pub show_top_pct: f64,
+    pub max_level_pct: f64,
+    pub max_level: Option<usize>,
     pub messages_received: Arc<AtomicU64>,
     pub retention_window: Option<u64>,
     pub metrics_port: Option<u16>,
@@ -79,6 +80,9 @@ impl ExchangeClientBuilder for BitstampClient {
     fn with_status_handle(self, handle: StatusHandle) -> Self {
         BitstampClient::with_status_handle(self, handle)
     }
+    fn with_max_level(self, max_level: usize) -> Self {
+        BitstampClient::with_max_level(self, max_level)
+    }
 }
 
 impl BitstampClient {
@@ -86,7 +90,7 @@ impl BitstampClient {
         instrument: &str,
         exchange: &str,
         region: &str,
-        show_top_pct: f64,
+        max_level_pct: f64,
         data_output: bool,
         questdb_conf: &str,
     ) -> Self {
@@ -99,7 +103,8 @@ impl BitstampClient {
             exchange: exchange.to_string(),
             region: region.to_string(),
             cli_instrument: String::new(),
-            show_top_pct,
+            max_level_pct,
+            max_level: None,
             messages_received: Arc::new(AtomicU64::new(0)),
             retention_window: None,
             metrics_port: None,
@@ -145,6 +150,11 @@ impl BitstampClient {
 
     pub fn with_status_handle(mut self, handle: StatusHandle) -> Self {
         self.status_handle = Some(handle);
+        self
+    }
+
+    pub fn with_max_level(mut self, max_level: usize) -> Self {
+        self.max_level = Some(max_level);
         self
     }
 
@@ -279,6 +289,12 @@ impl BitstampClient {
             }
             eprintln!("[SUBSCRIBED] {}", trades_channel);
 
+            let lob_filter: Option<LobFilter> = if let Some(max_level) = self.max_level {
+                Some(LobFilter::MaxLevel(max_level))
+            } else {
+                Some(LobFilter::MaxLevelPct(self.max_level_pct))
+            };
+
             let mut order_book =
                 crate::bitstamp::lob::OrderBook::with_snapshot_depth(self.snapshot_depth);
             let mut last_trade_count = 0u64;
@@ -377,7 +393,7 @@ impl BitstampClient {
                                                                                     channel: Some(orders_channel.clone()),
                                                                                     data: Some(serde_json::to_value(&snapshot).unwrap_or_default()),
                                                                                 };
-                                                                                order_book.process_msg(&snapshot_msg);
+                                                                                order_book.process_msg(&snapshot_msg, lob_filter.as_ref());
                                                                                 eprintln!("[SNAPSHOT] Applied — microtimestamp={} bids={} asks={}",
                                                                                         snapshot_microtimestamp,
                                                                                         order_book.num_bids(),
@@ -400,13 +416,13 @@ impl BitstampClient {
 
                                                                                 // Apply remaining buffered diffs in order
                                                                                 for buf_msg in &keep {
-                                                                                    order_book.process_msg(buf_msg);
+                                                                                    order_book.process_msg(buf_msg, lob_filter.as_ref());
                                                                                 }
                                                                                 eprintln!("[SNAPSHOT] Replayed {} buffered diffs", keep.len());
 
                                                                                 if self.data_output {
                                                                                     let now = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
-                                                                                    let book_line = order_book.display(&self.instrument, self.show_top_pct);
+                                                                                    let book_line = order_book.display(&self.instrument, self.max_level_pct);
                                                                                     println!("[{} LOB2] {}", now, book_line);
                                                                                 }
                                                                                 self.update_lob_metrics(&order_book);
@@ -432,11 +448,11 @@ impl BitstampClient {
                                                             // Phase 2: Live processing (snapshot already applied)
                                                             match parsed.message_type() {
                                                                 MessageType::L2Snapshot | MessageType::L2Update => {
-                                                                    order_book.process_msg(&parsed);
+                                                                    order_book.process_msg(&parsed, lob_filter.as_ref());
                                                                     if self.data_output {
                                                                         let now = parsed.formatted_time();
                                                                         let book_line =
-                                                                            order_book.display(&self.instrument, self.show_top_pct);
+                                                                            order_book.display(&self.instrument, self.max_level_pct);
                                                                         println!("[{} LOB2] {}", now, book_line);
                                                                     }
                                                                     self.update_lob_metrics(&order_book);
@@ -582,18 +598,17 @@ impl BitstampClient {
         let lm = self.metrics();
         let base_labels = &[self.exchange.as_str(), self.cli_instrument.as_str()] as &[&str];
 
-        let (bids, asks) = order_book.levels_within_pct(self.show_top_pct);
-        for (price, size) in &bids {
-            let price_str = format!("{:.2}", price);
+        for (k, v) in &order_book.bids {
+            let price_str = format!("{:.2}", k.0.0);
             lm.lob_depth_bid
                 .with_label_values(&[base_labels[0], base_labels[1], &price_str])
-                .set(*size);
+                .set(*v);
         }
-        for (price, size) in &asks {
-            let price_str = format!("{:.2}", price);
+        for (k, v) in &order_book.asks {
+            let price_str = format!("{:.2}", k.0);
             lm.lob_depth_ask
                 .with_label_values(&[base_labels[0], base_labels[1], &price_str])
-                .set(*size);
+                .set(*v);
         }
     }
 
@@ -733,6 +748,7 @@ mod tests {
         assert_eq!(client.channel_instrument, "btcusd");
         assert_eq!(client.exchange, "bitstamp");
         assert_eq!(client.region, "europe");
+        assert!((client.max_level_pct - 0.1).abs() < f64::EPSILON);
     }
 
     #[test]

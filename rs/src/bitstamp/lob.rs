@@ -1,4 +1,5 @@
 use crate::bitstamp::types::{BitstampWsMessage, MessageType, OrderBookData, OrderEntry};
+use crate::traits::LobFilter;
 use ordered_float::OrderedFloat;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap};
@@ -202,12 +203,17 @@ impl OrderBook {
         }
     }
 
-    /// Process a Bitstamp WebSocket message.
-    pub fn process_msg(&mut self, msg: &BitstampWsMessage) {
+    /// Process a Bitstamp WebSocket message with optional pre-filtering.
+    pub fn process_msg(&mut self, msg: &BitstampWsMessage, filter: Option<&LobFilter>) {
         if let Some(ref data) = msg.data {
             match msg.message_type() {
                 MessageType::L2Snapshot => {
                     if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone()) {
+                        let ob = if let Some(f) = filter {
+                            self.filter_snapshot(ob, f)
+                        } else {
+                            ob
+                        };
                         self.apply_snapshot(&ob);
                     }
                 }
@@ -215,21 +221,176 @@ impl OrderBook {
                     if let Some(ref channel) = msg.channel {
                         if channel.starts_with("live_orders_") {
                             if let Ok(entry) = serde_json::from_value::<OrderEntry>(data.clone()) {
-                                self.apply_order(&entry);
+                                if let Some(filtered) = filter.and_then(|f| self.filter_order_entry(entry.clone(), f)) {
+                                    self.apply_order(&filtered);
+                                } else if filter.is_none() {
+                                    self.apply_order(&entry);
+                                }
                             } else {
                                 eprintln!("[PARSE] OrderEntry from {}: {}", channel, data);
                             }
-                        } else {
-                            if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone()) {
-                                self.apply_diff(&ob);
+                        } else if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone())
+                        {
+                            let ob = if let Some(f) = filter {
+                                self.filter_diff(ob, f)
                             } else {
-                                eprintln!("[PARSE] OrderBookData from {}: {}", channel, data);
-                            }
+                                ob
+                            };
+                            self.apply_diff(&ob);
+                        } else {
+                            eprintln!("[PARSE] OrderBookData from {}: {}", channel, data);
                         }
                     }
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// Filter a snapshot OrderBookData: only keep levels within the pre-filter window.
+    fn filter_snapshot(&self, ob: OrderBookData, filter: &LobFilter) -> OrderBookData {
+        let bid_best = ob.bids.iter().find_map(|level| {
+            if level.len() >= 2
+                && let (Ok(price), Ok(amount)) =
+                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && amount > 0.0
+            {
+                Some(price)
+            } else {
+                None
+            }
+        });
+        let ask_best = ob.asks.iter().find_map(|level| {
+            if level.len() >= 2
+                && let (Ok(price), Ok(amount)) =
+                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && amount > 0.0
+            {
+                Some(price)
+            } else {
+                None
+            }
+        });
+
+        let mut filtered_bids: Vec<[String; 2]> = Vec::new();
+        for level in &ob.bids {
+            if level.len() >= 2
+                && let (Ok(price), Ok(amount)) =
+                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && filter.should_include(
+                    bid_best.or(self.best_bid()),
+                    ask_best.or(self.best_ask()),
+                    price,
+                    amount,
+                    true,
+                    0,
+                    false,
+                )
+            {
+                filtered_bids.push(level.clone());
+            }
+        }
+        let mut filtered_asks: Vec<[String; 2]> = Vec::new();
+        for level in &ob.asks {
+            if level.len() >= 2
+                && let (Ok(price), Ok(amount)) =
+                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && filter.should_include(
+                    bid_best.or(self.best_bid()),
+                    ask_best.or(self.best_ask()),
+                    price,
+                    amount,
+                    false,
+                    0,
+                    false,
+                )
+            {
+                filtered_asks.push(level.clone());
+            }
+        }
+        OrderBookData {
+            bids: filtered_bids,
+            asks: filtered_asks,
+            timestamp: ob.timestamp,
+            microtimestamp: ob.microtimestamp,
+        }
+    }
+
+    /// Filter a diff OrderBookData: only keep levels within the pre-filter window.
+    fn filter_diff(&self, ob: OrderBookData, filter: &LobFilter) -> OrderBookData {
+        let mut filtered_bids: Vec<[String; 2]> = Vec::new();
+        for level in &ob.bids {
+            if level.len() >= 2
+                && let (Ok(price), Ok(amount)) =
+                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+            {
+                let price_exists = self.bids.contains_key(&Reverse(OrderedFloat(price)));
+                if filter.should_include(
+                    self.best_bid(),
+                    self.best_ask(),
+                    price,
+                    amount,
+                    true,
+                    self.num_bids(),
+                    price_exists,
+                ) {
+                    filtered_bids.push(level.clone());
+                }
+            }
+        }
+        let mut filtered_asks: Vec<[String; 2]> = Vec::new();
+        for level in &ob.asks {
+            if level.len() >= 2
+                && let (Ok(price), Ok(amount)) =
+                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+            {
+                let price_exists = self.asks.contains_key(&OrderedFloat(price));
+                if filter.should_include(
+                    self.best_bid(),
+                    self.best_ask(),
+                    price,
+                    amount,
+                    false,
+                    self.num_asks(),
+                    price_exists,
+                ) {
+                    filtered_asks.push(level.clone());
+                }
+            }
+        }
+        OrderBookData {
+            bids: filtered_bids,
+            asks: filtered_asks,
+            timestamp: ob.timestamp,
+            microtimestamp: ob.microtimestamp,
+        }
+    }
+
+    /// Filter a single order entry.
+    fn filter_order_entry(&self, entry: OrderEntry, filter: &LobFilter) -> Option<OrderEntry> {
+        let price = entry.price.parse::<f64>().ok()?;
+        let amount = entry.amount.parse::<f64>().ok()?;
+        let side_is_bid = entry.order_type == 0;
+        let price_exists = match side_is_bid {
+            true => self.bids.contains_key(&Reverse(OrderedFloat(price))),
+            false => self.asks.contains_key(&OrderedFloat(price)),
+        };
+        let current_count = match side_is_bid {
+            true => self.num_bids(),
+            false => self.num_asks(),
+        };
+        if filter.should_include(
+            self.best_bid(),
+            self.best_ask(),
+            price,
+            amount,
+            side_is_bid,
+            current_count,
+            price_exists,
+        ) {
+            Some(entry)
+        } else {
+            None
         }
     }
 
@@ -301,7 +462,8 @@ impl OrderBook {
     }
 
     /// Format the order book for terminal display.
-    pub fn display(&self, instrument: &str, top_pct: f64) -> String {
+    /// No post-filtering is applied since the LOB is already pre-filtered.
+    pub fn display(&self, instrument: &str, _top_pct: f64) -> String {
         let num_bids = self.num_bids();
         let num_asks = self.num_asks();
         let spread_str = match self.spread() {
@@ -309,13 +471,8 @@ impl OrderBook {
             None => "?".to_string(),
         };
 
-        let bids_str = self.format_side(
-            self.bids.iter().map(|(k, v)| (k.0.0, *v)),
-            top_pct,
-            Side::Bid,
-        );
-        let asks_str =
-            self.format_side(self.asks.iter().map(|(k, v)| (k.0, *v)), top_pct, Side::Ask);
+        let bids_str = self.format_side(self.bids.iter().map(|(k, v)| (k.0.0, *v)));
+        let asks_str = self.format_side(self.asks.iter().map(|(k, v)| (k.0, *v)));
 
         format!(
             "{}  bids={}  asks={}  spread={}  bids: [ {} ] | asks: [ {} ]",
@@ -323,32 +480,12 @@ impl OrderBook {
         )
     }
 
-    fn format_side(
-        &self,
-        levels: impl Iterator<Item = (f64, f64)>,
-        top_pct: f64,
-        side: Side,
-    ) -> String {
-        let best = match side {
-            Side::Ask => self.best_ask(),
-            Side::Bid => self.best_bid(),
-        };
-
-        let threshold = best.map(|b| match side {
-            Side::Ask => b * (1.0 + top_pct / 100.0),
-            Side::Bid => b * (1.0 - top_pct / 100.0),
-        });
-
-        let filtered: Vec<String> = levels
-            .filter(|(price, _)| match threshold {
-                Some(t) if side == Side::Ask => *price <= t,
-                Some(t) => *price >= t,
-                None => true,
-            })
+    fn format_side(&self, levels: impl Iterator<Item = (f64, f64)>) -> String {
+        let formatted: Vec<String> = levels
             .map(|(price, amount)| format!("{:.2} ({})", price, amount))
             .collect();
 
-        filtered.join(", ")
+        formatted.join(", ")
     }
 }
 
@@ -491,7 +628,7 @@ mod tests {
     fn test_process_msg_updates_book() {
         let mut book = OrderBook::new();
         let msg = msg_from_entry(&entry("100.0", "1.0", 0, 1));
-        book.process_msg(&msg);
+        book.process_msg(&msg, None);
         assert_eq!(book.num_bids(), 1);
     }
 
@@ -593,7 +730,7 @@ mod tests {
                 "asks": [["101.0", "2.0"]]
             })),
         };
-        book.process_msg(&msg);
+        book.process_msg(&msg, None);
         assert_eq!(book.num_bids(), 1);
         assert_eq!(book.num_asks(), 1);
         assert!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON);
@@ -611,7 +748,7 @@ mod tests {
                 "asks": [["101.0", "2.0"]]
             })),
         };
-        book.process_msg(&snap);
+        book.process_msg(&snap, None);
         // Apply a diff (event: "data", channel: diff_order_book)
         let diff = BitstampWsMessage {
             event: Some("data".to_string()),
@@ -622,10 +759,64 @@ mod tests {
                 "asks": [["101.0", "3.0"]]
             })),
         };
-        book.process_msg(&diff);
+        book.process_msg(&diff, None);
         assert_eq!(book.num_bids(), 0);
         assert_eq!(book.num_asks(), 1);
         assert!((book.best_ask().unwrap() - 101.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_pre_filter_snapshot_filters_levels() {
+        let mut book = OrderBook::new();
+        let snap = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "bids": [["100.0", "1.0"], ["99.0", "1.0"], ["95.0", "1.0"]],
+                "asks": [["101.0", "1.0"], ["102.0", "1.0"], ["105.0", "1.0"]]
+            })),
+        };
+        let filter = LobFilter::MaxLevelPct(1.0);
+        book.process_msg(&snap, Some(&filter));
+        assert_eq!(book.num_bids(), 2, "only bids within 1% of best bid");
+        assert_eq!(book.num_asks(), 2, "only asks within 1% of best ask");
+    }
+
+    #[test]
+    fn test_pre_filter_diff_skips_outside_window() {
+        let mut book = OrderBook::new();
+        // Seed with a basic book
+        book.apply_order(&entry("100.0", "1.0", 0, 1));
+        book.apply_order(&entry("101.0", "1.0", 1, 2));
+
+        let diff = BitstampWsMessage {
+            event: Some("data".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "microtimestamp": "1705314600123456",
+                "bids": [["99.0", "5.0"]],
+                "asks": [["110.0", "5.0"]]
+            })),
+        };
+        let filter = LobFilter::MaxLevelPct(0.5);
+        book.process_msg(&diff, Some(&filter));
+        // Bid at 99.0 is within 0.5% of 100.0 (threshold=99.5) — NO, 99.0 < 99.5, so it's filtered out
+        assert_eq!(book.num_bids(), 1, "bid at 99.0 should be filtered out");
+        // Ask at 110.0 is outside 0.5% of 101.0 (threshold=101.505)
+        assert_eq!(book.num_asks(), 1, "ask at 110.0 should be filtered out");
+    }
+
+    #[test]
+    fn test_pre_filter_order_skips_outside_window() {
+        let mut book = OrderBook::new();
+        book.apply_order(&entry("100.0", "1.0", 0, 1));
+        book.apply_order(&entry("101.0", "1.0", 1, 2));
+
+        let filter = LobFilter::MaxLevelPct(0.5);
+        // Order at 98.0 (too far from best bid) with size=2 — should be filtered
+        let msg = msg_from_entry(&entry("98.0", "2.0", 0, 3));
+        book.process_msg(&msg, Some(&filter));
+        assert_eq!(book.num_bids(), 1, "order at 98.0 should be filtered out");
     }
 
     #[test]
