@@ -1,3 +1,4 @@
+use crate::logging;
 use crate::bitstamp::types::{BitstampWsMessage, MessageType, OrderBookData, OrderEntry};
 use crate::traits::LobFilter;
 use ordered_float::OrderedFloat;
@@ -135,14 +136,14 @@ impl OrderBook {
         let price = match entry.price.parse::<f64>() {
             Ok(p) => OrderedFloat(p),
             Err(_) => {
-                eprintln!("[PARSE] apply_order bad price: {:?}", entry.price);
+                logging::error("bitstamp", &format!("apply_order bad price: {:?}", entry.price));
                 return;
             }
         };
         let amount = match entry.amount.parse::<f64>() {
             Ok(a) => a,
             Err(_) => {
-                eprintln!("[PARSE] apply_order bad amount: {:?}", entry.amount);
+                logging::error("bitstamp", &format!("apply_order bad amount: {:?}", entry.amount));
                 return;
             }
         };
@@ -227,7 +228,7 @@ impl OrderBook {
                                     self.apply_order(&entry);
                                 }
                             } else {
-                                eprintln!("[PARSE] OrderEntry from {}: {}", channel, data);
+                                logging::error("bitstamp", &format!("OrderEntry from {}: {}", channel, data));
                             }
                         } else if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone())
                         {
@@ -238,7 +239,7 @@ impl OrderBook {
                             };
                             self.apply_diff(&ob);
                         } else {
-                            eprintln!("[PARSE] OrderBookData from {}: {}", channel, data);
+                            logging::error("bitstamp", &format!("OrderBookData from {}: {}", channel, data));
                         }
                     }
                 }

@@ -4,6 +4,7 @@ use crate::bitstamp::types::{
 };
 use crate::db::apply_ttl;
 use crate::db::{TradeData as DbTradeData, persist_lob, persist_trade};
+use crate::logging;
 use crate::traits::{
     self, ClientStatus, ExchangeClientBuilder, LobFilter, LobMetrics, StatusHandle, backoff_delay,
 };
@@ -216,7 +217,7 @@ impl BitstampClient {
                 let system = actix_web::rt::System::new();
                 if let Err(e) = system.block_on(LobMetrics::start_metrics_server(port, lob_metrics))
                 {
-                    eprintln!("[METRICS] Server error: {}", e);
+                    logging::error("metrics", &format!("Server error: {}", e));
                 }
             });
         }
@@ -224,7 +225,7 @@ impl BitstampClient {
         if let Some(hours) = self.retention_window
             && let Err(e) = apply_ttl(hours, &self.questdb_conf).await
         {
-            eprintln!("[DB TTL ERROR] {}", e);
+            logging::error("db", &format!("TTL ERROR: {}", e));
         }
 
         let mut attempt = 0u32;
@@ -239,17 +240,14 @@ impl BitstampClient {
             let ws_stream = match connect_async(ws_url).await {
                 Ok((stream, _)) => {
                     attempt = 0;
-                    eprintln!("[CONNECTED] {}", ws_url);
+                    logging::info(self.cli_instrument.as_str(), &format!("CONNECTED {}", ws_url));
                     self.update_status_active(true, format!("connected to {}", ws_url));
                     stream
                 }
                 Err(e) => {
                     attempt += 1;
                     let delay = backoff_delay(attempt - 1);
-                    eprintln!(
-                        "[CONNECT ERROR] {} — attempt {}, reconnecting in {:?}",
-                        e, attempt, delay
-                    );
+                    logging::error(self.cli_instrument.as_str(), &format!("CONNECT ERROR: {} — attempt {}, reconnecting in {:?}", e, attempt, delay));
                     self.update_status_active(false, format!("connect error, attempt {}", attempt));
                     shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                     continue;
@@ -264,14 +262,11 @@ impl BitstampClient {
             if let Err(e) = write.send(Message::Text(orders_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                eprintln!(
-                    "[SUBSCRIBE ERROR] {}: {} — reconnecting in {:?}",
-                    orders_channel, e, delay
-                );
+                logging::error(self.cli_instrument.as_str(), &format!("SUBSCRIBE ERROR {}: {} — reconnecting in {:?}", orders_channel, e, delay));
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
-            eprintln!("[SUBSCRIBED] {}", orders_channel);
+            logging::info(self.cli_instrument.as_str(), &format!("SUBSCRIBED {}", orders_channel));
             self.update_status_active(true, format!("subscribed to {}", orders_channel));
 
             // Subscribe to live_trades channel
@@ -280,14 +275,11 @@ impl BitstampClient {
             if let Err(e) = write.send(Message::Text(trades_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                eprintln!(
-                    "[SUBSCRIBE ERROR] {}: {} — reconnecting in {:?}",
-                    trades_channel, e, delay
-                );
+                logging::error(self.cli_instrument.as_str(), &format!("SUBSCRIBE ERROR {}: {} — reconnecting in {:?}", trades_channel, e, delay));
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
-            eprintln!("[SUBSCRIBED] {}", trades_channel);
+            logging::info(self.cli_instrument.as_str(), &format!("SUBSCRIBED {}", trades_channel));
 
             let lob_filter: Option<LobFilter> = if let Some(max_level) = self.max_level {
                 Some(LobFilter::MaxLevel(max_level))
@@ -312,11 +304,11 @@ impl BitstampClient {
                                         let should_break = match msg {
                                             None => true,
                                             Some(Err(e)) => {
-                                                eprintln!("[WS ERROR] {}", e);
+                                                logging::error(self.cli_instrument.as_str(), &format!("WS ERROR: {}", e));
                                                 true
                                             }
                                             Some(Ok(Message::Close(frame))) => {
-                                                eprintln!("[CLOSE] {:?}", frame);
+                                                logging::debug(self.cli_instrument.as_str(), &format!("CLOSE: {:?}", frame));
                                                 true
                                             }
                                             Some(Ok(Message::Text(text))) => {
@@ -345,11 +337,11 @@ impl BitstampClient {
                                                                         last_trade_count = 0;
                                                                         last_trade_time = std::time::Instant::now();
                                                                     }
-                                                                    if let Some(sender) = self.sender.as_mut()
-                                                                        && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
-                                                                    {
-                                                                        eprintln!("[DB ERROR] Failed to persist: {}", e);
-                                                                    }
+if let Some(sender) = self.sender.as_mut()
+                                                                 && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
+                                                                 {
+                                                                     logging::error(self.cli_instrument.as_str(), &format!("Failed to persist: {}", e));
+                                                                 }
                                                                     // Update last_price in status
                                                                     if let Some(trade) = parsed.data.as_ref().and_then(|d| {
                                                                         serde_json::from_value::<TradeData>(d.clone()).ok()
@@ -380,7 +372,7 @@ impl BitstampClient {
                                                             // Fetch snapshot once subscription is confirmed (one attempt per connection)
                                                             if subscription_confirmed && !snapshot_applied && !snapshot_attempted {
                                                                 snapshot_attempted = true;
-                                                                eprintln!("[SNAPSHOT] Fetching REST snapshot for {}...", self.channel_instrument);
+                                                                logging::info(self.cli_instrument.as_str(), &format!("Fetching REST snapshot for {}...", self.channel_instrument));
                                                                 let rest_base = crate::urls::rest_url(&self.region, &self.exchange);
                                                                 let url = format!("{}/order_book/{}/?group=1", rest_base, self.channel_instrument);
                                                                 match reqwest::get(&url).await {
@@ -394,10 +386,7 @@ impl BitstampClient {
                                                                                     data: Some(serde_json::to_value(&snapshot).unwrap_or_default()),
                                                                                 };
                                                                                 order_book.process_msg(&snapshot_msg, lob_filter.as_ref());
-                                                                                eprintln!("[SNAPSHOT] Applied — microtimestamp={} bids={} asks={}",
-                                                                                        snapshot_microtimestamp,
-                                                                                        order_book.num_bids(),
-                                                                                        order_book.num_asks());
+logging::info("bitstamp", &format!("SNAPSHOT Applied — microtimestamp={} bids={} asks={}", snapshot_microtimestamp, order_book.num_bids(), order_book.num_asks()));
 
                                                                                 // Reconcile: discard buffered diffs with microtimestamp <= snapshot
                                                                                 let mut keep = Vec::new();
@@ -418,7 +407,7 @@ impl BitstampClient {
                                                                                 for buf_msg in &keep {
                                                                                     order_book.process_msg(buf_msg, lob_filter.as_ref());
                                                                                 }
-                                                                                eprintln!("[SNAPSHOT] Replayed {} buffered diffs", keep.len());
+                                                                                logging::info("bitstamp", &format!("SNAPSHOT Replayed {} buffered diffs", keep.len()));
 
                                                                                 if self.data_output {
                                                                                     let now = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
@@ -431,16 +420,16 @@ impl BitstampClient {
                                                                                 snapshot_applied = true;
                                                                             }
                                                                             Err(e) => {
-                                                                                eprintln!("[SNAPSHOT ERROR] Failed to parse snapshot JSON: {}", e);
+                                                                                logging::error("bitstamp", &format!("SNAPSHOT ERROR Failed to parse snapshot JSON: {}", e));
                                                                             }
                                                                         }
                                                                     }
                                                                     Err(e) => {
-                                                                        eprintln!("[SNAPSHOT ERROR] HTTP request failed: {}", e);
+                                                                        logging::error("bitstamp", &format!("SNAPSHOT ERROR HTTP request failed: {}", e));
                                                                     }
                                                                 }
                                                                 if !snapshot_applied {
-                                                                    eprintln!("[SNAPSHOT] Failed — continuing without initial snapshot (will reconcile on reconnect)");
+                                                                    logging::warn("bitstamp", "SNAPSHOT Failed — continuing without initial snapshot (will reconcile on reconnect)");
                                                                     snapshot_applied = true; // prevent infinite retry
                                                                 }
                                                             }
@@ -497,28 +486,24 @@ impl BitstampClient {
                 if let Some(sender) = self.sender.as_mut()
                                                                     && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
                                                                 {
-                                                                    eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                                    logging::error("bitstamp", &format!("DB ERROR Failed to persist: {}", e));
                                                                 }
                                                         }
                                                     }
-                                                    Err(e) => {
-                                                        eprintln!(
-                                                            "[PARSE ERROR] {} — raw: {}",
-                                                            e,
-                                                            &text[..text.len().min(200)]
-                                                        );
-                                                    }
+Err(e) => {
+                                                         logging::error("bitstamp", &format!("[PARSE ERROR] {} — raw: {}", e, &text[..text.len().min(200)]));
+                                                     }
                                                 }
                                                 false
                                             }
-                                            Some(Ok(Message::Ping(data))) => {
-                                                eprintln!("[PING] {} bytes", data.len());
-                                                false
+Some(Ok(Message::Ping(data))) => {
+                                                 logging::debug("bitstamp", &format!("[PING] {} bytes", data.len()));
+                                                 false
                                             }
                                             Some(Ok(Message::Pong(_))) => false,
-                                            Some(Ok(Message::Binary(_))) => {
-                                                eprintln!("[BINARY] received (unexpected)");
-                                                false
+Some(Ok(Message::Binary(_))) => {
+                                                 logging::debug("bitstamp", "[BINARY] received (unexpected)");
+                                                 false
                                             }
                                             Some(Ok(Message::Frame(_))) => false,
                                         };
@@ -527,7 +512,7 @@ impl BitstampClient {
                                         }
                                     }
                                     _ = tokio::signal::ctrl_c() => {
-                                        eprintln!("[SHUTDOWN] received SIGINT");
+                                        logging::info("bitstamp", "[SHUTDOWN] received SIGINT");
                                         shutdown = true;
                                         break;
                                     },
@@ -543,10 +528,7 @@ impl BitstampClient {
 
             attempt += 1;
             let delay = backoff_delay(attempt - 1);
-            eprintln!(
-                "[DISCONNECTED] attempt {}, reconnecting in {:?}",
-                attempt, delay
-            );
+            logging::info("bitstamp", &format!("[DISCONNECTED] attempt {}, reconnecting in {:?}", attempt, delay));
             self.update_status_active(false, format!("disconnected, attempt {}", attempt));
 
             shutdown = traits::signal_sleep(delay, &mut sigterm).await;
@@ -556,7 +538,7 @@ impl BitstampClient {
             }
         }
 
-        eprintln!("[SHUTDOWN]");
+        logging::info("bitstamp", "[SHUTDOWN]");
         Ok(())
     }
 

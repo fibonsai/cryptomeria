@@ -1,5 +1,6 @@
 use crate::db::apply_ttl;
 use crate::db::{TradeData, persist_lob, persist_trade};
+use crate::logging;
 use crate::okx::lob::OrderBook;
 use crate::okx::types::{MessageType, OkxWsMessage, TradeData as OkxTradeData};
 use crate::traits::{
@@ -190,7 +191,7 @@ impl OkxClient {
                     lob_metrics,
                     status_handle,
                 )) {
-                    eprintln!("[METRICS] Server error: {}", e);
+                    logging::error("metrics", &format!("Server error: {}", e));
                 }
             });
         }
@@ -199,7 +200,7 @@ impl OkxClient {
         if let Some(hours) = self.retention_window
             && let Err(e) = apply_ttl(hours, &self.questdb_conf).await
         {
-            eprintln!("[DB TTL ERROR] {}", e);
+            logging::error("db", &format!("TTL ERROR: {}", e));
         }
 
         let mut attempt = 0u32;
@@ -215,17 +216,14 @@ impl OkxClient {
             let ws_stream = match connect_async(ws_url).await {
                 Ok((stream, _)) => {
                     attempt = 0;
-                    eprintln!("[CONNECTED] {}", ws_url);
+                    logging::info(self.cli_instrument.as_str(), &format!("CONNECTED {}", ws_url));
                     self.update_status_active(true, "connected".to_string());
                     stream
                 }
                 Err(e) => {
                     attempt += 1;
                     let delay = backoff_delay(attempt - 1);
-                    eprintln!(
-                        "[CONNECT ERROR] {} — attempt {}, reconnecting in {:?}",
-                        e, attempt, delay
-                    );
+                    logging::error(self.cli_instrument.as_str(), &format!("CONNECT ERROR: {} — attempt {}, reconnecting in {:?}", e, attempt, delay));
                     shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                     continue;
                 }
@@ -238,14 +236,11 @@ impl OkxClient {
             if let Err(e) = write.send(Message::Text(books_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                eprintln!(
-                    "[SUBSCRIBE ERROR] books: {} — reconnecting in {:?}",
-                    e, delay
-                );
+                logging::error(self.cli_instrument.as_str(), &format!("SUBSCRIBE ERROR books: {} — reconnecting in {:?}", e, delay));
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
-            eprintln!("[SUBSCRIBED] books {}", self.instrument);
+            logging::info(self.cli_instrument.as_str(), &format!("SUBSCRIBED books {}", self.instrument));
             self.update_status_active(true, format!("subscribed to books {}", self.instrument));
 
             // Subscribe to trades channel
@@ -253,14 +248,11 @@ impl OkxClient {
             if let Err(e) = write.send(Message::Text(trades_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                eprintln!(
-                    "[SUBSCRIBE ERROR] trades: {} — reconnecting in {:?}",
-                    e, delay
-                );
+                logging::error(self.cli_instrument.as_str(), &format!("SUBSCRIBE ERROR trades: {} — reconnecting in {:?}", e, delay));
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
-            eprintln!("[SUBSCRIBED] trades {}", self.instrument);
+            logging::info(self.cli_instrument.as_str(), &format!("SUBSCRIBED trades {}", self.instrument));
 
             // Build LobFilter from config
             let lob_filter: Option<LobFilter> = if let Some(max_level) = self.max_level {
@@ -281,11 +273,11 @@ impl OkxClient {
                                         let should_break = match msg {
                                             None => true,
                                             Some(Err(e)) => {
-                                                eprintln!("[WS ERROR] {}", e);
+                                                logging::error(self.cli_instrument.as_str(), &format!("WS ERROR: {}", e));
                                                 true
                                             }
                                             Some(Ok(Message::Close(frame))) => {
-                                                eprintln!("[CLOSE] {:?}", frame);
+                                                logging::debug(self.cli_instrument.as_str(), &format!("CLOSE: {:?}", frame));
                                                 true
                                             }
                                             Some(Ok(Message::Text(text))) => {
@@ -341,26 +333,22 @@ impl OkxClient {
                                                         if let Some(sender) = self.sender.as_mut()
                                                             && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
                                                         {
-                                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                            logging::error(self.cli_instrument.as_str(), &format!("Failed to persist: {}", e));
                                                         }
                                                     }
-                                                    Err(e) => {
-                                                        eprintln!(
-                                                            "[PARSE ERROR] {} — raw: {}",
-                                                            e,
-                                                            &text[..text.len().min(200)]
-                                                        );
-                                                    }
+Err(e) => {
+                                                            logging::error(self.cli_instrument.as_str(), &format!("PARSE ERROR: {} — raw: {}", e, &text[..text.len().min(200)]));
+                                                        }
                                                 }
                                                 false
                                             }
                                             Some(Ok(Message::Ping(data))) => {
-                                                eprintln!("[PING] {} bytes", data.len());
+                                                logging::debug(self.cli_instrument.as_str(), &format!("PING: {} bytes", data.len()));
                                                 false
                                             }
                                             Some(Ok(Message::Pong(_))) => false,
                                             Some(Ok(Message::Binary(_))) => {
-                                                eprintln!("[BINARY] received (unexpected)");
+                                                logging::debug(self.cli_instrument.as_str(), "BINARY received (unexpected)");
                                                 false
                                             }
                                             Some(Ok(Message::Frame(_))) => false,
@@ -369,11 +357,11 @@ impl OkxClient {
                                             break;
                                         }
                                     }
-                                    _ = tokio::signal::ctrl_c() => {
-                                        eprintln!("[SHUTDOWN] received SIGINT");
-                                        shutdown = true;
-                                        break;
-                                    },
+_ = tokio::signal::ctrl_c() => {
+                                                logging::info(self.cli_instrument.as_str(), "SHUTDOWN received SIGINT");
+                                                shutdown = true;
+                                                break;
+                                            },
                                 }
                 if shutdown {
                     break;
@@ -386,10 +374,7 @@ impl OkxClient {
 
             attempt += 1;
             let delay = backoff_delay(attempt - 1);
-            eprintln!(
-                "[DISCONNECTED] attempt {}, reconnecting in {:?}",
-                attempt, delay
-            );
+            logging::error(self.cli_instrument.as_str(), &format!("DISCONNECTED attempt {}, reconnecting in {:?}", attempt, delay));
             self.update_status_active(false, format!("disconnected, attempt {}", attempt));
 
             shutdown = traits::signal_sleep(delay, &mut sigterm).await;
@@ -399,7 +384,7 @@ impl OkxClient {
             }
         }
 
-        eprintln!("[SHUTDOWN]");
+        logging::info(self.cli_instrument.as_str(), "SHUTDOWN");
         Ok(())
     }
 
@@ -819,13 +804,13 @@ mod tests {
 
         std::thread::spawn(move || {
             let system = actix_web::rt::System::new();
-            if let Err(e) = system.block_on(LobMetrics::start_http_server(
-                port,
-                lob_metrics,
-                status_handle,
-            )) {
-                eprintln!("[METRICS TEST] Server error: {}", e);
-            }
+if let Err(e) = system.block_on(LobMetrics::start_http_server(
+                    port,
+                    lob_metrics,
+                    status_handle,
+                )) {
+                    logging::error("metrics_test", &format!("Server error: {}", e));
+                }
         });
 
         // Wait for server to start

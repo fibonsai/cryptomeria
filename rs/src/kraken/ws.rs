@@ -2,6 +2,7 @@ use crate::db;
 use crate::db::apply_ttl;
 use crate::kraken::lob::OrderBook;
 use crate::kraken::types::{KrakenWsMessage, MessageType};
+use crate::logging;
 use crate::traits::{
     self, ClientStatus, ExchangeClientBuilder, LobFilter, LobMetrics, StatusHandle, backoff_delay,
 };
@@ -164,7 +165,7 @@ impl KrakenClient {
                     lob_metrics,
                     status_handle,
                 )) {
-                    eprintln!("[METRICS] Server error: {}", e);
+                    logging::error("metrics", &format!("Server error: {}", e));
                 }
             });
         }
@@ -172,7 +173,7 @@ impl KrakenClient {
         if let Some(hours) = self.retention_window
             && let Err(e) = apply_ttl(hours, &self.questdb_conf).await
         {
-            eprintln!("[DB TTL ERROR] {}", e);
+            logging::error("db", &format!("TTL ERROR: {}", e));
         }
 
         let mut attempt = 0u32;
@@ -187,17 +188,14 @@ impl KrakenClient {
             let ws_stream = match connect_async(ws_url).await {
                 Ok((stream, _)) => {
                     attempt = 0;
-                    eprintln!("[CONNECTED] {}", ws_url);
+                    logging::info(self.cli_instrument.as_str(), &format!("CONNECTED {}", ws_url));
                     self.update_status_active(true, format!("connected to {}", ws_url));
                     stream
                 }
                 Err(e) => {
                     attempt += 1;
                     let delay = backoff_delay(attempt - 1);
-                    eprintln!(
-                        "[CONNECT ERROR] {} — attempt {}, reconnecting in {:?}",
-                        e, attempt, delay
-                    );
+                    logging::error(self.cli_instrument.as_str(), &format!("CONNECT ERROR: {} — attempt {}, reconnecting in {:?}", e, attempt, delay));
                     self.update_status_active(false, format!("disconnected, attempt {}", attempt));
                     shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                     continue;
@@ -210,28 +208,22 @@ impl KrakenClient {
             if let Err(e) = write.send(Message::Text(books_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                eprintln!(
-                    "[SUBSCRIBE ERROR] book: {} — reconnecting in {:?}",
-                    e, delay
-                );
+                logging::error(self.cli_instrument.as_str(), &format!("SUBSCRIBE ERROR book: {} — reconnecting in {:?}", e, delay));
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
-            eprintln!("[SUBSCRIBED] book {}", self.instrument);
+            logging::info(self.cli_instrument.as_str(), &format!("SUBSCRIBED book {}", self.instrument));
             self.update_status_active(true, format!("subscribed to book {}", self.instrument));
 
             let trades_msg = build_subscribe_msg("trade", &self.instrument);
             if let Err(e) = write.send(Message::Text(trades_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                eprintln!(
-                    "[SUBSCRIBE ERROR] trade: {} — reconnecting in {:?}",
-                    e, delay
-                );
+                logging::error(self.cli_instrument.as_str(), &format!("SUBSCRIBE ERROR trade: {} — reconnecting in {:?}", e, delay));
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
-            eprintln!("[SUBSCRIBED] trade {}", self.instrument);
+            logging::info(self.cli_instrument.as_str(), &format!("SUBSCRIBED trade {}", self.instrument));
 
             let lob_filter: Option<LobFilter> = if let Some(max_level) = self.max_level {
                 Some(LobFilter::MaxLevel(max_level))
@@ -249,11 +241,11 @@ impl KrakenClient {
                                         let should_break = match msg {
                                             None => true,
                                             Some(Err(e)) => {
-                                                eprintln!("[WS ERROR] {}", e);
+                                                logging::error(self.cli_instrument.as_str(), &format!("WS ERROR: {}", e));
                                                 true
                                             }
                                             Some(Ok(Message::Close(frame))) => {
-                                                eprintln!("[CLOSE] {:?}", frame);
+                                                logging::debug(self.cli_instrument.as_str(), &format!("CLOSE: {:?}", frame));
                                                 true
                                             }
                                             Some(Ok(Message::Text(text))) => {
@@ -317,26 +309,22 @@ impl KrakenClient {
                 if let Some(sender) = self.sender.as_mut()
                                                             && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed).await
                                                         {
-                                                            eprintln!("[DB ERROR] Failed to persist: {}", e);
+                                                            logging::error(self.cli_instrument.as_str(), &format!("Failed to persist: {}", e));
                                                         }
                                                     }
                                                     Err(e) => {
-                                                        eprintln!(
-                                                            "[PARSE ERROR] {} — raw: {}",
-                                                            e,
-                                                            &text[..text.len().min(200)]
-                                                        );
+                                                        logging::error(self.cli_instrument.as_str(), &format!("PARSE ERROR: {} — raw: {}", e, &text[..text.len().min(200)]));
                                                     }
                                                 }
                                                 false
                                             }
                                             Some(Ok(Message::Ping(data))) => {
-                                                eprintln!("[PING] {} bytes", data.len());
+                                                logging::debug(self.cli_instrument.as_str(), &format!("PING: {} bytes", data.len()));
                                                 false
                                             }
                                             Some(Ok(Message::Pong(_))) => false,
                                             Some(Ok(Message::Binary(_))) => {
-                                                eprintln!("[BINARY] received (unexpected)");
+                                                logging::debug(self.cli_instrument.as_str(), "BINARY received (unexpected)");
                                                 false
                                             }
                                             Some(Ok(Message::Frame(_))) => false,
@@ -345,11 +333,11 @@ impl KrakenClient {
                                             break;
                                         }
                                     }
-                                    _ = tokio::signal::ctrl_c() => {
-                                        eprintln!("[SHUTDOWN] received SIGINT");
-                                        shutdown = true;
-                                        break;
-                                    },
+_ = tokio::signal::ctrl_c() => {
+                                                logging::info(self.cli_instrument.as_str(), "SHUTDOWN received SIGINT");
+                                                shutdown = true;
+                                                break;
+                                            },
                                 }
                 if shutdown {
                     break;
@@ -360,24 +348,21 @@ impl KrakenClient {
                 break;
             }
 
-            attempt += 1;
-            let delay = backoff_delay(attempt - 1);
-            eprintln!(
-                "[DISCONNECTED] attempt {}, reconnecting in {:?}",
-                attempt, delay
-            );
-            self.update_status_active(false, format!("disconnected, attempt {}", attempt));
+attempt += 1;
+                let delay = backoff_delay(attempt - 1);
+                logging::error(self.cli_instrument.as_str(), &format!("DISCONNECTED attempt {}, reconnecting in {:?}", attempt, delay));
+                self.update_status_active(false, format!("disconnected, attempt {}", attempt));
 
-            shutdown = traits::signal_sleep(delay, &mut sigterm).await;
+                shutdown = traits::signal_sleep(delay, &mut sigterm).await;
 
-            if shutdown {
-                break;
+                if shutdown {
+                    break;
+                }
             }
-        }
 
-        eprintln!("[SHUTDOWN]");
-        Ok(())
-    }
+            logging::info(self.cli_instrument.as_str(), "SHUTDOWN");
+            Ok(())
+        }
 
     fn update_lob_metrics(&self, order_book: &OrderBook) {
         let lm = self.metrics();

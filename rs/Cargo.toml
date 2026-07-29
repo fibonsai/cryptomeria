@@ -20,6 +20,8 @@ prometheus = { version = "0.13", features = ["process"] }
 actix-web = "4"
 rand = "0.8"
 prettytable-rs = "0.10"
+log = "0.4"
+rasant = "1.1"
 
 [dev-dependencies]
 serde_test = "1"

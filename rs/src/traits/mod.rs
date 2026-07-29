@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
+use crate::logging;
 
 /// Type alias for a single vector of (price, size) levels.
 pub type LevelVec = Vec<(f64, f64)>;
@@ -135,11 +136,11 @@ pub async fn signal_sleep(
         tokio::select! {
             _ = tokio::time::sleep(delay) => false,
             _ = tokio::signal::ctrl_c() => {
-                eprintln!("[SHUTDOWN] received SIGINT");
+                logging::info("signal", "received SIGINT");
                 true
             }
             _ = sigterm.recv() => {
-                eprintln!("[SHUTDOWN] received SIGTERM");
+                logging::info("signal", "received SIGTERM");
                 true
             }
         }
@@ -149,7 +150,7 @@ pub async fn signal_sleep(
         tokio::select! {
             _ = tokio::time::sleep(delay) => false,
             _ = tokio::signal::ctrl_c() => {
-                eprintln!("[SHUTDOWN] received SIGINT");
+                logging::info("signal", "received SIGINT");
                 true
             }
         }
@@ -250,7 +251,7 @@ impl LobMetrics {
 
         let bind_addr = format!("0.0.0.0:{}", port);
         let listener = TcpListener::bind(&bind_addr)?;
-        eprintln!("[HTTP] Listening on {}", bind_addr);
+        logging::info("http", &format!("Listening on {}", bind_addr));
 
         HttpServer::new(move || {
             let lm = lob_metrics.clone();
