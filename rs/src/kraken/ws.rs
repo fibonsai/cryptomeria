@@ -260,7 +260,7 @@ impl KrakenClient {
                                                     let now = parsed.formatted_time();
                                                     let book_line =
                                                         order_book.display(&self.instrument, self.max_level_pct);
-                                                    println!("[{} LOB2] {}", now, book_line);
+                                                    logging::info("kraken", &format!("[{} LOB2] {}", now, book_line));
                                                 }
                                                 self.update_lob_metrics(&order_book);
                                                 self.update_depth_metrics(&order_book);
@@ -268,7 +268,7 @@ impl KrakenClient {
                                             MessageType::Trade => {
                                                 if self.data_output {
                                                     let line = display_message(&parsed);
-                                                    println!("{}", line);
+                                                    logging::info("kraken", &line);
                                                 }
                                                 self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
                                                 last_trade_count += 1;
@@ -290,7 +290,7 @@ impl KrakenClient {
                                             MessageType::Event => {
                                                 if self.data_output {
                                                     let line = display_message(&parsed);
-                                                    println!("{}", line);
+                                                    logging::info("kraken", &line);
                                                 }
                                             }
                                             MessageType::Status => {
@@ -302,7 +302,7 @@ impl KrakenClient {
                                             MessageType::Unknown => {
                                                 if self.data_output {
                                                     let line = display_message(&parsed);
-                                                    println!("{}", line);
+                                                    logging::info("kraken", &line);
                                                 }
                                             }
                                         }
