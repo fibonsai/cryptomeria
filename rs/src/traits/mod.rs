@@ -11,6 +11,60 @@ pub type LevelVec = Vec<(f64, f64)>;
 /// Type alias for the (bids, asks) return type of `levels_within_pct`.
 pub type LevelsWithinPct = (LevelVec, LevelVec);
 
+/// LOB pre-filter configuration.
+///
+/// - `MaxLevelPct(f64)`: only keep levels within `pct%` of the best price.
+/// - `MaxLevel(usize)`: only keep the top N best levels per side.
+#[derive(Debug, Clone, Copy)]
+pub enum LobFilter {
+    MaxLevelPct(f64),
+    MaxLevel(usize),
+}
+
+#[allow(clippy::too_many_arguments)]
+impl LobFilter {
+    /// Determine whether a level should be included in the LOB.
+    ///
+    /// Levels with `amount == 0` (removals) are always included to maintain
+    /// LOB consistency. For `MaxLevel`, price updates at existing levels are
+    /// always included.
+    pub fn should_include(
+        &self,
+        best_bid: Option<f64>,
+        best_ask: Option<f64>,
+        price: f64,
+        amount: f64,
+        side_is_bid: bool,
+        current_levels_on_side: usize,
+        price_exists: bool,
+    ) -> bool {
+        if amount == 0.0 {
+            return true;
+        }
+        match *self {
+            LobFilter::MaxLevelPct(pct) => {
+                let best = if side_is_bid { best_bid } else { best_ask };
+                match best {
+                    None => true,
+                    Some(best_price) => {
+                        if side_is_bid {
+                            price >= best_price * (1.0 - pct / 100.0)
+                        } else {
+                            price <= best_price * (1.0 + pct / 100.0)
+                        }
+                    }
+                }
+            }
+            LobFilter::MaxLevel(max) => {
+                if price_exists {
+                    return true;
+                }
+                current_levels_on_side < max
+            }
+        }
+    }
+}
+
 const INITIAL_BACKOFF_MS: u64 = 1000;
 const MAX_BACKOFF_MS: u64 = 60_000;
 const BACKOFF_MULTIPLIER: f64 = 2.0;
@@ -41,6 +95,9 @@ pub trait ExchangeClientBuilder: Sized {
     fn with_lob_metrics(self, metrics: Arc<LobMetrics>) -> Self;
     fn with_status_handle(self, handle: StatusHandle) -> Self;
     fn with_snapshot_depth(self, _depth: usize) -> Self {
+        self
+    }
+    fn with_max_level(self, _max_level: usize) -> Self {
         self
     }
 }

@@ -123,7 +123,7 @@
           }
         }
       ],
-      "title": "LOB Depth (Bids & Asks) — top levels by show-top-pct",
+      "title": "LOB Depth (Bids & Asks) — top levels by max-level-pct",
       "type": "heatmap"
     },
     {

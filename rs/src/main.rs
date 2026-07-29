@@ -223,9 +223,13 @@ pub struct CliArgs {
     #[arg(long)]
     pub instruments: Option<String>,
 
-    /// Show price levels within PCT% of the best price on each side.
+    /// Max percentage from best price for pre-filtering LOB levels.
     #[arg(long, default_value_t = 0.1)]
-    pub show_top_pct: f64,
+    pub max_level_pct: f64,
+
+    /// Max number of levels per side for pre-filtering LOB. Conflicts with --max-level-pct.
+    #[arg(long, conflicts_with = "max_level_pct")]
+    pub max_level: Option<usize>,
 
     /// QuestDB connection string (QDB_CLIENT_CONF format).
     #[arg(long)]
@@ -415,7 +419,7 @@ async fn main() {
         return;
     }
 
-    let show_top_pct = cli.show_top_pct;
+    let max_level_pct = cli.max_level_pct;
     let data_output = cli.data_output;
     let questdb_conf = cryptomeria::db::resolve_questdb_conf(cli.questdb_conf.as_deref());
 
@@ -534,7 +538,7 @@ async fn main() {
                         &symbol,
                         &exchange,
                         &region,
-                        show_top_pct,
+                        max_level_pct,
                         data_output,
                         &qc,
                     )
@@ -547,6 +551,9 @@ async fn main() {
                     if let Some(window) = cli.retention_window {
                         client = client.with_retention_window(window);
                     }
+                    if let Some(ml) = cli.max_level {
+                        client = client.with_max_level(ml);
+                    }
                     if let Err(e) = client.run().await {
                         eprintln!("[ERROR] {}@{}: {}", symbol, exchange, e);
                     }
@@ -556,7 +563,7 @@ async fn main() {
                         &symbol,
                         &exchange,
                         &region,
-                        show_top_pct,
+                        max_level_pct,
                         data_output,
                         &qc,
                     )
@@ -570,13 +577,16 @@ async fn main() {
                     if let Some(window) = cli.retention_window {
                         client = client.with_retention_window(window);
                     }
+                    if let Some(ml) = cli.max_level {
+                        client = client.with_max_level(ml);
+                    }
                     if let Err(e) = client.run().await {
                         eprintln!("[ERROR] {}@{}: {}", symbol, exchange, e);
                     }
                 }
                 _ => {
                     let mut client =
-                        OkxClient::new(&symbol, &exchange, &region, show_top_pct, data_output, &qc)
+                        OkxClient::new(&symbol, &exchange, &region, max_level_pct, data_output, &qc)
                             .with_cli_instrument(cli_inst_id)
                             .with_lob_metrics(lm)
                             .with_status_handle(sh);
@@ -585,6 +595,9 @@ async fn main() {
                     }
                     if let Some(window) = cli.retention_window {
                         client = client.with_retention_window(window);
+                    }
+                    if let Some(ml) = cli.max_level {
+                        client = client.with_max_level(ml);
                     }
                     if let Err(e) = client.run().await {
                         eprintln!("[ERROR] {}@{}: {}", symbol, exchange, e);
@@ -842,7 +855,7 @@ mod tests {
     fn test_parse_args_default() {
         let cli = CliArgs::try_parse_from(&["cryptomeria"]).unwrap();
         assert_eq!(cli.instrument, "BTC-USDT");
-        assert!((cli.show_top_pct - 0.1).abs() < f64::EPSILON);
+        assert!((cli.max_level_pct - 0.1).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -881,17 +894,37 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_args_show_top_pct() {
+    fn test_parse_args_max_level_pct() {
         let cli = CliArgs::try_parse_from(&[
             "cryptomeria",
-            "--show-top-pct",
+            "--max-level-pct",
             "0.5",
             "--instrument",
             "ETH-USDT",
         ])
         .unwrap();
         assert_eq!(cli.instrument, "ETH-USDT");
-        assert!((cli.show_top_pct - 0.5).abs() < f64::EPSILON);
+        assert!((cli.max_level_pct - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_args_max_level() {
+        let cli =
+            CliArgs::try_parse_from(&["cryptomeria", "--max-level", "400"]).unwrap();
+        assert_eq!(cli.max_level, Some(400));
+    }
+
+    #[test]
+    fn test_parse_args_max_level_conflicts_with_pct() {
+        let err = CliArgs::try_parse_from(&[
+            "cryptomeria",
+            "--max-level-pct",
+            "0.5",
+            "--max-level",
+            "400",
+        ])
+        .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::ArgumentConflict);
     }
 
     #[test]
@@ -921,7 +954,7 @@ mod tests {
 
     #[test]
     fn test_parse_args_invalid_pct() {
-        let err = CliArgs::try_parse_from(&["cryptomeria", "--show-top-pct", "abc"]).unwrap_err();
+        let err = CliArgs::try_parse_from(&["cryptomeria", "--max-level-pct", "abc"]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::ValueValidation);
     }
 

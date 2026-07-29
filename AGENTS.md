@@ -170,14 +170,15 @@ Licensed under [Apache 2.0](LICENSE) with additional brand protections for Fibon
 |------|---------|
 | Run Python LOB CLI | `PYTHONPATH=python uv run python -m cryptomeria.lob in.parquet out.parquet` |
 | Run Rust WS client (OKX, BTC-USDT) | `cargo run` |
-| Run Rust WS client (OKX, custom) | `cargo run -- ETH-USDT --show-top-pct 0.5` |
+| Run Rust WS client (OKX, custom) | `cargo run -- ETH-USDT --max-level-pct 0.5` |
+| Run Rust WS client (OKX, max-level) | `cargo run -- --max-level 400` |
 | Run Rust WS client (multi-instrument) | `cargo run -- --instruments "BTC-USDT@okx,ETH-USD@kraken"` |
 | Run Rust WS client (same symbol, multi-exchange) | `cargo run -- --instruments "BTC-USDT@okx,@kraken,@bitstamp"` |
 | Run Rust WS client (multi-symbol, single exchange) | `cargo run -- --instruments "BTC-USDT,ETH-USDT" --exchange okx` |
 | Run Rust WS client (Kraken) | `cargo run -- --exchange kraken XBT/USD` |
-| Run Rust WS client (Kraken, custom) | `cargo run -- --exchange kraken ETH/USD --show-top-pct 0.5` |
+| Run Rust WS client (Kraken, custom) | `cargo run -- --exchange kraken ETH/USD --max-level-pct 0.5` |
 | Run Rust WS client (Bitstamp) | `cargo run -- --exchange bitstamp btc/usd` |
-| Run Rust WS client (Bitstamp, custom) | `cargo run -- --exchange bitstamp eth/usd --show-top-pct 0.5` |
+| Run Rust WS client (Bitstamp, custom) | `cargo run -- --exchange bitstamp eth/usd --max-level-pct 0.5` |
 | List supported instrument mappings | `cargo run -- --list-instruments` |
 | Run with global endpoint | `cargo run -- --region global` |
 | Fetch /metrics (per-exchange JSON) | `curl localhost:9000/metrics | jq .` |

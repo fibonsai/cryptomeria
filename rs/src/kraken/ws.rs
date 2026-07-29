@@ -3,7 +3,7 @@ use crate::db::apply_ttl;
 use crate::kraken::lob::OrderBook;
 use crate::kraken::types::{KrakenWsMessage, MessageType};
 use crate::traits::{
-    self, ClientStatus, ExchangeClientBuilder, LobMetrics, StatusHandle, backoff_delay,
+    self, ClientStatus, ExchangeClientBuilder, LobFilter, LobMetrics, StatusHandle, backoff_delay,
 };
 use futures_util::SinkExt;
 use futures_util::StreamExt;
@@ -34,7 +34,8 @@ pub struct KrakenClient {
     pub exchange: String,
     pub region: String,
     pub cli_instrument: String,
-    pub show_top_pct: f64,
+    pub max_level_pct: f64,
+    pub max_level: Option<usize>,
     pub messages_received: Arc<AtomicU64>,
     pub retention_window: Option<u64>,
     pub metrics_port: Option<u16>,
@@ -68,6 +69,9 @@ impl ExchangeClientBuilder for KrakenClient {
     fn with_status_handle(self, handle: StatusHandle) -> Self {
         KrakenClient::with_status_handle(self, handle)
     }
+    fn with_max_level(self, max_level: usize) -> Self {
+        KrakenClient::with_max_level(self, max_level)
+    }
 }
 
 impl KrakenClient {
@@ -75,7 +79,7 @@ impl KrakenClient {
         instrument: &str,
         exchange: &str,
         region: &str,
-        show_top_pct: f64,
+        max_level_pct: f64,
         data_output: bool,
         questdb_conf: &str,
     ) -> Self {
@@ -86,7 +90,8 @@ impl KrakenClient {
             exchange: exchange.to_string(),
             region: region.to_string(),
             cli_instrument: String::new(),
-            show_top_pct,
+            max_level_pct,
+            max_level: None,
             messages_received: Arc::new(AtomicU64::new(0)),
             retention_window: None,
             metrics_port: None,
@@ -121,6 +126,11 @@ impl KrakenClient {
 
     pub fn with_cli_instrument(mut self, inst_id: String) -> Self {
         self.cli_instrument = inst_id;
+        self
+    }
+
+    pub fn with_max_level(mut self, max_level: usize) -> Self {
+        self.max_level = Some(max_level);
         self
     }
 
@@ -223,6 +233,12 @@ impl KrakenClient {
             }
             eprintln!("[SUBSCRIBED] trade {}", self.instrument);
 
+            let lob_filter: Option<LobFilter> = if let Some(max_level) = self.max_level {
+                Some(LobFilter::MaxLevel(max_level))
+            } else {
+                Some(LobFilter::MaxLevelPct(self.max_level_pct))
+            };
+
             let mut order_book = OrderBook::new();
             let mut last_trade_count = 0u64;
             let mut last_trade_time = std::time::Instant::now();
@@ -246,11 +262,11 @@ impl KrakenClient {
                                                         self.messages_received.fetch_add(1, Ordering::Relaxed);
                                                         match parsed.message_type() {
                                                             MessageType::L2Snapshot | MessageType::L2Update | MessageType::L2 => {
-                                                                order_book.process_msg(&parsed);
+                                                                order_book.process_msg(&parsed, lob_filter.as_ref());
                                                                 if self.data_output {
                                                                     let now = parsed.formatted_time();
                                                                     let book_line =
-                                                                        order_book.display(&self.instrument, self.show_top_pct);
+                                                                        order_book.display(&self.instrument, self.max_level_pct);
                                                                     println!("[{} LOB2] {}", now, book_line);
                                                                 }
                                                                 self.update_lob_metrics(&order_book);
@@ -401,18 +417,17 @@ impl KrakenClient {
         let lm = self.metrics();
         let base_labels = &[self.exchange.as_str(), self.cli_instrument.as_str()] as &[&str];
 
-        let (bids, asks) = order_book.levels_within_pct(self.show_top_pct);
-        for (price, size) in &bids {
-            let price_str = format!("{:.2}", price);
+        for (k, v) in &order_book.bids {
+            let price_str = format!("{:.2}", k.0.0);
             lm.lob_depth_bid
                 .with_label_values(&[base_labels[0], base_labels[1], &price_str])
-                .set(*size);
+                .set(*v);
         }
-        for (price, size) in &asks {
-            let price_str = format!("{:.2}", price);
+        for (k, v) in &order_book.asks {
+            let price_str = format!("{:.2}", k.0);
             lm.lob_depth_ask
                 .with_label_values(&[base_labels[0], base_labels[1], &price_str])
-                .set(*size);
+                .set(*v);
         }
     }
 
@@ -645,12 +660,12 @@ mod tests {
 
         let mut book = OrderBook::new();
         let snap_msg = KrakenWsMessage::from_json(snap).unwrap();
-        book.process_msg(&snap_msg);
+        book.process_msg(&snap_msg, None);
         assert_eq!(book.num_bids(), 1);
         assert_eq!(book.num_asks(), 1);
 
         let upd_msg = KrakenWsMessage::from_json(upd).unwrap();
-        book.process_msg(&upd_msg);
+        book.process_msg(&upd_msg, None);
         assert_eq!(book.num_bids(), 1);
         assert_eq!(book.num_asks(), 0);
     }
@@ -670,7 +685,7 @@ mod tests {
         }"#;
         let mut book = OrderBook::new();
         let msg = KrakenWsMessage::from_json(snap).unwrap();
-        book.process_msg(&msg);
+        book.process_msg(&msg, None);
         let out = book.display("XBT/USD", 100.0);
         assert!(out.contains("bids: ["));
         assert!(out.contains("] | asks: ["));
