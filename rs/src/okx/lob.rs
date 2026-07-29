@@ -216,13 +216,29 @@ impl OrderBook {
     ) -> Vec<PriceLevel> {
         match filter {
             LobFilter::MaxLevelPct(_pct) => {
-                let best_bid = if side == Side::Bid { batch_best } else { self.best_bid() };
-                let best_ask = if side == Side::Ask { batch_best } else { self.best_ask() };
+                let best_bid = if side == Side::Bid {
+                    batch_best
+                } else {
+                    self.best_bid()
+                };
+                let best_ask = if side == Side::Ask {
+                    batch_best
+                } else {
+                    self.best_ask()
+                };
                 levels
                     .iter()
                     .filter(|level| {
                         if let Some((price, amount)) = parse_level(level) {
-                            filter.should_include(best_bid, best_ask, price, amount, side == Side::Bid, 0, false)
+                            filter.should_include(
+                                best_bid,
+                                best_ask,
+                                price,
+                                amount,
+                                side == Side::Bid,
+                                0,
+                                false,
+                            )
                         } else {
                             true
                         }
@@ -233,13 +249,13 @@ impl OrderBook {
             LobFilter::MaxLevel(max) => {
                 let mut parsed: Vec<(f64, f64, PriceLevel)> = levels
                     .iter()
-                    .filter_map(|level| {
-                        parse_level(level).map(|(p, a)| (p, a, level.clone()))
-                    })
+                    .filter_map(|level| parse_level(level).map(|(p, a)| (p, a, level.clone())))
                     .collect();
                 match side {
-                    Side::Bid => parsed.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)),
-                    Side::Ask => parsed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)),
+                    Side::Bid => parsed
+                        .sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)),
+                    Side::Ask => parsed
+                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)),
                 }
                 parsed.truncate(*max);
                 parsed.into_iter().map(|(_, _, level)| level).collect()

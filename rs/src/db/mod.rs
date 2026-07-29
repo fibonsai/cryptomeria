@@ -52,8 +52,6 @@ fn extract_http_addr(conf_str: &str) -> String {
     "localhost:9000".to_string()
 }
 
-
-
 /// Create a QuestDB Sender from a QDB_CLIENT_CONF formatted string.
 pub async fn connect(conf_str: &str) -> Result<Sender, Box<dyn std::error::Error + Send + Sync>> {
     let conf = if conf_str.is_empty() {
@@ -237,7 +235,6 @@ mod tests {
             "localhost:9000"
         );
     }
-
 
     #[test]
     fn test_connect_parses_conf() {

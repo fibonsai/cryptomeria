@@ -575,11 +575,17 @@ async fn main() {
                 }
                 _ => {
                     let cli_inst_id_for_log = cli_inst_id.clone();
-                    let mut client =
-                        OkxClient::new(&symbol, &exchange, &region, max_level_pct, data_output, &qc)
+                    let mut client = OkxClient::new(
+                        &symbol,
+                        &exchange,
+                        &region,
+                        max_level_pct,
+                        data_output,
+                        &qc,
+                    )
                     .with_cli_instrument(cli_inst_id.clone())
-                            .with_lob_metrics(lm)
-                            .with_status_handle(sh);
+                    .with_lob_metrics(lm)
+                    .with_status_handle(sh);
                     if let Some(s) = sender_opt {
                         client = client.with_sender(s);
                     }
@@ -899,8 +905,7 @@ mod tests {
 
     #[test]
     fn test_parse_args_max_level() {
-        let cli =
-            CliArgs::try_parse_from(&["cryptomeria", "--max-level", "400"]).unwrap();
+        let cli = CliArgs::try_parse_from(&["cryptomeria", "--max-level", "400"]).unwrap();
         assert_eq!(cli.max_level, Some(400));
     }
 
