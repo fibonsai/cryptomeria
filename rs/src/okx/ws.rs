@@ -217,14 +217,14 @@ impl OkxClient {
             let ws_stream = match connect_async(ws_url).await {
                 Ok((stream, _)) => {
                     attempt = 0;
-                    logging::info(self.cli_instrument.as_str(), &format!("CONNECTED {}", ws_url));
+                    logging::info("okx", &format!("CONNECTED {}", ws_url));
                     self.update_status_active(true, "connected".to_string());
                     stream
                 }
                 Err(e) => {
                     attempt += 1;
                     let delay = backoff_delay(attempt - 1);
-                    logging::error(self.cli_instrument.as_str(), &format!("CONNECT ERROR: {} — attempt {}, reconnecting in {:?}", e, attempt, delay));
+                    logging::error("okx", &format!("CONNECT ERROR: {} — attempt {}, reconnecting in {:?}", e, attempt, delay));
                     shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                     continue;
                 }
@@ -237,11 +237,11 @@ impl OkxClient {
             if let Err(e) = write.send(Message::Text(books_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                logging::error(self.cli_instrument.as_str(), &format!("SUBSCRIBE ERROR books: {} — reconnecting in {:?}", e, delay));
+                logging::error("okx", &format!("SUBSCRIBE ERROR books: {} — reconnecting in {:?}", e, delay));
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
-            logging::info(self.cli_instrument.as_str(), &format!("SUBSCRIBED books {}", self.instrument));
+            logging::info("okx", &format!("SUBSCRIBED books {}", self.instrument));
             self.update_status_active(true, format!("subscribed to books {}", self.instrument));
 
             // Subscribe to trades channel
@@ -249,11 +249,11 @@ impl OkxClient {
             if let Err(e) = write.send(Message::Text(trades_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                logging::error(self.cli_instrument.as_str(), &format!("SUBSCRIBE ERROR trades: {} — reconnecting in {:?}", e, delay));
+                logging::error("okx", &format!("SUBSCRIBE ERROR trades: {} — reconnecting in {:?}", e, delay));
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
-            logging::info(self.cli_instrument.as_str(), &format!("SUBSCRIBED trades {}", self.instrument));
+            logging::info("okx", &format!("SUBSCRIBED trades {}", self.instrument));
 
             // Build LobFilter from config
             let lob_filter: Option<LobFilter> = if let Some(max_level) = self.max_level {
@@ -274,11 +274,11 @@ impl OkxClient {
                         let should_break = match msg {
                             None => true,
                             Some(Err(e)) => {
-                                logging::error(self.cli_instrument.as_str(), &format!("WS ERROR: {}", e));
+                                logging::error("okx", &format!("WS ERROR: {}", e));
                                 true
                             }
                             Some(Ok(Message::Close(frame))) => {
-                                logging::debug(self.cli_instrument.as_str(), &format!("CLOSE: {:?}", frame));
+                                logging::debug("okx", &format!("CLOSE: {:?}", frame));
                                 true
                             }
                             Some(Ok(Message::Text(text))) => {
@@ -334,22 +334,22 @@ impl OkxClient {
                                         if let Some(sender) = self.sender.as_mut()
                                             && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
                                         {
-                                            logging::error(self.cli_instrument.as_str(), &format!("Failed to persist: {}", e));
+                                            logging::error("okx", &format!("Failed to persist: {}", e));
                                         }
                                     }
                                     Err(e) => {
-                                        logging::error(self.cli_instrument.as_str(), &format!("PARSE ERROR: {} — raw: {}", e, &text[..text.len().min(200)]));
+                                        logging::error("okx", &format!("PARSE ERROR: {} — raw: {}", e, &text[..text.len().min(200)]));
                                     }
                                 }
                                 false
                             }
                             Some(Ok(Message::Ping(data))) => {
-                                logging::debug(self.cli_instrument.as_str(), &format!("PING: {} bytes", data.len()));
+                                logging::debug("okx", &format!("PING: {} bytes", data.len()));
                                 false
                             }
                             Some(Ok(Message::Pong(_))) => false,
                             Some(Ok(Message::Binary(_))) => {
-                                logging::debug(self.cli_instrument.as_str(), "BINARY received (unexpected)");
+                                logging::debug("okx", "BINARY received (unexpected)");
                                 false
                             }
                             Some(Ok(Message::Frame(_))) => false,
@@ -359,7 +359,7 @@ impl OkxClient {
                         }
                     }
                     _ = wait_for_shutdown_signal() => {
-                        logging::info(self.cli_instrument.as_str(), "SHUTDOWN received signal");
+                        logging::info("okx", "SHUTDOWN received signal");
                         shutdown = true;
                         break;
                     },
@@ -375,7 +375,7 @@ impl OkxClient {
 
             attempt += 1;
             let delay = backoff_delay(attempt - 1);
-            logging::error(self.cli_instrument.as_str(), &format!("DISCONNECTED attempt {}, reconnecting in {:?}", attempt, delay));
+            logging::error("okx", &format!("DISCONNECTED attempt {}, reconnecting in {:?}", attempt, delay));
             self.update_status_active(false, format!("disconnected, attempt {}", attempt));
 
             shutdown = traits::signal_sleep(delay, &mut sigterm).await;
@@ -385,7 +385,7 @@ impl OkxClient {
             }
         }
 
-        logging::info(self.cli_instrument.as_str(), "SHUTDOWN");
+        logging::info("okx", "SHUTDOWN");
         Ok(())
     }
 
