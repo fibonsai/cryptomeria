@@ -2,6 +2,7 @@ use crate::okx::types::LobLevel;
 use questdb::ingress::{Buffer, Sender, TimestampNanos};
 use refinery::embed_migrations;
 use reqwest::Client;
+use tokio_postgres::NoTls;
 use std::env;
 use std::time::Duration;
 
@@ -35,6 +36,43 @@ fn extract_http_addr(conf_str: &str) -> String {
     "localhost:9000".to_string()
 }
 
+/// Derive PostgreSQL connection string from QDB_CLIENT_CONF format.
+///
+/// QuestDB exposes PostgreSQL wire protocol on port 8812 by default.
+/// The resulting string is compatible with `tokio_postgres::connect()`.
+fn extract_pg_conf(conf_str: &str) -> String {
+    let mut host = "localhost".to_string();
+    let mut user = "admin".to_string();
+    let mut password = String::new();
+    for part in conf_str.split(';') {
+        if let Some(stripped) = part.strip_prefix("http::addr=") {
+            if let Some((h, _)) = stripped.split_once(':') {
+                host = h.to_string();
+            } else {
+                host = stripped.to_string();
+            }
+        }
+        if let Some(stripped) = part.strip_prefix("https::addr=") {
+            if let Some((h, _)) = stripped.split_once(':') {
+                host = h.to_string();
+            } else {
+                host = stripped.to_string();
+            }
+        }
+        if let Some(stripped) = part.strip_prefix("username=") {
+            user = stripped.to_string();
+        }
+        if let Some(stripped) = part.strip_prefix("password=") {
+            password = stripped.to_string();
+        }
+    }
+    let mut conn = format!("host={host} port=8812 user={user} dbname=qdb");
+    if !password.is_empty() {
+        conn.push_str(&format!(" password={password}"));
+    }
+    conn
+}
+
 /// Create a QuestDB Sender from a QDB_CLIENT_CONF formatted string.
 pub async fn connect(conf_str: &str) -> Result<Sender, Box<dyn std::error::Error + Send + Sync>> {
     let conf = if conf_str.is_empty() {
@@ -45,19 +83,25 @@ pub async fn connect(conf_str: &str) -> Result<Sender, Box<dyn std::error::Error
     Ok(Sender::from_conf(conf)?)
 }
 
-/// Run embedded SQL migrations against QuestDB using its HTTP API.
+/// Run embedded SQL migrations against QuestDB using its PostgreSQL wire protocol.
+///
+/// Connects on port 8812 (QuestDB's PG wire protocol) and uses
+/// `refinery::Runner::run_async()` for automatic `__refinery_migrations` tracking.
+/// Falls back gracefully on connection error to allow running without persistence.
 pub async fn run_migrations(
     conf_str: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let http_addr = extract_http_addr(conf_str);
-    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+    let pg_conf = extract_pg_conf(conf_str);
+    let (mut client, connection) = tokio_postgres::connect(&pg_conf, NoTls).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("[DB] PG wire connection error: {e}");
+        }
+    });
 
     let runner = migrations::runner();
-    for migration in runner.get_migrations() {
-        if let Some(sql) = migration.sql() {
-            execute_sql(&client, &http_addr, sql).await?;
-        }
-    }
+    runner.run_async(&mut client).await?;
 
     Ok(())
 }
@@ -224,6 +268,30 @@ mod tests {
             extract_http_addr("username=admin;password=quest;"),
             "localhost:9000"
         );
+    }
+
+    #[test]
+    fn test_extract_pg_conf_full() {
+        let conf = extract_pg_conf("http::addr=localhost:9000;username=admin;password=quest;");
+        assert_eq!(conf, "host=localhost port=8812 user=admin dbname=qdb password=quest");
+    }
+
+    #[test]
+    fn test_extract_pg_conf_no_password() {
+        let conf = extract_pg_conf("http::addr=localhost:9000;username=admin;");
+        assert_eq!(conf, "host=localhost port=8812 user=admin dbname=qdb");
+    }
+
+    #[test]
+    fn test_extract_pg_conf_default() {
+        let conf = extract_pg_conf("");
+        assert_eq!(conf, "host=localhost port=8812 user=admin dbname=qdb");
+    }
+
+    #[test]
+    fn test_extract_pg_conf_custom_host() {
+        let conf = extract_pg_conf("http::addr=questdb.internal:9000;username=admin;password=secret;");
+        assert_eq!(conf, "host=questdb.internal port=8812 user=admin dbname=qdb password=secret");
     }
 
     #[test]

@@ -127,7 +127,7 @@ make test
 
 ## Key Architectural Decisions (ADRs)
 
-All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibonsai/cryptomeria/wiki/Topic-Index#architecture-decision-records-adrs), organized by category. Key ones: [ADR-029 (License + Brand Protection)](https://github.com/fibonsai/cryptomeria/wiki/ADR-029-20260727-apache-license-brand-protection), [ADR-030 (GitHub Actions CI)](https://github.com/fibonsai/cryptomeria/wiki/ADR-030-20260727-github-actions-ci).
+All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibonsai/cryptomeria/wiki/Topic-Index#architecture-decision-records-adrs), organized by category. Key ones: [ADR-029 (License + Brand Protection)](https://github.com/fibonsai/cryptomeria/wiki/ADR-029-20260727-apache-license-brand-protection), [ADR-030 (GitHub Actions CI)](https://github.com/fibonsai/cryptomeria/wiki/ADR-030-20260727-github-actions-ci), [ADR-032 (Dual-protocol QuestDB migration)](https://github.com/fibonsai/cryptomeria/wiki/ADR-032-20260729-dual-protocol-questdb-migration-strategy).
 
 ---
 
@@ -197,7 +197,7 @@ Licensed under [Apache 2.0](LICENSE) with additional brand protections for Fibon
 - **WS clients**: All three exchange clients share the same architecture via shared traits/utilities (ADR-017): exponential backoff with jitter reconnection (ADR-012), graceful shutdown on SIGINT/SIGTERM (ADR-014), heartbeat handling (Kraken), diff_order_book + REST snapshot reconciliation (Bitstamp, ADR-018)
 - **Instrument resolution**: `resolve_instrument()` in `main.rs` implements a currency fallback chain (USDC→USDT→USD) (ADR-021). `cli_inst_id` (lowercase, no separator) is threaded through `ExchangeClientBuilder` for consistent DB persistence.
 - **LOB state**: OKX and Kraken use `BTreeMap<OrderedFloat<f64>, f64>` (ADR-002); Bitstamp uses `BTreeMap` aggregation with `apply_snapshot()` (REST) + `apply_diff()` (WS diff_order_book, ADR-018)
-- **Persistence**: QuestDB via ILP sender (refinery migrations in `rs/src/db/migrations/`), TTL set at startup (ADR-010)
+- **Persistence**: QuestDB via ILP sender on port 9000 for ingestion; migrations via `tokio-postgres` + `refinery::Runner::run_async()` on port 8812 (PG wire protocol); TTL set at startup (ADR-010); dual-protocol strategy documented in (ADR-032)
 - **Metrics**: Prometheus registry served as JSON on `/metrics` for Grafana Infinity (ADR-011, ADR-013)
 - **Tests**: Unit tests in `mod tests` in each module; integration tests in `rs/tests/` marked `#[ignore]`
 

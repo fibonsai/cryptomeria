@@ -47,6 +47,7 @@ All ADRs are published on the [GitHub Wiki Topic Index](https://github.com/fibon
 | 008 | QuestDB TTL for automatic retention | [ADR-008](https://github.com/fibonsai/cryptomeria/wiki/ADR-008-20260721-questdb-storage-policy) |
 | 010 | Move TTL execution to startup | [ADR-010](https://github.com/fibonsai/cryptomeria/wiki/ADR-010-20260721-move-ttl-execution-to-startup) |
 | 023 | Consolidate refinery migrations | [ADR-023](https://github.com/fibonsai/cryptomeria/wiki/ADR-023-20260724-consolidate-refinery-migrations) |
+| 032 | Dual-protocol QuestDB migration (PG wire + ILP) | [ADR-032](https://github.com/fibonsai/cryptomeria/wiki/ADR-032-20260729-dual-protocol-questdb-migration-strategy) |
 
 ### Metrics & Visualization
 
