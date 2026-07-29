@@ -1,7 +1,8 @@
 use reqwest::Client;
 use std::time::Duration;
 
-const SCHEMA_VERSION_DDL: &str = "CREATE TABLE IF NOT EXISTS schema_version (version INT, name STRING, applied_on STRING)";
+const SCHEMA_VERSION_DDL: &str =
+    "CREATE TABLE IF NOT EXISTS schema_version (version INT, name STRING, applied_on STRING)";
 
 pub struct Migration {
     pub version: i32,
@@ -38,7 +39,12 @@ impl QuestDbMigrator {
             self.http_addr,
             urlencoding::encode(sql)
         );
-        let response = self.client.get(&url).send().await.map_err(|e| e.to_string())?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         if !response.status().is_success() {
             let text = response.text().await.map_err(|e| e.to_string())?;
             return Err(format!("QuestDB SQL error: {}", text));
@@ -52,7 +58,12 @@ impl QuestDbMigrator {
             self.http_addr,
             urlencoding::encode(sql)
         );
-        let response = self.client.get(&url).send().await.map_err(|e| e.to_string())?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         if !response.status().is_success() {
             let text = response.text().await.map_err(|e| e.to_string())?;
             return Err(format!("QuestDB SQL error: {}", text));
@@ -82,7 +93,11 @@ impl QuestDbMigrator {
             let version = parts[0].as_i64().unwrap_or(0) as i32;
             let name = parts[1].as_str().unwrap_or("").to_string();
             let applied_on = parts[2].as_str().unwrap_or("").to_string();
-            applied.push(AppliedMigration { version, name, applied_on });
+            applied.push(AppliedMigration {
+                version,
+                name,
+                applied_on,
+            });
         }
         Ok(applied)
     }
@@ -105,22 +120,19 @@ impl QuestDbMigrator {
                 }
                 continue;
             }
-            eprintln!(
-                "[MIGRATE] Applying V{}__{}...",
-                version, migration.name
-            );
-            self.execute_sql(migration.sql).await.map_err(|e| {
-                format!("Migration V{}__{} failed: {e}", version, migration.name)
-            })?;
+            eprintln!("[MIGRATE] Applying V{}__{}...", version, migration.name);
+            self.execute_sql(migration.sql)
+                .await
+                .map_err(|e| format!("Migration V{}__{} failed: {e}", version, migration.name))?;
             let insert_sql = format!(
                 "INSERT INTO schema_version (version, name, applied_on) VALUES ({}, '{}', '{}')",
                 version,
                 migration.name.replace('\'', "''"),
                 chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ")
             );
-            self.execute_sql(&insert_sql).await.map_err(|e| {
-                format!("Failed to record V{}__{}: {e}", version, migration.name)
-            })?;
+            self.execute_sql(&insert_sql)
+                .await
+                .map_err(|e| format!("Failed to record V{}__{}: {e}", version, migration.name))?;
             eprintln!("[MIGRATE] V{}__{} applied", version, migration.name);
         }
         Ok(())
