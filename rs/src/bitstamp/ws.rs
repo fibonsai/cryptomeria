@@ -7,6 +7,7 @@ use crate::db::{TradeData as DbTradeData, persist_lob, persist_trade};
 use crate::logging;
 use crate::traits::{
     self, ClientStatus, ExchangeClientBuilder, LobFilter, LobMetrics, StatusHandle, backoff_delay,
+    wait_for_shutdown_signal,
 };
 use futures_util::SinkExt;
 use futures_util::StreamExt;
@@ -511,8 +512,8 @@ Some(Ok(Message::Binary(_))) => {
                                             break;
                                         }
                                     }
-                                    _ = tokio::signal::ctrl_c() => {
-                                        logging::info("bitstamp", "[SHUTDOWN] received SIGINT");
+                                    _ = wait_for_shutdown_signal() => {
+                                        logging::info("bitstamp", "[SHUTDOWN] received signal");
                                         shutdown = true;
                                         break;
                                     },

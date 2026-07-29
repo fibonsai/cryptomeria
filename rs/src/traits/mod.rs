@@ -157,6 +157,30 @@ pub async fn signal_sleep(
     }
 }
 
+/// Wait for a shutdown signal (SIGINT or SIGTERM on Unix, SIGINT on non-Unix).
+/// Returns when either signal is received. Used in main event loops to break
+/// out of the read loop on termination signals.
+pub async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to register SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                logging::info("signal", "received SIGINT");
+            }
+            _ = sigterm.recv() => {
+                logging::info("signal", "received SIGTERM");
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await.expect("failed to listen for SIGINT");
+        logging::info("signal", "received SIGINT");
+    }
+}
+
 /// Shared Prometheus metrics for LOB data with exchange+instrument labels.
 #[derive(Clone)]
 pub struct LobMetrics {

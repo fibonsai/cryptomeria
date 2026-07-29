@@ -51,3 +51,16 @@ pub fn error(source: &str, msg: &str) {
 pub fn debug(source: &str, msg: &str) {
     log(Level::Debug, source, msg);
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_logging_output() {
+        init();
+        info("test", "info message");
+        warn("test", "warn message");
+        error("test", "error message");
+        debug("test", "debug message");
+    }
+}
