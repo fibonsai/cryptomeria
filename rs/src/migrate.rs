@@ -119,18 +119,18 @@ impl QuestDbMigrator {
                 continue;
             }
             logging::info("migrate", &format!("Applying V{}__{}...", version, migration.name));
-            self.execute_sql(migration.sql).await.map_err(|e| {
-                format!("Migration V{}__{} failed: {e}", version, migration.name)
-            })?;
+            self.execute_sql(migration.sql)
+                .await
+                .map_err(|e| format!("Migration V{}__{} failed: {e}", version, migration.name))?;
             let insert_sql = format!(
                 "INSERT INTO schema_version (version, name, applied_on) VALUES ({}, '{}', '{}')",
                 version,
                 migration.name.replace('\'', "''"),
                 chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ")
             );
-            self.execute_sql(&insert_sql).await.map_err(|e| {
-                format!("Failed to record V{}__{}: {e}", version, migration.name)
-            })?;
+            self.execute_sql(&insert_sql)
+                .await
+                .map_err(|e| format!("Failed to record V{}__{}: {e}", version, migration.name))?;
             logging::info("migrate", &format!("V{}__{} applied", version, migration.name));
         }
         Ok(())
