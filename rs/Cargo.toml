@@ -26,6 +26,7 @@ prettytable-rs = "0.10"
 [dev-dependencies]
 serde_test = "1"
 serial_test = "2.0"
+testcontainers = "0.27"
 
 [[test]]
 name = "okx_integration"
@@ -40,5 +41,10 @@ harness = true
 [[test]]
 name = "bitstamp_integration"
 path = "tests/bitstamp_integration.rs"
+harness = true
+
+[[test]]
+name = "questdb_migration"
+path = "tests/questdb_migration.rs"
 harness = true
 

@@ -83,28 +83,27 @@ pub async fn connect(conf_str: &str) -> Result<Sender, Box<dyn std::error::Error
     Ok(Sender::from_conf(conf)?)
 }
 
+/// QuestDB-compatible DDL for refinery's tracking table.
+///
+/// Refinery's default `ASSERT_MIGRATIONS_TABLE_QUERY` uses PostgreSQL-specific
+/// types (`INT4 PRIMARY KEY`, `VARCHAR(255)`) that QuestDB does not support via
+/// PG wire. This table is pre-created via HTTP using native QuestDB types so
+/// that refinery's `CREATE TABLE IF NOT EXISTS` finds it already exists and
+/// skips the incompatible DDL.
+pub const REFINERY_SCHEMA_HISTORY_DDL: &str =
+    "CREATE TABLE IF NOT EXISTS refinery_schema_history (version INT, name STRING, applied_on STRING, checksum STRING)";
+
 /// Run embedded SQL migrations against QuestDB using its PostgreSQL wire protocol.
 ///
 /// Connects on port 8812 (QuestDB's PG wire protocol) and uses
 /// `refinery::Runner::run_async()` for automatic migration tracking.
 /// Falls back gracefully on connection error to allow running without persistence.
-///
-/// Refinery's default `ASSERT_MIGRATIONS_TABLE_QUERY` uses PostgreSQL-specific
-/// types (`INT4 PRIMARY KEY`, `VARCHAR(255)`) that QuestDB does not support via
-/// PG wire. This function pre-creates the `refinery_schema_history` table via
-/// QuestDB's HTTP endpoint using native types (`INT`, `STRING`), so refinery's
-/// `CREATE TABLE IF NOT EXISTS` finds it already exists and skips the incompatible DDL.
 pub async fn run_migrations(
     conf_str: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let http_addr = extract_http_addr(conf_str);
     let http_client = Client::builder().timeout(Duration::from_secs(10)).build()?;
-    execute_sql(
-        &http_client,
-        &http_addr,
-        "CREATE TABLE IF NOT EXISTS refinery_schema_history (version INT, name STRING, applied_on STRING, checksum STRING)",
-    )
-    .await?;
+    execute_sql(&http_client, &http_addr, REFINERY_SCHEMA_HISTORY_DDL).await?;
 
     let pg_conf = extract_pg_conf(conf_str);
     let (mut client, connection) = tokio_postgres::connect(&pg_conf, NoTls).await?;
@@ -309,17 +308,7 @@ mod tests {
         assert_eq!(conf, "host=questdb.internal port=8812 user=admin dbname=qdb password=secret");
     }
 
-    #[test]
-    fn test_tracking_table_ddl_syntax() {
-        let sql = "CREATE TABLE IF NOT EXISTS refinery_schema_history (version INT, name STRING, applied_on STRING, checksum STRING)";
-        assert!(sql.starts_with("CREATE TABLE IF NOT EXISTS"));
-        assert!(sql.contains("refinery_schema_history"));
-        assert!(sql.contains("INT"));
-        assert!(sql.contains("STRING"));
-        assert!(!sql.contains("INT4"));
-        assert!(!sql.contains("VARCHAR"));
-        assert!(!sql.contains("PRIMARY KEY"));
-    }
+
 
     #[test]
     fn test_connect_parses_conf() {
