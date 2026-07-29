@@ -184,21 +184,39 @@ impl OrderBook {
     ) -> Vec<PriceLevel> {
         match filter {
             LobFilter::MaxLevelPct(_pct) => {
-                let best_bid = if side == Side::Bid { batch_best } else { self.best_bid() };
-                let best_ask = if side == Side::Ask { batch_best } else { self.best_ask() };
+                let best_bid = if side == Side::Bid {
+                    batch_best
+                } else {
+                    self.best_bid()
+                };
+                let best_ask = if side == Side::Ask {
+                    batch_best
+                } else {
+                    self.best_ask()
+                };
                 levels
                     .iter()
                     .copied()
                     .filter(|&(price, amount)| {
-                        filter.should_include(best_bid, best_ask, price, amount, side == Side::Bid, 0, false)
+                        filter.should_include(
+                            best_bid,
+                            best_ask,
+                            price,
+                            amount,
+                            side == Side::Bid,
+                            0,
+                            false,
+                        )
                     })
                     .collect()
             }
             LobFilter::MaxLevel(max) => {
                 let mut parsed: Vec<(f64, f64)> = levels.to_vec();
                 match side {
-                    Side::Bid => parsed.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)),
-                    Side::Ask => parsed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)),
+                    Side::Bid => parsed
+                        .sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)),
+                    Side::Ask => parsed
+                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)),
                 }
                 parsed.truncate(*max);
                 parsed
@@ -444,7 +462,15 @@ mod tests {
         // Ask at 50150 is within 0.5% of 50100 (threshold=50350.5)
         assert!(filter.should_include(Some(50000.0), Some(50100.0), 50150.0, 2.0, false, 1, false));
         // Ask at 51000 is outside
-        assert!(!filter.should_include(Some(50000.0), Some(50100.0), 51000.0, 2.0, false, 1, false));
+        assert!(!filter.should_include(
+            Some(50000.0),
+            Some(50100.0),
+            51000.0,
+            2.0,
+            false,
+            1,
+            false
+        ));
     }
 
     #[test]

@@ -221,7 +221,9 @@ impl OrderBook {
                     if let Some(ref channel) = msg.channel {
                         if channel.starts_with("live_orders_") {
                             if let Ok(entry) = serde_json::from_value::<OrderEntry>(data.clone()) {
-                                if let Some(filtered) = filter.and_then(|f| self.filter_order_entry(entry.clone(), f)) {
+                                if let Some(filtered) =
+                                    filter.and_then(|f| self.filter_order_entry(entry.clone(), f))
+                                {
                                     self.apply_order(&filtered);
                                 } else if filter.is_none() {
                                     self.apply_order(&entry);
@@ -251,8 +253,7 @@ impl OrderBook {
     fn filter_snapshot(&self, ob: OrderBookData, filter: &LobFilter) -> OrderBookData {
         let bid_best = ob.bids.iter().find_map(|level| {
             if level.len() >= 2
-                && let (Ok(price), Ok(amount)) =
-                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
                 && amount > 0.0
             {
                 Some(price)
@@ -262,8 +263,7 @@ impl OrderBook {
         });
         let ask_best = ob.asks.iter().find_map(|level| {
             if level.len() >= 2
-                && let (Ok(price), Ok(amount)) =
-                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
                 && amount > 0.0
             {
                 Some(price)
@@ -275,8 +275,7 @@ impl OrderBook {
         let mut filtered_bids: Vec<[String; 2]> = Vec::new();
         for level in &ob.bids {
             if level.len() >= 2
-                && let (Ok(price), Ok(amount)) =
-                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
                 && filter.should_include(
                     bid_best.or(self.best_bid()),
                     ask_best.or(self.best_ask()),
@@ -293,8 +292,7 @@ impl OrderBook {
         let mut filtered_asks: Vec<[String; 2]> = Vec::new();
         for level in &ob.asks {
             if level.len() >= 2
-                && let (Ok(price), Ok(amount)) =
-                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
                 && filter.should_include(
                     bid_best.or(self.best_bid()),
                     ask_best.or(self.best_ask()),
@@ -321,8 +319,7 @@ impl OrderBook {
         let mut filtered_bids: Vec<[String; 2]> = Vec::new();
         for level in &ob.bids {
             if level.len() >= 2
-                && let (Ok(price), Ok(amount)) =
-                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
             {
                 let price_exists = self.bids.contains_key(&Reverse(OrderedFloat(price)));
                 if filter.should_include(
@@ -341,8 +338,7 @@ impl OrderBook {
         let mut filtered_asks: Vec<[String; 2]> = Vec::new();
         for level in &ob.asks {
             if level.len() >= 2
-                && let (Ok(price), Ok(amount)) =
-                    (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
             {
                 let price_exists = self.asks.contains_key(&OrderedFloat(price));
                 if filter.should_include(

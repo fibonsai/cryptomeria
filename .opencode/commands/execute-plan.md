@@ -23,7 +23,8 @@ If the current branch is not `main`, ABORT this command, explaining that it is m
 
 ### 1. Fetch remote main branch and create an git worktree
 
-Worktree name template: <tags separated by "-">/<short description replacing spaces with "-">
+* Worktree name template: <tags separated by "-">/<short description replacing spaces with "-">
+* ALWAYS create worktree inside current PROJECT_ROOT directory.
 
 ```bash
 PROJECT_ROOT=$(pwd)
