@@ -47,3 +47,4 @@ data/**/*
 Thumbs.db
 
 graphify-out/**
+.testcontainers.properties
