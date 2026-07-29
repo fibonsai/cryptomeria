@@ -2,6 +2,7 @@ use clap::Parser;
 use cryptomeria::bitstamp::ws::BitstampClient;
 use cryptomeria::db::{connect_sender, run_migrations};
 use cryptomeria::kraken::ws::KrakenClient;
+use cryptomeria::logging;
 use cryptomeria::okx::ws::OkxClient;
 use cryptomeria::traits::{ClientStatus, LobMetrics, StatusHandle};
 use prettytable::{Row, Table, cell};
@@ -123,10 +124,7 @@ fn resolve_one_instrument(instrument: &str, exchange: &str) -> (String, String, 
             } else {
                 format!("(resolved from {})", symbol)
             };
-            eprintln!(
-                "[ARGS] exchange={} instrument={} {}",
-                effective_exchange, formatted, note
-            );
+            crate::logging::info("system", &format!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note));
             return (formatted, effective_exchange, cli_inst_id);
         }
 
@@ -139,10 +137,7 @@ fn resolve_one_instrument(instrument: &str, exchange: &str) -> (String, String, 
             } else {
                 format!("(fallback {}->{})", target, fallback)
             };
-            eprintln!(
-                "[ARGS] exchange={} instrument={} {}",
-                effective_exchange, formatted, note
-            );
+            crate::logging::info("system", &format!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note));
             return (formatted, effective_exchange, cli_inst_id);
         }
     }
@@ -153,10 +148,7 @@ fn resolve_one_instrument(instrument: &str, exchange: &str) -> (String, String, 
     } else {
         "(raw)".to_string()
     };
-    eprintln!(
-        "[ARGS] exchange={} instrument={} {}",
-        effective_exchange, formatted, note
-    );
+    crate::logging::info("system", &format!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note));
     (formatted, effective_exchange, cli_inst_id)
 }
 
@@ -412,6 +404,7 @@ pub fn parse_args() -> CliArgs {
 
 #[tokio::main]
 async fn main() {
+    logging::init();
     let cli = parse_args();
 
     if cli.list_instruments {
@@ -424,21 +417,18 @@ async fn main() {
     let questdb_conf = cryptomeria::db::resolve_questdb_conf(cli.questdb_conf.as_deref());
 
     if let Err(e) = run_migrations(&questdb_conf).await {
-        eprintln!("[DB] Migration failed: {} — running without persistence", e);
+        crate::logging::error("migrate", &format!("Migration failed: {} — running without persistence", e));
     } else {
-        eprintln!("[DB] Migrations applied successfully");
+        crate::logging::info("migrate", "Migrations applied successfully");
     }
 
     let sender = match connect_sender(&questdb_conf).await {
         Ok(s) => {
-            eprintln!("[DB] QuestDB sender connected");
+            crate::logging::info("db", "QuestDB sender connected");
             Some(s)
         }
         Err(e) => {
-            eprintln!(
-                "[DB] QuestDB not available — running without persistence: {}",
-                e
-            );
+            crate::logging::warn("db", &format!("QuestDB not available — running without persistence: {}", e));
             None
         }
     };
@@ -474,7 +464,7 @@ async fn main() {
     };
 
     if resolved.is_empty() {
-        eprintln!("[ERROR] No instruments to connect to");
+        crate::logging::error("system", "No instruments to connect to");
         return;
     }
 
@@ -517,10 +507,7 @@ async fn main() {
             match connect_sender(&qc).await {
                 Ok(s) => Some(s),
                 Err(e) => {
-                    eprintln!(
-                        "[DB] Failed to connect sender for {}@{}: {}",
-                        symbol, exchange, e
-                    );
+                    crate::logging::error("db", &format!("Failed to connect sender for {}@{}: {}", cli_inst_id, exchange, e));
                     None
                 }
             }
@@ -530,7 +517,7 @@ async fn main() {
 
         let handle = tokio::spawn(async move {
             let ws_url = cryptomeria::urls::websocket_url(&region, &exchange);
-            eprintln!("[CONNECTING] {} ({})", ws_url, region);
+            crate::logging::info(cli_inst_id.as_str(), &format!("Connecting to {} ({})", ws_url, region));
 
             match exchange.as_str() {
                 "kraken" => {
@@ -542,7 +529,7 @@ async fn main() {
                         data_output,
                         &qc,
                     )
-                    .with_cli_instrument(cli_inst_id)
+                    .with_cli_instrument(cli_inst_id.clone())
                     .with_lob_metrics(lm)
                     .with_status_handle(sh);
                     if let Some(s) = sender_opt {
@@ -554,8 +541,9 @@ async fn main() {
                     if let Some(ml) = cli.max_level {
                         client = client.with_max_level(ml);
                     }
+                    let cli_inst_id_for_log = cli_inst_id.clone();
                     if let Err(e) = client.run().await {
-                        eprintln!("[ERROR] {}@{}: {}", symbol, exchange, e);
+                        crate::logging::error(cli_inst_id_for_log.as_str(), &format!("{}@{}: {}", symbol, exchange, e));
                     }
                 }
                 "bitstamp" => {
@@ -567,7 +555,7 @@ async fn main() {
                         data_output,
                         &qc,
                     )
-                    .with_cli_instrument(cli_inst_id)
+                    .with_cli_instrument(cli_inst_id.clone())
                     .with_lob_metrics(lm)
                     .with_status_handle(sh)
                     .with_snapshot_depth(cli.bitstamp_snapshot_depth);
@@ -580,11 +568,13 @@ async fn main() {
                     if let Some(ml) = cli.max_level {
                         client = client.with_max_level(ml);
                     }
+                    let cli_inst_id_for_log = cli_inst_id.clone();
                     if let Err(e) = client.run().await {
-                        eprintln!("[ERROR] {}@{}: {}", symbol, exchange, e);
+                        crate::logging::error(cli_inst_id_for_log.as_str(), &format!("{}@{}: {}", symbol, exchange, e));
                     }
                 }
                 _ => {
+                    let cli_inst_id_for_log = cli_inst_id.clone();
                     let mut client = OkxClient::new(
                         &symbol,
                         &exchange,
@@ -593,7 +583,7 @@ async fn main() {
                         data_output,
                         &qc,
                     )
-                    .with_cli_instrument(cli_inst_id)
+                    .with_cli_instrument(cli_inst_id.clone())
                     .with_lob_metrics(lm)
                     .with_status_handle(sh);
                     if let Some(s) = sender_opt {
@@ -606,12 +596,12 @@ async fn main() {
                         client = client.with_max_level(ml);
                     }
                     if let Err(e) = client.run().await {
-                        eprintln!("[ERROR] {}@{}: {}", symbol, exchange, e);
+                        crate::logging::error(cli_inst_id_for_log.as_str(), &format!("{}@{}: {}", symbol, exchange, e));
                     }
                 }
             }
 
-            eprintln!("[DISCONNECTED] {}@{}", symbol, exchange);
+            crate::logging::info(cli_inst_id.as_str(), &format!("Disconnected {}@{}", symbol, exchange));
         });
 
         handles.push(handle);
@@ -628,7 +618,7 @@ async fn main() {
                 http_metrics,
                 http_status,
             )) {
-                eprintln!("[HTTP] Server error: {}", e);
+                crate::logging::error("http", &format!("Server error: {}", e));
             }
         });
     }
@@ -638,7 +628,7 @@ async fn main() {
         let _ = handle.await;
     }
 
-    eprintln!("[SHUTDOWN] All tasks completed");
+    crate::logging::info("system", "All tasks completed");
 }
 
 #[cfg(test)]

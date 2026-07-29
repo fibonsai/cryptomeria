@@ -1,3 +1,4 @@
+use crate::logging;
 use crate::migrate::{Migration, QuestDbMigrator};
 use crate::okx::types::LobLevel;
 use questdb::ingress::{Buffer, Sender, TimestampNanos};
@@ -177,7 +178,7 @@ pub async fn apply_ttl(
     for table in &["lob_levels", "trades"] {
         let sql = format!("ALTER TABLE {} SET TTL {} HOURS", table, ttl_hours);
         if let Err(e) = execute_sql(&client, &http_addr, &sql).await {
-            eprintln!("[DB TTL] {}: {}", table, e);
+            logging::error("db", &format!("TTL {}: {}", table, e));
         }
     }
     Ok(())
