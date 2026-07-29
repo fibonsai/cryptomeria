@@ -517,7 +517,7 @@ async fn main() {
 
         let handle = tokio::spawn(async move {
             let ws_url = cryptomeria::urls::websocket_url(&region, &exchange);
-            crate::logging::info(cli_inst_id.as_str(), &format!("Connecting to {} ({})", ws_url, region));
+            crate::logging::info(&exchange, &format!("Connecting to {} ({})", ws_url, region));
 
             match exchange.as_str() {
                 "kraken" => {

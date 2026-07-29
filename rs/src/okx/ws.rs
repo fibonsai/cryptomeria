@@ -292,7 +292,7 @@ impl OkxClient {
                                                     let now = parsed.formatted_time();
                                                     let book_line =
                                                         order_book.display(&self.instrument, self.max_level_pct);
-                                                    println!("[{} LOB2] {}", now, book_line);
+                                                    logging::info("okx", &format!("[{} LOB2] {}", now, book_line));
                                                 }
 
                                                 // Update Prometheus metrics
@@ -302,7 +302,7 @@ impl OkxClient {
                                             MessageType::Trade | MessageType::Event | MessageType::Unknown => {
                                                 if self.data_output {
                                                     let line = display_message(&parsed);
-                                                    println!("{}", line);
+                                                    logging::info("okx", &line);
                                                 }
 
                                                 // Update trades metrics
