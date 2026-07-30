@@ -124,7 +124,13 @@ fn resolve_one_instrument(instrument: &str, exchange: &str) -> (String, String, 
             } else {
                 format!("(resolved from {})", symbol)
             };
-            crate::logging::info("system", &format!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note));
+            crate::logging::info(
+                "system",
+                &format!(
+                    "[ARGS] exchange={} instrument={} {}",
+                    effective_exchange, formatted, note
+                ),
+            );
             return (formatted, effective_exchange, cli_inst_id);
         }
 
@@ -137,7 +143,13 @@ fn resolve_one_instrument(instrument: &str, exchange: &str) -> (String, String, 
             } else {
                 format!("(fallback {}->{})", target, fallback)
             };
-            crate::logging::info("system", &format!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note));
+            crate::logging::info(
+                "system",
+                &format!(
+                    "[ARGS] exchange={} instrument={} {}",
+                    effective_exchange, formatted, note
+                ),
+            );
             return (formatted, effective_exchange, cli_inst_id);
         }
     }
@@ -148,7 +160,13 @@ fn resolve_one_instrument(instrument: &str, exchange: &str) -> (String, String, 
     } else {
         "(raw)".to_string()
     };
-    crate::logging::info("system", &format!("[ARGS] exchange={} instrument={} {}", effective_exchange, formatted, note));
+    crate::logging::info(
+        "system",
+        &format!(
+            "[ARGS] exchange={} instrument={} {}",
+            effective_exchange, formatted, note
+        ),
+    );
     (formatted, effective_exchange, cli_inst_id)
 }
 
@@ -417,7 +435,10 @@ async fn main() {
     let questdb_conf = cryptomeria::db::resolve_questdb_conf(cli.questdb_conf.as_deref());
 
     if let Err(e) = run_migrations(&questdb_conf).await {
-        crate::logging::error("migrate", &format!("Migration failed: {} — running without persistence", e));
+        crate::logging::error(
+            "migrate",
+            &format!("Migration failed: {} — running without persistence", e),
+        );
     } else {
         crate::logging::info("migrate", "Migrations applied successfully");
     }
@@ -428,7 +449,10 @@ async fn main() {
             Some(s)
         }
         Err(e) => {
-            crate::logging::warn("db", &format!("QuestDB not available — running without persistence: {}", e));
+            crate::logging::warn(
+                "db",
+                &format!("QuestDB not available — running without persistence: {}", e),
+            );
             None
         }
     };
@@ -507,7 +531,13 @@ async fn main() {
             match connect_sender(&qc).await {
                 Ok(s) => Some(s),
                 Err(e) => {
-                    crate::logging::error("db", &format!("Failed to connect sender for {}@{}: {}", cli_inst_id, exchange, e));
+                    crate::logging::error(
+                        "db",
+                        &format!(
+                            "Failed to connect sender for {}@{}: {}",
+                            cli_inst_id, exchange, e
+                        ),
+                    );
                     None
                 }
             }
@@ -543,7 +573,10 @@ async fn main() {
                     }
                     let cli_inst_id_for_log = cli_inst_id.clone();
                     if let Err(e) = client.run().await {
-                        crate::logging::error(cli_inst_id_for_log.as_str(), &format!("{}@{}: {}", symbol, exchange, e));
+                        crate::logging::error(
+                            cli_inst_id_for_log.as_str(),
+                            &format!("{}@{}: {}", symbol, exchange, e),
+                        );
                     }
                 }
                 "bitstamp" => {
@@ -570,7 +603,10 @@ async fn main() {
                     }
                     let cli_inst_id_for_log = cli_inst_id.clone();
                     if let Err(e) = client.run().await {
-                        crate::logging::error(cli_inst_id_for_log.as_str(), &format!("{}@{}: {}", symbol, exchange, e));
+                        crate::logging::error(
+                            cli_inst_id_for_log.as_str(),
+                            &format!("{}@{}: {}", symbol, exchange, e),
+                        );
                     }
                 }
                 _ => {
@@ -596,12 +632,18 @@ async fn main() {
                         client = client.with_max_level(ml);
                     }
                     if let Err(e) = client.run().await {
-                        crate::logging::error(cli_inst_id_for_log.as_str(), &format!("{}@{}: {}", symbol, exchange, e));
+                        crate::logging::error(
+                            cli_inst_id_for_log.as_str(),
+                            &format!("{}@{}: {}", symbol, exchange, e),
+                        );
                     }
                 }
             }
 
-            crate::logging::info(cli_inst_id.as_str(), &format!("Disconnected {}@{}", symbol, exchange));
+            crate::logging::info(
+                cli_inst_id.as_str(),
+                &format!("Disconnected {}@{}", symbol, exchange),
+            );
         });
 
         handles.push(handle);

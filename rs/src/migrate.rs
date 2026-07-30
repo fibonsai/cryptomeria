@@ -114,11 +114,20 @@ impl QuestDbMigrator {
             if applied_map.contains_key(&version) {
                 let existing = applied_map[&version];
                 if existing.name != migration.name {
-                    logging::error("migrate", &format!("Divergent migration V{}: embedded name '{}' != applied name '{}'", version, migration.name, existing.name));
+                    logging::error(
+                        "migrate",
+                        &format!(
+                            "Divergent migration V{}: embedded name '{}' != applied name '{}'",
+                            version, migration.name, existing.name
+                        ),
+                    );
                 }
                 continue;
             }
-            logging::info("migrate", &format!("Applying V{}__{}...", version, migration.name));
+            logging::info(
+                "migrate",
+                &format!("Applying V{}__{}...", version, migration.name),
+            );
             self.execute_sql(migration.sql)
                 .await
                 .map_err(|e| format!("Migration V{}__{} failed: {e}", version, migration.name))?;
@@ -131,7 +140,10 @@ impl QuestDbMigrator {
             self.execute_sql(&insert_sql)
                 .await
                 .map_err(|e| format!("Failed to record V{}__{}: {e}", version, migration.name))?;
-            logging::info("migrate", &format!("V{}__{} applied", version, migration.name));
+            logging::info(
+                "migrate",
+                &format!("V{}__{} applied", version, migration.name),
+            );
         }
         Ok(())
     }
