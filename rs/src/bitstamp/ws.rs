@@ -317,17 +317,17 @@ msg = read.next() => {
                                                     Ok(parsed) => {
                                                         self.messages_received.fetch_add(1, Ordering::Relaxed);
 
-                                                        if !snapshot_applied {
-                                                            match parsed.message_type() {
-                                                                MessageType::L2Update => {
-                                                                    // Buffer all diffs until snapshot is applied
-                                                                    buffer.push(parsed);
-                                                                }
-                                                                MessageType::Trade => {
-                                                                    if self.data_output {
-                                                                        let line = display_message(&parsed);
-                                                                        println!("{}", line);
-                                                                    }
+if !snapshot_applied {
+                                                             match parsed.message_type() {
+                                                                 MessageType::L2Update => {
+                                                                     // Buffer all diffs until snapshot is applied
+                                                                     buffer.push(parsed);
+                                                                 }
+                                                                 MessageType::Trade => {
+                                                                     if self.data_output {
+                                                                         let line = display_message(&parsed);
+                                                                         logging::info("bitstamp", &line);
+                                                                     }
                                                                     self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
                                                                     last_trade_count += 1;
                                                                     let elapsed = last_trade_time.elapsed();
@@ -352,22 +352,22 @@ msg = read.next() => {
                                                                         self.update_last_price(px);
                                                                     }
                                                                 }
-                                                                MessageType::Event => {
-                                                                    if parsed.event.as_deref() == Some("bts:subscription_succeeded") {
-                                                                        subscription_confirmed = true;
-                                                                    }
-                                                                    if self.data_output {
-                                                                        let line = display_message(&parsed);
-                                                                        println!("{}", line);
-                                                                    }
-                                                                }
-                                                                MessageType::Unknown => {
-                                                                    if self.data_output {
-                                                                        let line = display_message(&parsed);
-                                                                        println!("{}", line);
-                                                                    }
-                                                                }
-                                                                MessageType::L2Snapshot => {}
+MessageType::Event => {
+                                                                     if parsed.event.as_deref() == Some("bts:subscription_succeeded") {
+                                                                         subscription_confirmed = true;
+                                                                     }
+                                                                     if self.data_output {
+                                                                         let line = display_message(&parsed);
+                                                                         logging::info("bitstamp", &line);
+                                                                     }
+                                                                 }
+                                                                 MessageType::Unknown => {
+                                                                     if self.data_output {
+                                                                         let line = display_message(&parsed);
+                                                                         logging::info("bitstamp", &line);
+                                                                     }
+                                                                 }
+                                                                 MessageType::L2Snapshot => {}
                                                             }
 
                                                             // Fetch snapshot once subscription is confirmed (one attempt per connection)
@@ -410,11 +410,11 @@ logging::info("bitstamp", &format!("SNAPSHOT Applied — microtimestamp={} bids=
                                                                                 }
                                                                                 logging::info("bitstamp", &format!("SNAPSHOT Replayed {} buffered diffs", keep.len()));
 
-                                                                                if self.data_output {
-                                                                                    let now = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
-                                                                                    let book_line = order_book.display(&self.instrument, self.max_level_pct);
-                                                                                    println!("[{} LOB2] {}", now, book_line);
-                                                                                }
+if self.data_output {
+                                                                                     let now = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
+                                                                                     let book_line = order_book.display(&self.instrument, self.max_level_pct);
+                                                                                     logging::info("bitstamp", &format!("[{} LOB2] {}", now, book_line));
+                                                                                 }
                                                                                 self.update_lob_metrics(&order_book);
                                                                                 self.update_depth_metrics(&order_book);
 
@@ -437,22 +437,22 @@ logging::info("bitstamp", &format!("SNAPSHOT Applied — microtimestamp={} bids=
                                                         } else {
                                                             // Phase 2: Live processing (snapshot already applied)
                                                             match parsed.message_type() {
-                                                                MessageType::L2Snapshot | MessageType::L2Update => {
-                                                                    order_book.process_msg(&parsed, lob_filter.as_ref());
-                                                                    if self.data_output {
-                                                                        let now = parsed.formatted_time();
-                                                                        let book_line =
-                                                                            order_book.display(&self.instrument, self.max_level_pct);
-                                                                        println!("[{} LOB2] {}", now, book_line);
-                                                                    }
-                                                                    self.update_lob_metrics(&order_book);
-                                                                    self.update_depth_metrics(&order_book);
-                                                                }
-                                                                MessageType::Trade => {
-                                                                    if self.data_output {
-                                                                        let line = display_message(&parsed);
-                                                                        println!("{}", line);
-                                                                    }
+MessageType::L2Snapshot | MessageType::L2Update => {
+                                                                     order_book.process_msg(&parsed, lob_filter.as_ref());
+                                                                     if self.data_output {
+                                                                         let now = parsed.formatted_time();
+                                                                         let book_line =
+                                                                             order_book.display(&self.instrument, self.max_level_pct);
+                                                                         logging::info("bitstamp", &format!("[{} LOB2] {}", now, book_line));
+                                                                     }
+                                                                     self.update_lob_metrics(&order_book);
+                                                                     self.update_depth_metrics(&order_book);
+                                                                 }
+MessageType::Trade => {
+                                                                     if self.data_output {
+                                                                         let line = display_message(&parsed);
+                                                                         logging::info("bitstamp", &line);
+                                                                     }
                                                                     self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
                                                                     last_trade_count += 1;
                                                                     let elapsed = last_trade_time.elapsed();
@@ -470,18 +470,18 @@ logging::info("bitstamp", &format!("SNAPSHOT Applied — microtimestamp={} bids=
                                                                         self.update_last_price(trade.price.parse().unwrap_or(0.0));
                                                                     }
                                                                 }
-                                                                MessageType::Event => {
-                                                                    if self.data_output {
-                                                                        let line = display_message(&parsed);
-                                                                        println!("{}", line);
-                                                                    }
-                                                                }
-                                                                MessageType::Unknown => {
-                                                                    if self.data_output {
-                                                                        let line = display_message(&parsed);
-                                                                        println!("{}", line);
-                                                                    }
-                                                                }
+MessageType::Event => {
+                                                                     if self.data_output {
+                                                                         let line = display_message(&parsed);
+                                                                         logging::info("bitstamp", &line);
+                                                                     }
+                                                                 }
+MessageType::Unknown => {
+                                                                     if self.data_output {
+                                                                         let line = display_message(&parsed);
+                                                                         logging::info("bitstamp", &line);
+                                                                     }
+                                                                 }
                                                             }
 
                                             if let Some(sender) = self.sender.as_mut()
