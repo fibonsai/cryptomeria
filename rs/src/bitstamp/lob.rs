@@ -1,5 +1,5 @@
-use crate::logging;
 use crate::bitstamp::types::{BitstampWsMessage, MessageType, OrderBookData, OrderEntry};
+use crate::logging;
 use crate::traits::LobFilter;
 use ordered_float::OrderedFloat;
 use std::cmp::Reverse;
@@ -136,14 +136,20 @@ impl OrderBook {
         let price = match entry.price.parse::<f64>() {
             Ok(p) => OrderedFloat(p),
             Err(_) => {
-                logging::error("bitstamp", &format!("apply_order bad price: {:?}", entry.price));
+                logging::error(
+                    "bitstamp",
+                    &format!("apply_order bad price: {:?}", entry.price),
+                );
                 return;
             }
         };
         let amount = match entry.amount.parse::<f64>() {
             Ok(a) => a,
             Err(_) => {
-                logging::error("bitstamp", &format!("apply_order bad amount: {:?}", entry.amount));
+                logging::error(
+                    "bitstamp",
+                    &format!("apply_order bad amount: {:?}", entry.amount),
+                );
                 return;
             }
         };
@@ -230,7 +236,10 @@ impl OrderBook {
                                     self.apply_order(&entry);
                                 }
                             } else {
-                                logging::error("bitstamp", &format!("OrderEntry from {}: {}", channel, data));
+                                logging::error(
+                                    "bitstamp",
+                                    &format!("OrderEntry from {}: {}", channel, data),
+                                );
                             }
                         } else if let Ok(ob) = serde_json::from_value::<OrderBookData>(data.clone())
                         {
@@ -241,7 +250,10 @@ impl OrderBook {
                             };
                             self.apply_diff(&ob);
                         } else {
-                            logging::error("bitstamp", &format!("OrderBookData from {}: {}", channel, data));
+                            logging::error(
+                                "bitstamp",
+                                &format!("OrderBookData from {}: {}", channel, data),
+                            );
                         }
                     }
                 }
@@ -274,6 +286,7 @@ impl OrderBook {
         });
 
         let mut filtered_bids: Vec<[String; 2]> = Vec::new();
+        let mut bid_count = 0usize;
         for level in &ob.bids {
             if level.len() >= 2
                 && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
@@ -283,14 +296,16 @@ impl OrderBook {
                     price,
                     amount,
                     true,
-                    0,
+                    bid_count,
                     false,
                 )
             {
                 filtered_bids.push(level.clone());
+                bid_count += 1;
             }
         }
         let mut filtered_asks: Vec<[String; 2]> = Vec::new();
+        let mut ask_count = 0usize;
         for level in &ob.asks {
             if level.len() >= 2
                 && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
@@ -300,11 +315,12 @@ impl OrderBook {
                     price,
                     amount,
                     false,
-                    0,
+                    ask_count,
                     false,
                 )
             {
                 filtered_asks.push(level.clone());
+                ask_count += 1;
             }
         }
         OrderBookData {
@@ -318,6 +334,7 @@ impl OrderBook {
     /// Filter a diff OrderBookData: only keep levels within the pre-filter window.
     fn filter_diff(&self, ob: OrderBookData, filter: &LobFilter) -> OrderBookData {
         let mut filtered_bids: Vec<[String; 2]> = Vec::new();
+        let mut bid_count = self.num_bids();
         for level in &ob.bids {
             if level.len() >= 2
                 && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
@@ -329,14 +346,18 @@ impl OrderBook {
                     price,
                     amount,
                     true,
-                    self.num_bids(),
+                    bid_count,
                     price_exists,
                 ) {
                     filtered_bids.push(level.clone());
+                    if !price_exists {
+                        bid_count += 1;
+                    }
                 }
             }
         }
         let mut filtered_asks: Vec<[String; 2]> = Vec::new();
+        let mut ask_count = self.num_asks();
         for level in &ob.asks {
             if level.len() >= 2
                 && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
@@ -348,10 +369,13 @@ impl OrderBook {
                     price,
                     amount,
                     false,
-                    self.num_asks(),
+                    ask_count,
                     price_exists,
                 ) {
                     filtered_asks.push(level.clone());
+                    if !price_exists {
+                        ask_count += 1;
+                    }
                 }
             }
         }
@@ -817,23 +841,231 @@ mod tests {
     }
 
     #[test]
-    fn test_levels_within_pct_narrow() {
+    fn test_pre_filter_max_level_count() {
         let mut book = OrderBook::new();
-        book.apply_order(&entry("100.0", "1.0", 0, 1));
-        book.apply_order(&entry("99.5", "2.0", 0, 2));
-        book.apply_order(&entry("99.0", "3.0", 0, 3));
-        book.apply_order(&entry("101.0", "1.0", 1, 4));
-        book.apply_order(&entry("101.5", "2.0", 1, 5));
-        book.apply_order(&entry("102.0", "3.0", 1, 6));
+        // Apply a snapshot with 5 bid levels and 5 ask levels
+        let snap = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "bids": [["100.0", "1.0"], ["99.0", "1.0"], ["98.0", "1.0"], ["97.0", "1.0"], ["96.0", "1.0"]],
+                "asks": [["101.0", "1.0"], ["102.0", "1.0"], ["103.0", "1.0"], ["104.0", "1.0"], ["105.0", "1.0"]]
+            })),
+        };
+        let filter = LobFilter::MaxLevel(2);
+        book.process_msg(&snap, Some(&filter));
+        // Should only keep top 2 bids and top 2 asks from snapshot
+        assert_eq!(
+            book.num_bids(),
+            2,
+            "MaxLevel(2) should keep only top 2 bids from snapshot"
+        );
+        assert_eq!(
+            book.num_asks(),
+            2,
+            "MaxLevel(2) should keep only top 2 asks from snapshot"
+        );
+        // Verify they are the best prices
+        assert!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON);
+        assert_eq!(book.bids.keys().nth(1).unwrap().0, 99.0);
+    }
 
-        let (bids, asks) = book.levels_within_pct(0.5);
-        // bid_threshold = 100.0 * (1 - 0.5/100) = 99.5
-        assert_eq!(bids.len(), 2);
-        assert!((bids[0].0 - 100.0).abs() < f64::EPSILON);
-        assert!((bids[1].0 - 99.5).abs() < f64::EPSILON);
-        // ask_threshold = 101.0 * (1 + 0.5/100) = 101.505
-        assert_eq!(asks.len(), 2);
-        assert!((asks[0].0 - 101.0).abs() < f64::EPSILON);
-        assert!((asks[1].0 - 101.5).abs() < f64::EPSILON);
+    #[test]
+    fn test_pre_filter_max_level_count_diff() {
+        let mut book = OrderBook::new();
+        // Start with 2 levels via snapshot
+        let snap = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "bids": [["100.0", "1.0"], ["99.0", "1.0"]],
+                "asks": [["101.0", "1.0"], ["102.0", "1.0"]]
+            })),
+        };
+        let filter = LobFilter::MaxLevel(3);
+        book.process_msg(&snap, Some(&filter));
+        assert_eq!(book.num_bids(), 2);
+        assert_eq!(book.num_asks(), 2);
+
+        // Apply a diff with 3 new levels - should only allow 1 more (up to max 3)
+        let diff = BitstampWsMessage {
+            event: Some("data".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "microtimestamp": "1705314600123456",
+                "bids": [["98.0", "5.0"], ["97.0", "5.0"], ["96.0", "5.0"]],
+                "asks": [["103.0", "5.0"], ["104.0", "5.0"], ["105.0", "5.0"]]
+            })),
+        };
+        book.process_msg(&diff, Some(&filter));
+        // Should only keep top 3 bids and top 3 asks
+        assert_eq!(
+            book.num_bids(),
+            3,
+            "MaxLevel(3) should keep only top 3 bids after diff"
+        );
+        assert_eq!(
+            book.num_asks(),
+            3,
+            "MaxLevel(3) should keep only top 3 asks after diff"
+        );
+    }
+
+    #[test]
+    fn test_pre_filter_max_level_many_levels() {
+        let mut book = OrderBook::new();
+        let filter = LobFilter::MaxLevel(5);
+        let bids: Vec<[String; 2]> = (0..20)
+            .map(|i| [(100.0 - i as f64 * 0.5).to_string(), "1.0".to_string()])
+            .collect();
+        let asks: Vec<[String; 2]> = (0..20)
+            .map(|i| [(101.0 + i as f64 * 0.5).to_string(), "1.0".to_string()])
+            .collect();
+        let snap = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({ "bids": bids, "asks": asks })),
+        };
+        book.process_msg(&snap, Some(&filter));
+        assert_eq!(
+            book.num_bids(),
+            5,
+            "MaxLevel(5) keeps only top 5 bids from 20 levels"
+        );
+        assert_eq!(
+            book.num_asks(),
+            5,
+            "MaxLevel(5) keeps only top 5 asks from 20 levels"
+        );
+        assert!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON);
+        assert!((book.best_ask().unwrap() - 101.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_pre_filter_max_level_pct_many_levels() {
+        let mut book = OrderBook::new();
+        let filter = LobFilter::MaxLevelPct(1.0);
+        let bids: Vec<[String; 2]> = (0..50)
+            .map(|i| [(100.0 - i as f64 * 0.2).to_string(), "1.0".to_string()])
+            .collect();
+        let asks: Vec<[String; 2]> = (0..50)
+            .map(|i| [(101.0 + i as f64 * 0.2).to_string(), "1.0".to_string()])
+            .collect();
+        let snap = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({ "bids": bids, "asks": asks })),
+        };
+        book.process_msg(&snap, Some(&filter));
+        let bid_threshold = 100.0 * (1.0 - 1.0 / 100.0);
+        let ask_threshold = 101.0 * (1.0 + 1.0 / 100.0);
+        for price in book.bids.keys() {
+            assert!(
+                price.0.0 >= bid_threshold,
+                "bid {} outside 1% window",
+                price.0.0
+            );
+        }
+        for price in book.asks.keys() {
+            assert!(
+                price.0 <= ask_threshold,
+                "ask {} outside 1% window",
+                price.0
+            );
+        }
+    }
+
+    #[test]
+    fn test_pre_filter_display_shows_only_pre_filtered() {
+        let mut book = OrderBook::new();
+        let filter = LobFilter::MaxLevel(3);
+        let bids: Vec<[String; 2]> = (0..10)
+            .map(|i| [(100.0 - i as f64).to_string(), "1.0".to_string()])
+            .collect();
+        let asks: Vec<[String; 2]> = (0..10)
+            .map(|i| [(101.0 + i as f64).to_string(), "1.0".to_string()])
+            .collect();
+        let snap = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({ "bids": bids, "asks": asks })),
+        };
+        book.process_msg(&snap, Some(&filter));
+        assert_eq!(book.num_bids(), 3);
+        assert_eq!(book.num_asks(), 3);
+        let display_output = book.display("BTC/USD", 100.0);
+        assert!(display_output.contains("bids=3"));
+        assert!(display_output.contains("asks=3"));
+        assert!(!display_output.contains("bids=10"));
+        assert!(!display_output.contains("asks=10"));
+    }
+
+    #[test]
+    fn test_pre_filter_diff_many_new_levels_limited() {
+        let mut book = OrderBook::new();
+        let filter = LobFilter::MaxLevel(4);
+        let snap = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "bids": [["100.0", "1.0"], ["99.0", "1.0"]],
+                "asks": [["101.0", "1.0"], ["102.0", "1.0"]]
+            })),
+        };
+        book.process_msg(&snap, Some(&filter));
+        assert_eq!(book.num_bids(), 2);
+        assert_eq!(book.num_asks(), 2);
+        let diff = BitstampWsMessage {
+            event: Some("data".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "microtimestamp": "1705314600123456",
+                "bids": [["98.0", "5.0"], ["97.0", "5.0"], ["96.0", "5.0"], ["95.0", "5.0"], ["94.0", "5.0"]],
+                "asks": [["103.0", "5.0"], ["104.0", "5.0"], ["105.0", "5.0"], ["106.0", "5.0"], ["107.0", "5.0"]]
+            })),
+        };
+        book.process_msg(&diff, Some(&filter));
+        assert_eq!(
+            book.num_bids(),
+            4,
+            "MaxLevel(4) keeps only top 4 bids after diff with 5 new levels"
+        );
+        assert_eq!(
+            book.num_asks(),
+            4,
+            "MaxLevel(4) keeps only top 4 asks after diff with 5 new levels"
+        );
+    }
+
+    #[test]
+    fn test_pre_filter_order_entry_many_levels() {
+        let mut book = OrderBook::new();
+        let filter = LobFilter::MaxLevel(3);
+        let mut filter_msg = |price: &str, amount: &str, order_type: i64, id: u64| {
+            let msg = msg_from_entry(&entry(price, amount, order_type, id));
+            book.process_msg(&msg, Some(&filter));
+        };
+        filter_msg("100.0", "1.0", 0, 1);
+        filter_msg("99.0", "1.0", 0, 2);
+        filter_msg("98.0", "1.0", 0, 3);
+        filter_msg("97.0", "1.0", 0, 4);
+        filter_msg("101.0", "1.0", 1, 5);
+        filter_msg("102.0", "1.0", 1, 6);
+        filter_msg("103.0", "1.0", 1, 7);
+        filter_msg("104.0", "1.0", 1, 8);
+        filter_msg("96.0", "1.0", 0, 9);
+        filter_msg("95.0", "1.0", 0, 10);
+        filter_msg("105.0", "1.0", 1, 11);
+        filter_msg("106.0", "1.0", 1, 12);
+        assert_eq!(
+            book.num_bids(),
+            3,
+            "MaxLevel(3) limits bids from order entries"
+        );
+        assert_eq!(
+            book.num_asks(),
+            3,
+            "MaxLevel(3) limits asks from order entries"
+        );
     }
 }

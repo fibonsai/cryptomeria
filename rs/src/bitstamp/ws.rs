@@ -248,7 +248,13 @@ impl BitstampClient {
                 Err(e) => {
                     attempt += 1;
                     let delay = backoff_delay(attempt - 1);
-                    logging::error("bitstamp", &format!("CONNECT ERROR: {} — attempt {}, reconnecting in {:?}", e, attempt, delay));
+                    logging::error(
+                        "bitstamp",
+                        &format!(
+                            "CONNECT ERROR: {} — attempt {}, reconnecting in {:?}",
+                            e, attempt, delay
+                        ),
+                    );
                     self.update_status_active(false, format!("connect error, attempt {}", attempt));
                     shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                     continue;
@@ -263,7 +269,13 @@ impl BitstampClient {
             if let Err(e) = write.send(Message::Text(orders_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                logging::error("bitstamp", &format!("SUBSCRIBE ERROR {}: {} — reconnecting in {:?}", orders_channel, e, delay));
+                logging::error(
+                    "bitstamp",
+                    &format!(
+                        "SUBSCRIBE ERROR {}: {} — reconnecting in {:?}",
+                        orders_channel, e, delay
+                    ),
+                );
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
@@ -276,7 +288,13 @@ impl BitstampClient {
             if let Err(e) = write.send(Message::Text(trades_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                logging::error("bitstamp", &format!("SUBSCRIBE ERROR {}: {} — reconnecting in {:?}", trades_channel, e, delay));
+                logging::error(
+                    "bitstamp",
+                    &format!(
+                        "SUBSCRIBE ERROR {}: {} — reconnecting in {:?}",
+                        trades_channel, e, delay
+                    ),
+                );
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
@@ -301,223 +319,223 @@ impl BitstampClient {
 
             loop {
                 tokio::select! {
-msg = read.next() => {
-                                        let should_break = match msg {
-                                            None => true,
-                                            Some(Err(e)) => {
-                                                logging::error("bitstamp", &format!("WS ERROR: {}", e));
-                                                true
-                                            }
-                                            Some(Ok(Message::Close(frame))) => {
-                                                logging::debug("bitstamp", &format!("CLOSE: {:?}", frame));
-                                                true
-                                            }
-                                            Some(Ok(Message::Text(text))) => {
-                                                match BitstampWsMessage::from_json(&text) {
-                                                    Ok(parsed) => {
-                                                        self.messages_received.fetch_add(1, Ordering::Relaxed);
-
-if !snapshot_applied {
-                                                             match parsed.message_type() {
-                                                                 MessageType::L2Update => {
-                                                                     // Buffer all diffs until snapshot is applied
-                                                                     buffer.push(parsed);
-                                                                 }
-                                                                 MessageType::Trade => {
-                                                                     if self.data_output {
-                                                                         let line = display_message(&parsed);
-                                                                         logging::info("bitstamp", &line);
-                                                                     }
-                                                                    self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
-                                                                    last_trade_count += 1;
-                                                                    let elapsed = last_trade_time.elapsed();
-                                                                    if elapsed >= std::time::Duration::from_secs(1) {
-                                                                        let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                                                        self.metrics().trades_per_second
-                                                                            .store(f64::to_bits(rate), Ordering::Relaxed);
-                                                                        last_trade_count = 0;
-                                                                        last_trade_time = std::time::Instant::now();
-                                                                    }
-                                                                    if let Some(sender) = self.sender.as_mut()
-                                                                        && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
-                                                                    {
-                                                                        logging::error("bitstamp", &format!("Failed to persist: {}", e));
-                                                                    }
-                                                                    // Update last_price in status
-                                                                    if let Some(trade) = parsed.data.as_ref().and_then(|d| {
-                                                                        serde_json::from_value::<TradeData>(d.clone()).ok()
-                                                                    })
-                                                                        && let Ok(px) = trade.price.parse::<f64>()
-                                                                    {
-                                                                        self.update_last_price(px);
-                                                                    }
-                                                                }
-MessageType::Event => {
-                                                                     if parsed.event.as_deref() == Some("bts:subscription_succeeded") {
-                                                                         subscription_confirmed = true;
-                                                                     }
-                                                                     if self.data_output {
-                                                                         let line = display_message(&parsed);
-                                                                         logging::info("bitstamp", &line);
-                                                                     }
-                                                                 }
-                                                                 MessageType::Unknown => {
-                                                                     if self.data_output {
-                                                                         let line = display_message(&parsed);
-                                                                         logging::info("bitstamp", &line);
-                                                                     }
-                                                                 }
-                                                                 MessageType::L2Snapshot => {}
+                msg = read.next() => {
+                                                        let should_break = match msg {
+                                                            None => true,
+                                                            Some(Err(e)) => {
+                                                                logging::error("bitstamp", &format!("WS ERROR: {}", e));
+                                                                true
                                                             }
+                                                            Some(Ok(Message::Close(frame))) => {
+                                                                logging::debug("bitstamp", &format!("CLOSE: {:?}", frame));
+                                                                true
+                                                            }
+                                                            Some(Ok(Message::Text(text))) => {
+                                                                match BitstampWsMessage::from_json(&text) {
+                                                                    Ok(parsed) => {
+                                                                        self.messages_received.fetch_add(1, Ordering::Relaxed);
 
-                                                            // Fetch snapshot once subscription is confirmed (one attempt per connection)
-                                                            if subscription_confirmed && !snapshot_applied && !snapshot_attempted {
-                                                                snapshot_attempted = true;
-                                                                logging::info("bitstamp", &format!("Fetching REST snapshot for {}...", self.channel_instrument));
-                                                                let rest_base = crate::urls::rest_url(&self.region, &self.exchange);
-                                                                let url = format!("{}/order_book/{}/?group=1", rest_base, self.channel_instrument);
-                                                                match reqwest::get(&url).await {
-                                                                    Ok(resp) => {
-                                                                        match resp.json::<OrderBookData>().await {
-                                                                            Ok(snapshot) => {
-                                                                                let snapshot_microtimestamp: u64 = snapshot.microtimestamp.parse::<u64>().unwrap_or_default();
-                                                                                let snapshot_msg = BitstampWsMessage {
-                                                                                    event: Some("snapshot".to_string()),
-                                                                                    channel: Some(orders_channel.clone()),
-                                                                                    data: Some(serde_json::to_value(&snapshot).unwrap_or_default()),
-                                                                                };
-                                                                                order_book.process_msg(&snapshot_msg, lob_filter.as_ref());
-logging::info("bitstamp", &format!("SNAPSHOT Applied — microtimestamp={} bids={} asks={}", snapshot_microtimestamp, order_book.num_bids(), order_book.num_asks()));
-
-                                                                                // Reconcile: discard buffered diffs with microtimestamp <= snapshot
-                                                                                let mut keep = Vec::new();
-                                                                                for buf_msg in buffer.drain(..) {
-                                                                                    match buf_msg.microtimestamp_us() {
-                                                                                        Some(us) if us > snapshot_microtimestamp => {
-                                                                                            keep.push(buf_msg);
-                                                                                        }
-                                                                                        Some(_) => {} // discard (older than or equal to snapshot)
-                                                                                        None => {
-                                                                                            // No microtimestamp — apply anyway (cannot determine age)
-                                                                                            keep.push(buf_msg);
-                                                                                        }
+                if !snapshot_applied {
+                                                                             match parsed.message_type() {
+                                                                                 MessageType::L2Update => {
+                                                                                     // Buffer all diffs until snapshot is applied
+                                                                                     buffer.push(parsed);
+                                                                                 }
+                                                                                 MessageType::Trade => {
+                                                                                     if self.data_output {
+                                                                                         let line = display_message(&parsed);
+                                                                                         logging::info("bitstamp", &line);
+                                                                                     }
+                                                                                    self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
+                                                                                    last_trade_count += 1;
+                                                                                    let elapsed = last_trade_time.elapsed();
+                                                                                    if elapsed >= std::time::Duration::from_secs(1) {
+                                                                                        let rate = last_trade_count as f64 / elapsed.as_secs_f64();
+                                                                                        self.metrics().trades_per_second
+                                                                                            .store(f64::to_bits(rate), Ordering::Relaxed);
+                                                                                        last_trade_count = 0;
+                                                                                        last_trade_time = std::time::Instant::now();
+                                                                                    }
+                                                                                    if let Some(sender) = self.sender.as_mut()
+                                                                                        && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
+                                                                                    {
+                                                                                        logging::error("bitstamp", &format!("Failed to persist: {}", e));
+                                                                                    }
+                                                                                    // Update last_price in status
+                                                                                    if let Some(trade) = parsed.data.as_ref().and_then(|d| {
+                                                                                        serde_json::from_value::<TradeData>(d.clone()).ok()
+                                                                                    })
+                                                                                        && let Ok(px) = trade.price.parse::<f64>()
+                                                                                    {
+                                                                                        self.update_last_price(px);
                                                                                     }
                                                                                 }
-
-                                                                                // Apply remaining buffered diffs in order
-                                                                                for buf_msg in &keep {
-                                                                                    order_book.process_msg(buf_msg, lob_filter.as_ref());
-                                                                                }
-                                                                                logging::info("bitstamp", &format!("SNAPSHOT Replayed {} buffered diffs", keep.len()));
-
-if self.data_output {
-                                                                                     let now = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
-                                                                                     let book_line = order_book.display(&self.instrument, self.max_level_pct);
-                                                                                     logging::info("bitstamp", &format!("[{} LOB2] {}", now, book_line));
+                MessageType::Event => {
+                                                                                     if parsed.event.as_deref() == Some("bts:subscription_succeeded") {
+                                                                                         subscription_confirmed = true;
+                                                                                     }
+                                                                                     if self.data_output {
+                                                                                         let line = display_message(&parsed);
+                                                                                         logging::info("bitstamp", &line);
+                                                                                     }
                                                                                  }
-                                                                                self.update_lob_metrics(&order_book);
-                                                                                self.update_depth_metrics(&order_book);
+                                                                                 MessageType::Unknown => {
+                                                                                     if self.data_output {
+                                                                                         let line = display_message(&parsed);
+                                                                                         logging::info("bitstamp", &line);
+                                                                                     }
+                                                                                 }
+                                                                                 MessageType::L2Snapshot => {}
+                                                                            }
 
-                                                                                snapshot_applied = true;
+                                                                            // Fetch snapshot once subscription is confirmed (one attempt per connection)
+                                                                            if subscription_confirmed && !snapshot_applied && !snapshot_attempted {
+                                                                                snapshot_attempted = true;
+                                                                                logging::info("bitstamp", &format!("Fetching REST snapshot for {}...", self.channel_instrument));
+                                                                                let rest_base = crate::urls::rest_url(&self.region, &self.exchange);
+                                                                                let url = format!("{}/order_book/{}/?group=1", rest_base, self.channel_instrument);
+                                                                                match reqwest::get(&url).await {
+                                                                                    Ok(resp) => {
+                                                                                        match resp.json::<OrderBookData>().await {
+                                                                                            Ok(snapshot) => {
+                                                                                                let snapshot_microtimestamp: u64 = snapshot.microtimestamp.parse::<u64>().unwrap_or_default();
+                                                                                                let snapshot_msg = BitstampWsMessage {
+                                                                                                    event: Some("snapshot".to_string()),
+                                                                                                    channel: Some(orders_channel.clone()),
+                                                                                                    data: Some(serde_json::to_value(&snapshot).unwrap_or_default()),
+                                                                                                };
+                                                                                                order_book.process_msg(&snapshot_msg, lob_filter.as_ref());
+                logging::info("bitstamp", &format!("SNAPSHOT Applied — microtimestamp={} bids={} asks={}", snapshot_microtimestamp, order_book.num_bids(), order_book.num_asks()));
+
+                                                                                                // Reconcile: discard buffered diffs with microtimestamp <= snapshot
+                                                                                                let mut keep = Vec::new();
+                                                                                                for buf_msg in buffer.drain(..) {
+                                                                                                    match buf_msg.microtimestamp_us() {
+                                                                                                        Some(us) if us > snapshot_microtimestamp => {
+                                                                                                            keep.push(buf_msg);
+                                                                                                        }
+                                                                                                        Some(_) => {} // discard (older than or equal to snapshot)
+                                                                                                        None => {
+                                                                                                            // No microtimestamp — apply anyway (cannot determine age)
+                                                                                                            keep.push(buf_msg);
+                                                                                                        }
+                                                                                                    }
+                                                                                                }
+
+                                                                                                // Apply remaining buffered diffs in order
+                                                                                                for buf_msg in &keep {
+                                                                                                    order_book.process_msg(buf_msg, lob_filter.as_ref());
+                                                                                                }
+                                                                                                logging::info("bitstamp", &format!("SNAPSHOT Replayed {} buffered diffs", keep.len()));
+
+                if self.data_output {
+                                                                                                     let now = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
+                                                                                                     let book_line = order_book.display(&self.instrument, self.max_level_pct);
+                                                                                                     logging::info("bitstamp", &format!("[{} LOB2] {}", now, book_line));
+                                                                                                 }
+                                                                                                self.update_lob_metrics(&order_book);
+                                                                                                self.update_depth_metrics(&order_book);
+
+                                                                                                snapshot_applied = true;
+                                                                                            }
+                                                                                            Err(e) => {
+                                                                                                logging::error("bitstamp", &format!("SNAPSHOT ERROR Failed to parse snapshot JSON: {}", e));
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                    Err(e) => {
+                                                                                        logging::error("bitstamp", &format!("SNAPSHOT ERROR HTTP request failed: {}", e));
+                                                                                    }
+                                                                                }
+                                                                                if !snapshot_applied {
+                                                                                    logging::warn("bitstamp", "SNAPSHOT Failed — continuing without initial snapshot (will reconcile on reconnect)");
+                                                                                    snapshot_applied = true; // prevent infinite retry
+                                                                                }
                                                                             }
-                                                                            Err(e) => {
-                                                                                logging::error("bitstamp", &format!("SNAPSHOT ERROR Failed to parse snapshot JSON: {}", e));
+                                                                        } else {
+                                                                            // Phase 2: Live processing (snapshot already applied)
+                                                                            match parsed.message_type() {
+                MessageType::L2Snapshot | MessageType::L2Update => {
+                                                                                     order_book.process_msg(&parsed, lob_filter.as_ref());
+                                                                                     if self.data_output {
+                                                                                         let now = parsed.formatted_time();
+                                                                                         let book_line =
+                                                                                             order_book.display(&self.instrument, self.max_level_pct);
+                                                                                         logging::info("bitstamp", &format!("[{} LOB2] {}", now, book_line));
+                                                                                     }
+                                                                                     self.update_lob_metrics(&order_book);
+                                                                                     self.update_depth_metrics(&order_book);
+                                                                                 }
+                MessageType::Trade => {
+                                                                                     if self.data_output {
+                                                                                         let line = display_message(&parsed);
+                                                                                         logging::info("bitstamp", &line);
+                                                                                     }
+                                                                                    self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
+                                                                                    last_trade_count += 1;
+                                                                                    let elapsed = last_trade_time.elapsed();
+                                                                                    if elapsed >= std::time::Duration::from_secs(1) {
+                                                                                        let rate = last_trade_count as f64 / elapsed.as_secs_f64();
+                                                                                        self.metrics().trades_per_second
+                                                                                            .store(f64::to_bits(rate), Ordering::Relaxed);
+                                                                                        last_trade_count = 0;
+                                                                                        last_trade_time = std::time::Instant::now();
+                                                                                    }
+                                                                                    // Update last_price in status
+                                                                                    if let Some(trade) = parsed.data.as_ref().and_then(|d| {
+                                                                                        serde_json::from_value::<crate::bitstamp::types::TradeData>(d.clone()).ok()
+                                                                                    }) {
+                                                                                        self.update_last_price(trade.price.parse().unwrap_or(0.0));
+                                                                                    }
+                                                                                }
+                MessageType::Event => {
+                                                                                     if self.data_output {
+                                                                                         let line = display_message(&parsed);
+                                                                                         logging::info("bitstamp", &line);
+                                                                                     }
+                                                                                 }
+                MessageType::Unknown => {
+                                                                                     if self.data_output {
+                                                                                         let line = display_message(&parsed);
+                                                                                         logging::info("bitstamp", &line);
+                                                                                     }
+                                                                                 }
                                                                             }
+
+                                                            if let Some(sender) = self.sender.as_mut()
+                                                                                            && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
+                                                                                        {
+                                                                                            logging::error("bitstamp", &format!("DB ERROR Failed to persist: {}", e));
+                                                                                        }
                                                                         }
                                                                     }
                                                                     Err(e) => {
-                                                                        logging::error("bitstamp", &format!("SNAPSHOT ERROR HTTP request failed: {}", e));
-                                                                    }
-                                                                }
-                                                                if !snapshot_applied {
-                                                                    logging::warn("bitstamp", "SNAPSHOT Failed — continuing without initial snapshot (will reconcile on reconnect)");
-                                                                    snapshot_applied = true; // prevent infinite retry
-                                                                }
-                                                            }
-                                                        } else {
-                                                            // Phase 2: Live processing (snapshot already applied)
-                                                            match parsed.message_type() {
-MessageType::L2Snapshot | MessageType::L2Update => {
-                                                                     order_book.process_msg(&parsed, lob_filter.as_ref());
-                                                                     if self.data_output {
-                                                                         let now = parsed.formatted_time();
-                                                                         let book_line =
-                                                                             order_book.display(&self.instrument, self.max_level_pct);
-                                                                         logging::info("bitstamp", &format!("[{} LOB2] {}", now, book_line));
-                                                                     }
-                                                                     self.update_lob_metrics(&order_book);
-                                                                     self.update_depth_metrics(&order_book);
-                                                                 }
-MessageType::Trade => {
-                                                                     if self.data_output {
-                                                                         let line = display_message(&parsed);
-                                                                         logging::info("bitstamp", &line);
-                                                                     }
-                                                                    self.metrics().trades_total.with_label_values(&[&self.exchange, &self.cli_instrument]).inc();
-                                                                    last_trade_count += 1;
-                                                                    let elapsed = last_trade_time.elapsed();
-                                                                    if elapsed >= std::time::Duration::from_secs(1) {
-                                                                        let rate = last_trade_count as f64 / elapsed.as_secs_f64();
-                                                                        self.metrics().trades_per_second
-                                                                            .store(f64::to_bits(rate), Ordering::Relaxed);
-                                                                        last_trade_count = 0;
-                                                                        last_trade_time = std::time::Instant::now();
-                                                                    }
-                                                                    // Update last_price in status
-                                                                    if let Some(trade) = parsed.data.as_ref().and_then(|d| {
-                                                                        serde_json::from_value::<crate::bitstamp::types::TradeData>(d.clone()).ok()
-                                                                    }) {
-                                                                        self.update_last_price(trade.price.parse().unwrap_or(0.0));
-                                                                    }
-                                                                }
-MessageType::Event => {
-                                                                     if self.data_output {
-                                                                         let line = display_message(&parsed);
-                                                                         logging::info("bitstamp", &line);
+                                                                         logging::error("bitstamp", &format!("[PARSE ERROR] {} — raw: {}", e, &text[..text.len().min(200)]));
                                                                      }
                                                                  }
-MessageType::Unknown => {
-                                                                     if self.data_output {
-                                                                         let line = display_message(&parsed);
-                                                                         logging::info("bitstamp", &line);
-                                                                     }
-                                                                 }
-                                                            }
-
-                                            if let Some(sender) = self.sender.as_mut()
-                                                                            && let Err(e) = Self::persist_message(sender, &self.exchange, &self.cli_instrument, &parsed, self.status_handle.clone()).await
-                                                                        {
-                                                                            logging::error("bitstamp", &format!("DB ERROR Failed to persist: {}", e));
-                                                                        }
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                         logging::error("bitstamp", &format!("[PARSE ERROR] {} — raw: {}", e, &text[..text.len().min(200)]));
+                                                                 false
+                                                             }
+                                                             Some(Ok(Message::Ping(data))) => {
+                                                                  logging::debug("bitstamp", &format!("[PING] {} bytes", data.len()));
+                                                                  false
+                                                             }
+                                                             Some(Ok(Message::Pong(_))) => false,
+                                                             Some(Ok(Message::Binary(_))) => {
+                                                                  logging::debug("bitstamp", "[BINARY] received (unexpected)");
+                                                                  false
+                                                             }
+                                                             Some(Ok(Message::Frame(_))) => false,
+                                                         };
+                                                         if should_break {
+                                                             break;
+                                                         }
                                                      }
+                                                     _ = wait_for_shutdown_signal() => {
+                                                         logging::info("bitstamp", "[SHUTDOWN] received signal");
+                                                         shutdown = true;
+                                                         break;
+                                                     },
                                                  }
-                                                 false
-                                             }
-                                             Some(Ok(Message::Ping(data))) => {
-                                                  logging::debug("bitstamp", &format!("[PING] {} bytes", data.len()));
-                                                  false
-                                             }
-                                             Some(Ok(Message::Pong(_))) => false,
-                                             Some(Ok(Message::Binary(_))) => {
-                                                  logging::debug("bitstamp", "[BINARY] received (unexpected)");
-                                                  false
-                                             }
-                                             Some(Ok(Message::Frame(_))) => false,
-                                         };
-                                         if should_break {
-                                             break;
-                                         }
-                                     }
-                                     _ = wait_for_shutdown_signal() => {
-                                         logging::info("bitstamp", "[SHUTDOWN] received signal");
-                                         shutdown = true;
-                                         break;
-                                     },
-                                 }
                 if shutdown {
                     break;
                 }
@@ -529,7 +547,13 @@ MessageType::Unknown => {
 
             attempt += 1;
             let delay = backoff_delay(attempt - 1);
-            logging::info("bitstamp", &format!("[DISCONNECTED] attempt {}, reconnecting in {:?}", attempt, delay));
+            logging::info(
+                "bitstamp",
+                &format!(
+                    "[DISCONNECTED] attempt {}, reconnecting in {:?}",
+                    attempt, delay
+                ),
+            );
             self.update_status_active(false, format!("disconnected, attempt {}", attempt));
 
             shutdown = traits::signal_sleep(delay, &mut sigterm).await;

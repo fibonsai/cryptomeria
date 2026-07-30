@@ -1,3 +1,4 @@
+use crate::logging;
 use prometheus::{GaugeVec, IntGaugeVec, Opts, Registry};
 use questdb::ingress::Sender;
 use rand::Rng;
@@ -5,7 +6,6 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
-use crate::logging;
 
 /// Type alias for a single vector of (price, size) levels.
 pub type LevelVec = Vec<(f64, f64)>;
@@ -176,7 +176,9 @@ pub async fn wait_for_shutdown_signal() {
     }
     #[cfg(not(unix))]
     {
-        tokio::signal::ctrl_c().await.expect("failed to listen for SIGINT");
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to listen for SIGINT");
         logging::info("signal", "received SIGINT");
     }
 }

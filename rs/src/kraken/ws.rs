@@ -196,7 +196,13 @@ impl KrakenClient {
                 Err(e) => {
                     attempt += 1;
                     let delay = backoff_delay(attempt - 1);
-                    logging::error("kraken", &format!("CONNECT ERROR: {} — attempt {}, reconnecting in {:?}", e, attempt, delay));
+                    logging::error(
+                        "kraken",
+                        &format!(
+                            "CONNECT ERROR: {} — attempt {}, reconnecting in {:?}",
+                            e, attempt, delay
+                        ),
+                    );
                     self.update_status_active(false, format!("disconnected, attempt {}", attempt));
                     shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                     continue;
@@ -209,7 +215,10 @@ impl KrakenClient {
             if let Err(e) = write.send(Message::Text(books_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                logging::error("kraken", &format!("SUBSCRIBE ERROR book: {} — reconnecting in {:?}", e, delay));
+                logging::error(
+                    "kraken",
+                    &format!("SUBSCRIBE ERROR book: {} — reconnecting in {:?}", e, delay),
+                );
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
@@ -220,7 +229,10 @@ impl KrakenClient {
             if let Err(e) = write.send(Message::Text(trades_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                logging::error("kraken", &format!("SUBSCRIBE ERROR trade: {} — reconnecting in {:?}", e, delay));
+                logging::error(
+                    "kraken",
+                    &format!("SUBSCRIBE ERROR trade: {} — reconnecting in {:?}", e, delay),
+                );
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
@@ -345,13 +357,19 @@ impl KrakenClient {
                 }
             }
 
-if shutdown {
+            if shutdown {
                 break;
             }
 
             attempt += 1;
             let delay = backoff_delay(attempt - 1);
-            logging::error("kraken", &format!("DISCONNECTED attempt {}, reconnecting in {:?}", attempt, delay));
+            logging::error(
+                "kraken",
+                &format!(
+                    "DISCONNECTED attempt {}, reconnecting in {:?}",
+                    attempt, delay
+                ),
+            );
             self.update_status_active(false, format!("disconnected, attempt {}", attempt));
 
             shutdown = traits::signal_sleep(delay, &mut sigterm).await;
@@ -363,7 +381,7 @@ if shutdown {
 
         logging::info("kraken", "SHUTDOWN");
         Ok(())
-        }
+    }
 
     fn update_lob_metrics(&self, order_book: &OrderBook) {
         let lm = self.metrics();

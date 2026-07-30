@@ -224,7 +224,13 @@ impl OkxClient {
                 Err(e) => {
                     attempt += 1;
                     let delay = backoff_delay(attempt - 1);
-                    logging::error("okx", &format!("CONNECT ERROR: {} — attempt {}, reconnecting in {:?}", e, attempt, delay));
+                    logging::error(
+                        "okx",
+                        &format!(
+                            "CONNECT ERROR: {} — attempt {}, reconnecting in {:?}",
+                            e, attempt, delay
+                        ),
+                    );
                     shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                     continue;
                 }
@@ -237,7 +243,10 @@ impl OkxClient {
             if let Err(e) = write.send(Message::Text(books_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                logging::error("okx", &format!("SUBSCRIBE ERROR books: {} — reconnecting in {:?}", e, delay));
+                logging::error(
+                    "okx",
+                    &format!("SUBSCRIBE ERROR books: {} — reconnecting in {:?}", e, delay),
+                );
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
@@ -249,7 +258,13 @@ impl OkxClient {
             if let Err(e) = write.send(Message::Text(trades_msg)).await {
                 attempt += 1;
                 let delay = backoff_delay(attempt - 1);
-                logging::error("okx", &format!("SUBSCRIBE ERROR trades: {} — reconnecting in {:?}", e, delay));
+                logging::error(
+                    "okx",
+                    &format!(
+                        "SUBSCRIBE ERROR trades: {} — reconnecting in {:?}",
+                        e, delay
+                    ),
+                );
                 shutdown = traits::signal_sleep(delay, &mut sigterm).await;
                 continue;
             }
@@ -375,7 +390,13 @@ impl OkxClient {
 
             attempt += 1;
             let delay = backoff_delay(attempt - 1);
-            logging::error("okx", &format!("DISCONNECTED attempt {}, reconnecting in {:?}", attempt, delay));
+            logging::error(
+                "okx",
+                &format!(
+                    "DISCONNECTED attempt {}, reconnecting in {:?}",
+                    attempt, delay
+                ),
+            );
             self.update_status_active(false, format!("disconnected, attempt {}", attempt));
 
             shutdown = traits::signal_sleep(delay, &mut sigterm).await;
@@ -805,13 +826,13 @@ mod tests {
 
         std::thread::spawn(move || {
             let system = actix_web::rt::System::new();
-if let Err(e) = system.block_on(LobMetrics::start_http_server(
-                    port,
-                    lob_metrics,
-                    status_handle,
-                )) {
-                    logging::error("metrics_test", &format!("Server error: {}", e));
-                }
+            if let Err(e) = system.block_on(LobMetrics::start_http_server(
+                port,
+                lob_metrics,
+                status_handle,
+            )) {
+                logging::error("metrics_test", &format!("Server error: {}", e));
+            }
         });
 
         // Wait for server to start
