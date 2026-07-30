@@ -459,17 +459,18 @@ impl OrderBook {
     }
 
     /// Format the order book for terminal display.
-    /// No post-filtering is applied since the LOB is already pre-filtered.
-    pub fn display(&self, instrument: &str, _top_pct: f64) -> String {
-        let num_bids = self.num_bids();
-        let num_asks = self.num_asks();
+    /// Filters levels by top_pct percentage from best price.
+    pub fn display(&self, instrument: &str, top_pct: f64) -> String {
+        let (filtered_bids, filtered_asks) = self.levels_within_pct(top_pct);
+        let num_bids = filtered_bids.len();
+        let num_asks = filtered_asks.len();
         let spread_str = match self.spread() {
             Some(s) => format!("{:.2}", s),
             None => "?".to_string(),
         };
 
-        let bids_str = self.format_side(self.bids.iter().map(|(k, v)| (k.0.0, *v)));
-        let asks_str = self.format_side(self.asks.iter().map(|(k, v)| (k.0, *v)));
+        let bids_str = self.format_side(filtered_bids.into_iter());
+        let asks_str = self.format_side(filtered_asks.into_iter());
 
         format!(
             "{}  bids={}  asks={}  spread={}  bids: [ {} ] | asks: [ {} ]",
@@ -639,6 +640,38 @@ mod tests {
         assert!(out.contains("asks=1"));
         assert!(out.contains("bids: ["));
         assert!(out.contains("] | asks: ["));
+    }
+
+    #[test]
+    fn test_display_filters_by_top_pct() {
+        let mut book = OrderBook::new();
+        // Add multiple bid levels
+        book.apply_order(&entry("100.0", "1.0", 0, 1));
+        book.apply_order(&entry("99.5", "2.0", 0, 2));
+        book.apply_order(&entry("99.0", "3.0", 0, 3));
+        // Add multiple ask levels
+        book.apply_order(&entry("101.0", "1.0", 1, 4));
+        book.apply_order(&entry("101.5", "2.0", 1, 5));
+        book.apply_order(&entry("102.0", "3.0", 1, 6));
+
+        // With 100% (show all), should see all 3 bids and 3 asks
+        let out_all = book.display("BTC/USD", 100.0);
+        assert!(out_all.contains("bids=3"));
+        assert!(out_all.contains("asks=3"));
+
+        // With 0.5%, should only show levels within 0.5% of best
+        // bid_threshold = 100.0 * (1 - 0.5/100) = 99.5, so bids at 100.0 and 99.5
+        // ask_threshold = 101.0 * (1 + 0.5/100) = 101.505, so asks at 101.0 and 101.5
+        let out_filtered = book.display("BTC/USD", 0.5);
+        assert!(out_filtered.contains("bids=2"));
+        assert!(out_filtered.contains("asks=2"));
+        // Verify the filtered levels are the correct ones
+        assert!(out_filtered.contains("100.00"));
+        assert!(out_filtered.contains("99.50"));
+        assert!(!out_filtered.contains("99.00"));
+        assert!(out_filtered.contains("101.00"));
+        assert!(out_filtered.contains("101.50"));
+        assert!(!out_filtered.contains("102.00"));
     }
 
     #[test]
