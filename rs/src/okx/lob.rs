@@ -115,7 +115,9 @@ impl OrderBook {
             Side::Bid => {
                 self.bids.clear();
                 for level in data {
-                    if let Some((price, amount)) = parse_level(level) {
+                    if let Some((price, amount)) = parse_level(level)
+                        && amount > 0.0
+                    {
                         self.bids.insert(Reverse(OrderedFloat(price)), amount);
                     }
                 }
@@ -123,7 +125,9 @@ impl OrderBook {
             Side::Ask => {
                 self.asks.clear();
                 for level in data {
-                    if let Some((price, amount)) = parse_level(level) {
+                    if let Some((price, amount)) = parse_level(level)
+                        && amount > 0.0
+                    {
                         self.asks.insert(OrderedFloat(price), amount);
                     }
                 }
@@ -845,6 +849,54 @@ mod tests {
         book.process_msg(&msg, Some(&filter));
         assert_eq!(book.num_bids(), 2, "only 2 best bids");
         assert_eq!(book.num_asks(), 2, "only 2 best asks");
+    }
+
+    #[test]
+    fn test_pre_filter_max_level_1_snapshot() {
+        let mut book = OrderBook::new();
+        let snap_json = r#"{
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "snapshot",
+            "data": [{"asks":[["101.0","1.0","0","0"],["102.0","1.0","0","0"],["103.0","1.0","0","0"]],"bids":[["100.0","1.0","0","0"],["99.0","1.0","0","0"],["98.0","1.0","0","0"]],"ts":"0","checksum":0}]
+        }"#;
+        let msg = OkxWsMessage::from_json(snap_json).unwrap();
+        let filter = LobFilter::MaxLevel(1);
+        book.process_msg(&msg, Some(&filter));
+        // Should keep only best bid (100.0) and best ask (101.0)
+        assert_eq!(book.num_bids(), 1, "MaxLevel(1) should keep exactly 1 bid");
+        assert_eq!(book.num_asks(), 1, "MaxLevel(1) should keep exactly 1 ask");
+        assert!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON);
+        assert!((book.best_ask().unwrap() - 101.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_pre_filter_max_level_1_update() {
+        let mut book = OrderBook::new();
+        let filter = LobFilter::MaxLevel(1);
+        // Initial snapshot with 1 bid, 1 ask
+        let snap_json = r#"{
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "snapshot",
+            "data": [{"asks":[["101.0","1.0","0","0"]],"bids":[["100.0","1.0","0","0"]],"ts":"0","checksum":0}]
+        }"#;
+        let msg = OkxWsMessage::from_json(snap_json).unwrap();
+        book.process_msg(&msg, Some(&filter));
+        assert_eq!(book.num_bids(), 1);
+        assert_eq!(book.num_asks(), 1);
+
+        // Update with 3 new bids and 3 new asks
+        let upd_json = r#"{
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "update",
+            "data": [{"asks":[["102.0","5.0","0","0"],["103.0","5.0","0","0"],["104.0","5.0","0","0"]],"bids":[["99.0","5.0","0","0"],["98.0","5.0","0","0"],["97.0","5.0","0","0"]],"ts":"1","checksum":0}]
+        }"#;
+        let msg = OkxWsMessage::from_json(upd_json).unwrap();
+        book.process_msg(&msg, Some(&filter));
+        // Should still only have 1 bid and 1 ask (the best ones)
+        assert_eq!(book.num_bids(), 1, "MaxLevel(1) should keep only 1 bid after update");
+        assert_eq!(book.num_asks(), 1, "MaxLevel(1) should keep only 1 ask after update");
+        assert!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON);
+        assert!((book.best_ask().unwrap() - 101.0).abs() < f64::EPSILON);
     }
 
     #[test]

@@ -290,6 +290,7 @@ impl OrderBook {
         for level in &ob.bids {
             if level.len() >= 2
                 && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && amount > 0.0
                 && filter.should_include(
                     bid_best.or(self.best_bid()),
                     ask_best.or(self.best_ask()),
@@ -309,6 +310,7 @@ impl OrderBook {
         for level in &ob.asks {
             if level.len() >= 2
                 && let (Ok(price), Ok(amount)) = (level[0].parse::<f64>(), level[1].parse::<f64>())
+                && amount > 0.0
                 && filter.should_include(
                     bid_best.or(self.best_bid()),
                     ask_best.or(self.best_ask()),
@@ -1067,5 +1069,82 @@ mod tests {
             3,
             "MaxLevel(3) limits asks from order entries"
         );
+    }
+
+    #[test]
+    fn test_pre_filter_max_level_1_snapshot() {
+        let mut book = OrderBook::new();
+        let filter = LobFilter::MaxLevel(1);
+        let snap = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "bids": [["100.0", "1.0"], ["99.0", "1.0"], ["98.0", "1.0"]],
+                "asks": [["101.0", "1.0"], ["102.0", "1.0"], ["103.0", "1.0"]]
+            })),
+        };
+        book.process_msg(&snap, Some(&filter));
+        // Should keep only the best bid (100.0) and best ask (101.0)
+        assert_eq!(book.num_bids(), 1, "MaxLevel(1) should keep exactly 1 bid");
+        assert_eq!(book.num_asks(), 1, "MaxLevel(1) should keep exactly 1 ask");
+        assert!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON);
+        assert!((book.best_ask().unwrap() - 101.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_pre_filter_max_level_1_snapshot_zero_amount_first() {
+        // Edge case: snapshot has zero-amount level first, which could consume the MaxLevel slot
+        let mut book = OrderBook::new();
+        let filter = LobFilter::MaxLevel(1);
+        let snap = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "bids": [["100.0", "0.0"], ["99.0", "1.0"], ["98.0", "1.0"]],
+                "asks": [["101.0", "0.0"], ["102.0", "1.0"], ["103.0", "1.0"]]
+            })),
+        };
+        book.process_msg(&snap, Some(&filter));
+        // Zero-amount levels should be filtered out by apply_snapshot (amount > 0 check)
+        // So we should still get the best non-zero levels
+        assert_eq!(book.num_bids(), 1, "MaxLevel(1) should keep exactly 1 bid");
+        assert_eq!(book.num_asks(), 1, "MaxLevel(1) should keep exactly 1 ask");
+        assert!((book.best_bid().unwrap() - 99.0).abs() < f64::EPSILON, "Should get 99.0 (first non-zero)");
+        assert!((book.best_ask().unwrap() - 102.0).abs() < f64::EPSILON, "Should get 102.0 (first non-zero)");
+    }
+
+    #[test]
+    fn test_pre_filter_max_level_1_diff() {
+        let mut book = OrderBook::new();
+        let filter = LobFilter::MaxLevel(1);
+        // Seed with 1 bid, 1 ask
+        let snap = BitstampWsMessage {
+            event: Some("snapshot".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "bids": [["100.0", "1.0"]],
+                "asks": [["101.0", "1.0"]]
+            })),
+        };
+        book.process_msg(&snap, Some(&filter));
+        assert_eq!(book.num_bids(), 1);
+        assert_eq!(book.num_asks(), 1);
+
+        // Diff adds 3 new bids and 3 new asks
+        let diff = BitstampWsMessage {
+            event: Some("data".to_string()),
+            channel: Some("diff_order_book_btcusd".to_string()),
+            data: Some(serde_json::json!({
+                "microtimestamp": "1705314600123456",
+                "bids": [["99.0", "5.0"], ["98.0", "5.0"], ["97.0", "5.0"]],
+                "asks": [["102.0", "5.0"], ["103.0", "5.0"], ["104.0", "5.0"]]
+            })),
+        };
+        book.process_msg(&diff, Some(&filter));
+        // Should still only have 1 bid and 1 ask (the best ones)
+        assert_eq!(book.num_bids(), 1, "MaxLevel(1) should keep only 1 bid after diff");
+        assert_eq!(book.num_asks(), 1, "MaxLevel(1) should keep only 1 ask after diff");
+        assert!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON);
+        assert!((book.best_ask().unwrap() - 101.0).abs() < f64::EPSILON);
     }
 }

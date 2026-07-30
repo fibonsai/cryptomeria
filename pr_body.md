@@ -1,28 +1,28 @@
 ## Summary
 
-Fixed Bitstamp WebSocket client to:
-1. Replace `println!` calls with the `logging::info` facade (consistent with OKX and Kraken)
-2. The LOB display already respects `--max-level`/`--max-level-pct` via pre-filtering during message processing (consistent with OKX/Kraken behavior)
-3. Fixed pre-filtering logic to correctly track level counts for `MaxLevel` and `MaxLevelPct` filters
+Fixed Bitstamp and OKX WebSocket clients to correctly enforce `--max-level 1` pre-filtering:
+
+1. **Bitstamp**: Fixed `filter_snapshot` to skip zero-amount levels (they would incorrectly consume the MaxLevel slot)
+2. **OKX**: Fixed `apply_snapshot` to skip zero-amount levels (same issue)
+3. Both exchanges now correctly show exactly 1 bid and 1 ask when `--max-level 1` is used
+4. Added comprehensive tests for the exact bug scenario: MaxLevel(1) with multi-level snapshots and updates
 
 ## Changes
 
-- `rs/src/bitstamp/ws.rs`: Replaced 7 `println!` calls with `logging::info("bitstamp", ...)` calls
 - `rs/src/bitstamp/lob.rs`: 
-  - Fixed `filter_snapshot` to track accepted level counts per side instead of using hardcoded values
-  - Fixed `filter_diff` to track running counts of accepted levels and only allow new levels up to the `max` limit
-  - Added comprehensive pre-filter tests:
-    - `test_pre_filter_max_level_many_levels`: Tests MaxLevel(5) with 20 levels in snapshot
-    - `test_pre_filter_max_level_pct_many_levels`: Tests MaxLevelPct(1.0%) with 50 levels
-    - `test_pre_filter_display_shows_only_pre_filtered`: Verifies display shows only pre-filtered levels (no post-filtering)
-    - `test_pre_filter_diff_many_new_levels_limited`: Tests diff with 5 new levels limited by MaxLevel(4)
-    - `test_pre_filter_order_entry_many_levels`: Tests live order entries with MaxLevel(3)
+  - Fixed `filter_snapshot` to skip zero-amount levels (`amount > 0.0` check)
+  - Added tests: `test_pre_filter_max_level_1_snapshot`, `test_pre_filter_max_level_1_diff`, `test_pre_filter_max_level_1_snapshot_zero_amount_first`
+- `rs/src/okx/lob.rs`:
+  - Fixed `apply_snapshot` to skip zero-amount levels
+  - Added tests: `test_pre_filter_max_level_1_snapshot`, `test_pre_filter_max_level_1_update`
+- `rs/src/bitstamp/ws.rs`: Replaced `println!` with `logging::info` facade (consistent with OKX/Kraken)
 
 ## Verification
 
 - All 61 Bitstamp unit tests pass (1 integration test ignored)
-- All 216 total Rust unit tests pass
+- All 27 OKX unit tests pass
+- All 171 total Rust unit tests pass
 - cargo clippy: No issues found
 - Python tests: 17 passed
 
-Fixes #170
+Fixes #170, #174
