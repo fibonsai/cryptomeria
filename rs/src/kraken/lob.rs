@@ -544,6 +544,32 @@ mod tests {
     }
 
     #[test]
+    fn test_pre_filter_max_level_1_snapshot_zero_amount_first() {
+        let mut book = OrderBook::new();
+        let snap_json = r#"{
+            "channel": "book",
+            "type": "snapshot",
+            "data": [{
+                "symbol": "XBT/USD",
+                "bids": [{"price": 50000.0, "qty": 0.0}, {"price": 49900.0, "qty": 1.0}],
+                "asks": [{"price": 50100.0, "qty": 0.0}, {"price": 50200.0, "qty": 1.0}],
+                "checksum": 0,
+                "timestamp": "2024-01-15T10:30:00.000000Z"
+            }]
+        }"#;
+        let msg = KrakenWsMessage::from_json(snap_json).unwrap();
+let filter = LobFilter::MaxLevel(1);
+        book.process_msg(&msg, Some(&filter));
+        // Zero-amount level would be kept by filter_snapshot_levels (sort + truncate)
+        // Then apply_snapshot would insert it with amount=0
+        // This is the bug - should keep the first non-zero level instead
+        assert_eq!(book.num_bids(), 1);
+        assert_eq!(book.num_asks(), 1);
+        // Currently this might fail - shows the bug exists in Kraken too
+        assert!((book.best_bid().unwrap() - 49900.0).abs() < f64::EPSILON, "Should get 49900.0 (first non-zero)");
+        assert!((book.best_ask().unwrap() - 50200.0).abs() < f64::EPSILON, "Should get 50200.0 (first non-zero)");
+
+    #[test]
     fn test_process_msg_update() {
         let snap = r#"{
             "channel": "book",
