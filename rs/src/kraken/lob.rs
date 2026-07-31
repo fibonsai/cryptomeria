@@ -91,7 +91,9 @@ impl OrderBook {
             Side::Bid => {
                 self.bids.clear();
                 for level in data {
-                    if let Some((price, amount)) = parse_level(level) {
+                    if let Some((price, amount)) = parse_level(level)
+                        && amount > 0.0
+                    {
                         self.bids.insert(Reverse(OrderedFloat(price)), amount);
                     }
                 }
@@ -99,7 +101,9 @@ impl OrderBook {
             Side::Ask => {
                 self.asks.clear();
                 for level in data {
-                    if let Some((price, amount)) = parse_level(level) {
+                    if let Some((price, amount)) = parse_level(level)
+                        && amount > 0.0
+                    {
                         self.asks.insert(OrderedFloat(price), amount);
                     }
                 }
@@ -211,7 +215,11 @@ impl OrderBook {
                     .collect()
             }
             LobFilter::MaxLevel(max) => {
-                let mut parsed: Vec<(f64, f64)> = levels.to_vec();
+                let mut parsed: Vec<(f64, f64)> = levels
+                    .iter()
+                    .filter(|&&(_, amount)| amount > 0.0)
+                    .copied()
+                    .collect();
                 match side {
                     Side::Bid => parsed
                         .sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)),
@@ -568,6 +576,7 @@ let filter = LobFilter::MaxLevel(1);
         // Currently this might fail - shows the bug exists in Kraken too
         assert!((book.best_bid().unwrap() - 49900.0).abs() < f64::EPSILON, "Should get 49900.0 (first non-zero)");
         assert!((book.best_ask().unwrap() - 50200.0).abs() < f64::EPSILON, "Should get 50200.0 (first non-zero)");
+    }
 
     #[test]
     fn test_process_msg_update() {

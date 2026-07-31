@@ -254,6 +254,7 @@ impl OrderBook {
                 let mut parsed: Vec<(f64, f64, PriceLevel)> = levels
                     .iter()
                     .filter_map(|level| parse_level(level).map(|(p, a)| (p, a, level.clone())))
+                    .filter(|(_, amount, _)| *amount > 0.0)
                     .collect();
                 match side {
                     Side::Bid => parsed
@@ -897,6 +898,27 @@ mod tests {
         assert_eq!(book.num_asks(), 1, "MaxLevel(1) should keep only 1 ask after update");
         assert!((book.best_bid().unwrap() - 100.0).abs() < f64::EPSILON);
         assert!((book.best_ask().unwrap() - 101.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_pre_filter_max_level_1_snapshot_zero_amount_first() {
+        // Edge case: snapshot has zero-amount level first, which could consume the MaxLevel slot
+        let mut book = OrderBook::new();
+        let snap_json = r#"{
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "snapshot",
+            "data": [{"asks":[["101.0","0.0","0","0"],["102.0","1.0","0","0"],["103.0","1.0","0","0"]],"bids":[["100.0","0.0","0","0"],["99.0","1.0","0","0"],["98.0","1.0","0","0"]],"ts":"0","checksum":0}]
+        }"#;
+        let msg = OkxWsMessage::from_json(snap_json).unwrap();
+        let filter = LobFilter::MaxLevel(1);
+        book.process_msg(&msg, Some(&filter));
+        // Zero-amount level would be kept by filter_snapshot_levels (sort + truncate)
+        // Then apply_snapshot would skip it (amount > 0.0 check)
+        // This is the bug - should keep the first non-zero level instead
+        assert_eq!(book.num_bids(), 1, "MaxLevel(1) should keep exactly 1 bid");
+        assert_eq!(book.num_asks(), 1, "MaxLevel(1) should keep exactly 1 ask");
+        assert!((book.best_bid().unwrap() - 99.0).abs() < f64::EPSILON, "Should get 99.0 (first non-zero)");
+        assert!((book.best_ask().unwrap() - 102.0).abs() < f64::EPSILON, "Should get 102.0 (first non-zero)");
     }
 
     #[test]
